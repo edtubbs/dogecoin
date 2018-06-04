@@ -712,7 +712,7 @@ void inline Initialize_transform_ptr(void)
 #elif USE_AVX2 && defined(__WIN64__)
     if (isAVX)
        transform_ptr = &sha256::Transform_AVX2;
-#elif defined(USE_ASM) && (defined(__x86_64__) || defined(__amd64__))
+#elif defined(USE_ASM) && (defined(__x86_64__) || defined(__amd64__) || defined(__i386__))
     uint32_t eax, ebx, ecx, edx;
     if (__get_cpuid(1, &eax, &ebx, &ecx, &edx) && (ecx >> 19) & 1) {
         Transform = sha256_sse4::Transform;
