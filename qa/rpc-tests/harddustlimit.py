@@ -32,8 +32,10 @@ class HardDustLimitTest(BitcoinTestFramework):
         self.sync_all()
 
     def run_test(self):
-
-        self.fee = Decimal("1")
+        
+        # set fee below 0.000225 DOGE limit so relay fails
+        self.fee = Decimal(".000224") 
+        
         self.seed = 1000
         self.coinselector = {'minimumAmount': self.fee * 10, 'maximumAmount': self.seed}
 
@@ -62,14 +64,14 @@ class HardDustLimitTest(BitcoinTestFramework):
         self.send_dusty_tx(self.nodes[2], n2a2, n0a2, Decimal("0.9"))
         self.send_dusty_tx(self.nodes[2], n2a3, n0a3, Decimal("0.09"))
         self.send_dusty_tx(self.nodes[0], n2a4, n1a1, Decimal("1"))
-
+       
         # wait 10 seconds to sync mempools
         time.sleep(10)
 
         assert_equal(self.nodes[2].getmempoolinfo()['size'], 3)
         assert_equal(self.nodes[1].getmempoolinfo()['size'], 1)
         assert_equal(self.nodes[0].getmempoolinfo()['size'], 2)
-
+        
     def send_dusty_tx(self, n, addr1, addr2, dust):
         avail = n.listunspent(0, 1000, [], True, self.coinselector)
         inputs = [ {'txid': avail[0]['txid'], 'vout': avail[0]['vout']}]
