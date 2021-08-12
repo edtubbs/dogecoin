@@ -32,10 +32,7 @@ class HardDustLimitTest(BitcoinTestFramework):
         self.sync_all()
 
     def run_test(self):
-        
-        # set fee below 0.000225 DOGE limit so relay fails
-        self.fee = Decimal("1") 
-        
+        self.fee = Decimal("1")
         self.seed = 1000
         self.coinselector = {'minimumAmount': self.fee * 10, 'maximumAmount': self.seed}
 
