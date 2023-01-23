@@ -35,6 +35,10 @@
 #include <boost/shared_ptr.hpp>
 #include <boost/thread.hpp>
 
+extern "C" {
+#include "libdogecoin.h"
+}
+
 extern CWallet* pwalletMain;
 
 /**
@@ -968,8 +972,8 @@ public:
     bool IsHDEnabled();
 
     /* Generates a new HD master key (will not be activated) */
-    CPubKey GenerateNewHDMasterKey();
-    
+    CPubKey GenerateNewHDMasterKey(const MNEMONIC mnemonic);
+
     /* Set the current HD master key (will reset the chain child index counters) */
     bool SetHDMasterKey(const CPubKey& key);
 };

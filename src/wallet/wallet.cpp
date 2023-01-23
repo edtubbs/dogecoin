@@ -668,7 +668,7 @@ bool CWallet::EncryptWallet(const SecureString& strWalletPassphrase)
         // if we are using HD, replace the HD master key (seed) with a new one
         if (IsHDEnabled()) {
             CKey key;
-            CPubKey masterPubKey = GenerateNewHDMasterKey();
+            CPubKey masterPubKey = GenerateNewHDMasterKey(NULL);
             if (!SetHDMasterKey(masterPubKey))
                 return false;
         }
@@ -1350,10 +1350,21 @@ CAmount CWallet::GetChange(const CTransaction& tx) const
     return nChange;
 }
 
-CPubKey CWallet::GenerateNewHDMasterKey()
+CPubKey CWallet::GenerateNewHDMasterKey(const MNEMONIC mnemonic)
 {
     CKey key;
     key.MakeNewKey(true);
+
+    if (mnemonic) {
+        // get the mnemonic to overwrite master key
+        SEED bip32_seed;
+        dogecoin_seed_from_mnemonic (mnemonic, NULL, bip32_seed);
+
+        // Set the seed to the bip32_seed
+        if (!(key.SetSeed(bip32_seed)))
+            throw std::runtime_error(std::string(__func__) + ": SetSeed failed");
+
+    }
 
     int64_t nCreationTime = GetTime();
     CKeyMetadata metadata(nCreationTime);
@@ -3655,6 +3666,7 @@ std::string CWallet::GetWalletHelpString(bool showDebug)
     strUsage += HelpMessageOpt("-spendzeroconfchange", strprintf(_("Spend unconfirmed change when sending transactions (default: %u)"), DEFAULT_SPEND_ZEROCONF_CHANGE));
     strUsage += HelpMessageOpt("-txconfirmtarget=<n>", strprintf(_("If paytxfee is not set, include enough fee so transactions begin confirmation on average within n blocks (default: %u)"), DEFAULT_TX_CONFIRM_TARGET));
     strUsage += HelpMessageOpt("-usehd", _("Use hierarchical deterministic key generation (HD) after BIP32. Only has effect during wallet creation/first start") + " " + strprintf(_("(default: %u)"), DEFAULT_USE_HD_WALLET));
+    strUsage += HelpMessageOpt("-mnemonic=<seedphrase>", _("Use BIP39 mnemonic seedphrase. Only has effect during wallet creation/first start"));
     strUsage += HelpMessageOpt("-walletrbf", strprintf(_("Send transactions with full-RBF opt-in enabled (default: %u)"), DEFAULT_WALLET_RBF));
     strUsage += HelpMessageOpt("-upgradewallet", _("Upgrade wallet to latest format on startup"));
     strUsage += HelpMessageOpt("-wallet=<file>", _("Specify wallet file (within data directory)") + " " + strprintf(_("(default: %s)"), DEFAULT_WALLET_DAT));
@@ -3752,7 +3764,7 @@ CWallet* CWallet::CreateWalletFromFile(const std::string walletFile)
         // Create new keyUser and set as default key
         if (GetBoolArg("-usehd", DEFAULT_USE_HD_WALLET) && !walletInstance->IsHDEnabled()) {
             // generate a new master key
-            CPubKey masterPubKey = walletInstance->GenerateNewHDMasterKey();
+            CPubKey masterPubKey = walletInstance->GenerateNewHDMasterKey(GetArg("-mnemonic", "").c_str());
             if (!walletInstance->SetHDMasterKey(masterPubKey))
                 throw std::runtime_error(std::string(__func__) + ": Storing master key failed");
         }
@@ -3866,7 +3878,6 @@ bool CWallet::InitLoadWallet()
     }
 
     std::string walletFile = GetArg("-wallet", DEFAULT_WALLET_DAT);
-
     CWallet * const pwallet = CreateWalletFromFile(walletFile);
     if (!pwallet) {
         return false;

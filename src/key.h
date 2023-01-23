@@ -14,6 +14,9 @@
 #include <stdexcept>
 #include <vector>
 
+extern "C" {
+#include "libdogecoin.h"
+}
 
 /**
  * secp256k1:
@@ -99,6 +102,16 @@ public:
 
     //! Generate a new private key using a cryptographic PRNG.
     void MakeNewKey(bool fCompressed);
+
+    //! Initialize from a seed (from a mnemonic seedphrase).
+    bool SetSeed (const SEED seed) {
+        if (seed && (sizeof(seed[0]) * MAX_SEED_SIZE == MAX_SEED_SIZE)) {
+            keydata.resize(MAX_SEED_SIZE);
+            memcpy(keydata.data(), seed, MAX_SEED_SIZE);
+            return true;
+        }
+        return false;
+    }
 
     /**
      * Convert the private key to a CPrivKey (serialized OpenSSL private key data).
