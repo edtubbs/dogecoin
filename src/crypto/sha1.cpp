@@ -68,6 +68,8 @@ const uint32_t k2 = 0x6ED9EBA1ul;
 const uint32_t k3 = 0x8F1BBCDCul;
 const uint32_t k4 = 0xCA62C1D6ul;
 
+void sha1_block_avx(const void* inp, void* digest);
+
 /** Perform a SHA-1 transformation, processing a 64-byte chunk. */
 void Transform(uint32_t* s, const unsigned char* chunk)
 {
@@ -246,7 +248,8 @@ void Transform(uint32_t* s, const unsigned char* chunk)
 #elif USE_AVX2
     // Perform SHA1 one block (Intel AVX2)
     EXPERIMENTAL_FEATURE
-    sha1_one_block_avx2(chunk, s);
+//    sha1_one_block_avx2(chunk, s);
+    sha1_block_avx(chunk, s);
 #else
     // Perform SHA one block (legacy)
 
