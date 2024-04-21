@@ -32,7 +32,7 @@
 #include <utility>
 #include <vector>
 
-#include <boost/thread.hpp>
+#include <boost/shared_ptr.hpp>
 
 #ifdef USE_BIP39
 #include "wallet/bip39/bip39.h"
@@ -137,6 +137,7 @@ class CCoinControl;
 class COutput;
 class CReserveKey;
 class CScript;
+class CScheduler;
 class CTxMemPool;
 class CWalletTx;
 
@@ -566,7 +567,7 @@ struct SweepReport {
 class CWallet : public CCryptoKeyStore, public CValidationInterface
 {
 private:
-    static std::atomic<bool> fFlushThreadRunning;
+    static std::atomic<bool> fFlushScheduled;
 
     /**
      * Select a set of coins such that nValueRet >= nTargetValue and at least
@@ -1019,7 +1020,7 @@ EXPERIMENTAL_FEATURE
      * Wallet post-init setup
      * Gives the wallet a chance to register repetitive tasks and complete post-init tasks
      */
-    void postInitProcess(boost::thread_group& threadGroup);
+    void postInitProcess(CScheduler& scheduler);
 
     /* Wallets parameter interaction */
     static bool ParameterInteraction();
