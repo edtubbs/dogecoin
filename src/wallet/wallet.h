@@ -696,6 +696,7 @@ public:
     TxItems wtxOrdered;
 
     int64_t nOrderPosNext;
+    std::map<uint256, int> mapRequestCount;
 
     std::map<CTxDestination, CAddressBookData> mapAddressBook;
 
@@ -933,8 +934,18 @@ EXPERIMENTAL_FEATURE
 
     void UpdatedTransaction(const uint256 &hashTx) override;
 
-    void GetScriptForMining(std::shared_ptr<CReserveScript> &script) override;
+    void Inventory(const uint256 &hash) override
+    {
+        {
+            LOCK(cs_wallet);
+            std::map<uint256, int>::iterator mi = mapRequestCount.find(hash);
+            if (mi != mapRequestCount.end())
+                (*mi).second++;
+        }
+    }
 
+    void GetScriptForMining(std::shared_ptr<CReserveScript> &script) override;
+    
     unsigned int GetKeyPoolSize()
     {
         AssertLockHeld(cs_wallet); // setKeyPool
