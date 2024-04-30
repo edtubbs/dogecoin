@@ -901,12 +901,17 @@ void SHA256D64(unsigned char* out, const unsigned char* in, size_t blocks)
             blocks -= 2;
         }
     }
+#ifdef USE_AVX2
+    // call void sha256_avx2(const void *data, const uint64_t length, void *digest
+    sha256_avx2(in, blocks * 64, out);
+#else
     while (blocks) {
         sha256::transfrom_ptr_d64(out, in);
         out += 32;
         in += 64;
         --blocks;
     }
+#endif
 }
 
 void detect_sha256_hardware()
