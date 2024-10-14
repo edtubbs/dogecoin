@@ -324,7 +324,7 @@ case $host in
      use_pkgconfig=no
 
      TARGET_OS=windows
-     NASMFLAGS="-Werror -fwin64 -Xvc -gcv8 -DWIN_ABI"
+     NASMFLAGS="-Werror -fwin64 -Xvc -gcv8 -DWIN_ABI -DPIC"
      AC_CHECK_LIB([mingwthrd],      [main],, AC_MSG_ERROR(lib missing))
      AC_CHECK_LIB([kernel32],      [main],, AC_MSG_ERROR(lib missing))
      AC_CHECK_LIB([user32],      [main],, AC_MSG_ERROR(lib missing))
@@ -456,7 +456,7 @@ case $host in
      ;;
    *linux*)
      TARGET_OS=linux
-     NASMFLAGS="-Werror -felf64 -Xgnu -gdwarf -DLINUX -D__linux__"
+     NASMFLAGS="-Werror -felf64 -Xgnu -gdwarf -DLINUX -D__linux__ -DPIC"
      ;;
 esac
 

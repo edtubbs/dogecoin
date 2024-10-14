@@ -418,8 +418,8 @@ $(DIR_ASM_SOURCE)/%.a: $(DIR_ASM_SOURCE)/%.o
 	$(AR) $(ARFLAGS) $@ $<
 
 # Include the assembly object files in libdogecoin_crypto.la
-crypto_libdogecoin_crypto_la_LIBADD = $(ASM_LIB_FILES)
-crypto_libdogecoin_crypto_la_DEPENDENCIES = $(ASM_LIB_FILES)
+crypto_libdogecoin_crypto_la_LIBADD = $(ASM_OBJECT_FILES)
+crypto_libdogecoin_crypto_la_DEPENDENCIES = $(ASM_OBJECT_FILES)
 
 CLEANFILES += $(ASM_OBJECT_FILES) $(ASM_LIB_FILES)
 endif
@@ -441,8 +441,8 @@ $(DIR_ASM_SOURCE)/%.a: $(DIR_ASM_SOURCE)/%.o
 	$(AR) $(ARFLAGS) $@ $<
 
 # Include the assembly object files in libdogecoin_crypto.la
-crypto_libdogecoin_crypto_la_LIBADD = $(ASM_LIB_FILES)
-crypto_libdogecoin_crypto_la_DEPENDENCIES = $(ASM_LIB_FILES)
+crypto_libdogecoin_crypto_la_LIBADD = $(ASM_OBJECT_FILES)
+crypto_libdogecoin_crypto_la_DEPENDENCIES = $(ASM_OBJECT_FILES)
 
 CLEANFILES += $(ASM_OBJECT_FILES) $(ASM_LIB_FILES)
 endif
@@ -456,7 +456,7 @@ dogecoind_LDADD = \
   $(LIBDOGECOIN_ZMQ) \
   $(LIBDOGECOIN_CONSENSUS) \
   $(LIBDOGECOIN_CRYPTO) \
-  $(ASM_LIB_FILES) \
+  $(ASM_OBJECT_FILES) \
   $(LIBLEVELDB) \
   $(LIBMEMENV) \
   $(LIBSECP256K1)
@@ -478,7 +478,7 @@ dogecoin_cli_LDADD = \
   $(LIBUNIVALUE) \
   $(LIBDOGECOIN_UTIL) \
   $(LIBDOGECOIN_CRYPTO) \
-  $(ASM_LIB_FILES)
+  $(ASM_OBJECT_FILES)
 
 dogecoin_cli_LDADD += $(BOOST_LIBS) $(SSL_LIBS) $(CRYPTO_LIBS) $(EVENT_LIBS)
 #
@@ -499,7 +499,7 @@ dogecoin_tx_LDADD = \
   $(LIBDOGECOIN_UTIL) \
   $(LIBDOGECOIN_CONSENSUS) \
   $(LIBDOGECOIN_CRYPTO) \
-  $(ASM_LIB_FILES) \
+  $(ASM_OBJECT_FILES) \
   $(LIBSECP256K1)
 
 dogecoin_tx_LDADD += $(BOOST_LIBS) $(CRYPTO_LIBS)
@@ -515,7 +515,7 @@ if GLIBC_BACK_COMPAT
 endif
 
 libdogecoinconsensus_la_LDFLAGS = $(AM_LDFLAGS) -no-undefined $(RELDFLAGS)
-libdogecoinconsensus_la_LIBADD = $(LIBSECP256K1) $(LIBDOGECOIN_CRYPTO) $(ASM_LIB_FILES)
+libdogecoinconsensus_la_LIBADD = $(LIBSECP256K1) $(LIBDOGECOIN_CRYPTO) $(ASM_OBJECT_FILES)
 libdogecoinconsensus_la_CPPFLAGS = $(AM_CPPFLAGS) -I$(builddir)/obj -I$(srcdir)/secp256k1/include -DBUILD_BITCOIN_INTERNAL
 libdogecoinconsensus_la_CXXFLAGS = $(AM_CXXFLAGS) $(PIE_FLAGS)
 
