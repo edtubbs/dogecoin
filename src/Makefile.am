@@ -393,9 +393,9 @@ dogecoind_LDFLAGS = $(RELDFLAGS) $(AM_LDFLAGS) $(LIBTOOL_APP_LDFLAGS)
 
 if TARGET_WINDOWS
 dogecoind_SOURCES += bitcoind-res.rc
-NASM = $(prefix)/bin/nasm.exe
+NASM ?= $(prefix)/bin/nasm.exe
 else
-NASM = $(prefix)/bin/nasm
+NASM ?= $(prefix)/bin/nasm
 endif
 
 CLEANFILES = $(EXTRA_LIBRARIES)
@@ -515,7 +515,7 @@ if GLIBC_BACK_COMPAT
 endif
 
 libdogecoinconsensus_la_LDFLAGS = $(AM_LDFLAGS) -no-undefined $(RELDFLAGS)
-libdogecoinconsensus_la_LIBADD = $(LIBSECP256K1) $(LIBDOGECOIN_CRYPTO) $(ASM_LIB_FILES)
+libdogecoinconsensus_la_LIBADD = $(LIBSECP256K1) $(LIBDOGECOIN_CRYPTO)
 libdogecoinconsensus_la_CPPFLAGS = $(AM_CPPFLAGS) -I$(builddir)/obj -I$(srcdir)/secp256k1/include -DBUILD_BITCOIN_INTERNAL
 libdogecoinconsensus_la_CXXFLAGS = $(AM_CXXFLAGS) $(PIE_FLAGS)
 
