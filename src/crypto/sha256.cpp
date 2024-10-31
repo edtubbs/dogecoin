@@ -10,6 +10,8 @@
 
 #include <string.h>
 
+#include <immintrin.h> // For AVX2 intrinsics
+
 #if defined(__arm__) || defined(__aarch32__) || defined(__arm64__) || defined(__aarch64__) || defined(_M_ARM)
 # if defined(__GNUC__)
 #  include <stdint.h>
@@ -53,6 +55,16 @@ static const uint32_t K[] =
  */
 extern "C" void sha256_block_sse(const void *, void *);
 extern "C" void sha256_block_avx(const void *, void *);
+
+#define SHA256_DIGEST_SZ 8
+#define AVX2_NUM_SHA256_LANES 4
+
+typedef struct {
+    __m128i digest[SHA256_DIGEST_SZ]; // 128-bit integers for transposed digests
+    const uint8_t *data_ptr[AVX2_NUM_SHA256_LANES];
+} SHA256_ARGS;
+
+extern "C" void sha256_oct_avx2(SHA256_ARGS* state, uint64_t inp_size);
 
 // Internal implementation code.
 namespace
@@ -259,18 +271,21 @@ void Transform_ARMV8(uint32_t* s, const unsigned char* chunk, size_t blocks)
 /** Perform one SHA-256 transformation, processing 64-byte chunks. (AVX2) */
 void Transform_AVX2(uint32_t* s, const unsigned char* chunk, size_t blocks)
 {
+#if defined(USE_AVX2) || defined(USE_AVX2_8WAY)
     while (blocks--) {
-#if USE_AVX2
         // Perform SHA256 one block (Intel AVX2)
         EXPERIMENTAL_FEATURE
         sha256_block_avx(chunk, s);
-#elif USE_SSE
+        chunk += 64;
+    }
+#elif defined(USE_SSE)
+    while (blocks--) {
         // Perform SHA256 one block (Intel SSE)
         EXPERIMENTAL_FEATURE
         sha256_block_sse(chunk, s);
-#endif
         chunk += 64;
     }
+#endif
 }
 
 /** Perform a number of SHA-256 transformations, processing 64-byte chunks. */
@@ -624,6 +639,8 @@ void TransformD64(unsigned char* out, const unsigned char* in)
     WriteBE32(out + 28, h + 0x5be0cd19ul);
 }
 
+} // namespace sha256
+
 typedef void (*TransformType)(uint32_t*, const unsigned char*, size_t);
 typedef void (*TransformD64Type)(unsigned char*, const unsigned char*);
 
@@ -694,7 +711,8 @@ bool SelfTest(TransformType tr) {
 }
 
 /** Define a function pointer for Transform */
-void (*transform_ptr) (uint32_t*, const unsigned char*, size_t) = &Transform;
+void (*transform_ptr) (uint32_t*, const unsigned char*, size_t) = &sha256::Transform;
+TransformD64Type TransformD64 = &sha256::TransformD64;
 
 /** Initialize the function pointer */
 void inline Initialize_transform_ptr(void)
@@ -706,10 +724,10 @@ void inline Initialize_transform_ptr(void)
 #elif (defined(USE_ARMV8) || defined(USE_ARMV82))
     if (getauxval(AT_HWCAP) & HWCAP_SHA2)
        transform_ptr = &sha256::Transform_ARMV8;
-#elif USE_AVX2 && defined(__linux__)
+#elif (defined(USE_AVX2) || defined(USE_AVX2_8WAY)) && defined(__linux__)
     if (__builtin_cpu_supports("avx2"))
        transform_ptr = &sha256::Transform_AVX2;
-#elif USE_AVX2 && defined(__WIN64__)
+#elif (defined(USE_AVX2) || defined(USE_AVX2_8WAY)) && defined(__WIN64__)
     if (isAVX)
        transform_ptr = &sha256::Transform_AVX2;
 #elif defined(USE_ASM) && (defined(__x86_64__) || defined(__amd64__))
@@ -722,8 +740,6 @@ void inline Initialize_transform_ptr(void)
     }
 #endif
 }
-
-} // namespace sha256
 
 } // namespace
 
@@ -743,12 +759,12 @@ CSHA256& CSHA256::Write(const unsigned char* data, size_t len)
         memcpy(buf + bufsize, data, 64 - bufsize);
         bytes += 64 - bufsize;
         data += 64 - bufsize;
-        sha256::Transform(s, buf, 1);
+        transform_ptr(s, buf, 1);
         bufsize = 0;
     }
     if (end - data >= 64) {
         size_t blocks = (end - data) / 64;
-        sha256::Transform(s, data, blocks);
+        transform_ptr(s, data, blocks);
         data += 64 * blocks;
         bytes += 64 * blocks;
     }
@@ -786,15 +802,49 @@ CSHA256& CSHA256::Reset()
 
 void detect_sha256_hardware()
 {
-    sha256::Initialize_transform_ptr();
+    Initialize_transform_ptr();
 }
 
-void SHA256D64(unsigned char* out, const unsigned char* in, size_t blocks)
-{
-    while (blocks) {
-        sha256::TransformD64(out, in);
-        out += 32;
-        in += 64;
-        --blocks;
+#include <stdio.h>
+
+void SHA256D64(unsigned char* out, const unsigned char* in, size_t blocks) {
+#if defined(USE_AVX2_8WAY)
+    // Ensure that `blocks` is a multiple of 4 for AVX2 parallelism
+    if (blocks % AVX2_NUM_SHA256_LANES != 0) {
+        fprintf(stderr, "Block count (%zu) is not divisible by 4\n", blocks);
+        abort();
     }
+
+    // Setup SHA256_ARGS structure
+    SHA256_ARGS args;
+
+    // Initialize digest with pre-transposed constants
+    for (int i = 0; i < SHA256_DIGEST_SZ; i++) {
+        args.digest[i] = _mm_set_epi64x(K[i * 4 + 3], K[i * 4 + 2]);
+    }
+
+    // Setup data pointers for each lane
+    for (int lane = 0; lane < AVX2_NUM_SHA256_LANES; lane++) {
+        args.data_ptr[lane] = in + lane * 64; // Point each lane to its initial block
+    }
+
+    // Call AVX2 assembly function to process all blocks in parallel
+    sha256_oct_avx2(&args, blocks);
+
+    // Write the results from each lane to the output buffer
+    for (int i = 0; i < SHA256_DIGEST_SZ; i++) {
+        uint32_t row[AVX2_NUM_SHA256_LANES];
+        _mm_storeu_si128(reinterpret_cast<__m128i*>(row), args.digest[i]);
+        for (int lane = 0; lane < AVX2_NUM_SHA256_LANES; lane++) {
+            WriteLE32(out + (lane * SHA256_DIGEST_SZ + i) * 4, row[lane]);
+        }
+    }
+#else
+    // Fallback: Sequentially process each block if AVX2 is unavailable
+    while (blocks--) {
+        TransformD64(out, in);
+        out += 32;  // SHA-256 output size per block
+        in += 64;   // SHA-256 input block size
+    }
+#endif
 }
