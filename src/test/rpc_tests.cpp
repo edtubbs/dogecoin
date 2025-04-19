@@ -1,4 +1,5 @@
 // Copyright (c) 2012-2016 The Bitcoin Core developers
+// Copyright (c) 2021 The Dogecoin Core developers
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
@@ -341,6 +342,12 @@ BOOST_AUTO_TEST_CASE(rpc_convert_values_generatetoaddress)
     BOOST_CHECK_EQUAL(result[0].get_int(), 1);
     BOOST_CHECK_EQUAL(result[1].get_str(), "mhMbmE2tE9xzJYCV9aNC8jKWN31vtGrguU");
     BOOST_CHECK_EQUAL(result[2].get_int(), 9);
+
+    BOOST_CHECK_NO_THROW(result = RPCConvertValues("generatetoaddress", boost::assign::list_of("1")("mhMbmE2tE9xzJYCV9aNC8jKWN31vtGrguU")("9")("1")));
+    BOOST_CHECK_EQUAL(result[0].get_int(), 1);
+    BOOST_CHECK_EQUAL(result[1].get_str(), "mhMbmE2tE9xzJYCV9aNC8jKWN31vtGrguU");
+    BOOST_CHECK_EQUAL(result[2].get_int(), 9);
+    BOOST_CHECK_EQUAL(result[3].get_int(), 1);
 }
 
 BOOST_AUTO_TEST_SUITE_END()

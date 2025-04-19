@@ -78,7 +78,6 @@ endif
 BITCOIN_CORE_H = \
   addrdb.h \
   addrman.h \
-  alert.h \
   auxpow.h \
   base58.h \
   bloom.h \
@@ -102,6 +101,8 @@ BITCOIN_CORE_H = \
   cuckoocache.h \
   dogecoin.cpp \
   dogecoin.h \
+  dogecoin-fees.cpp \
+  dogecoin-fees.h \
   httprpc.h \
   httpserver.h \
   indirectmap.h \
@@ -161,6 +162,7 @@ BITCOIN_CORE_H = \
   wallet/coincontrol.h \
   wallet/crypter.h \
   wallet/db.h \
+  wallet/rpcutil.h \
   wallet/rpcwallet.h \
   wallet/wallet.h \
   wallet/walletdb.h \
@@ -183,7 +185,6 @@ libdogecoin_server_a_CXXFLAGS = $(AM_CXXFLAGS) $(PIE_FLAGS)
 libdogecoin_server_a_SOURCES = \
   addrman.cpp \
   addrdb.cpp \
-  alert.cpp \
   bloom.cpp \
   blockencodings.cpp \
   chain.cpp \
@@ -237,6 +238,7 @@ libdogecoin_wallet_a_SOURCES = \
   wallet/crypter.cpp \
   wallet/db.cpp \
   wallet/rpcdump.cpp \
+  wallet/rpcutil.cpp \
   wallet/rpcwallet.cpp \
   wallet/wallet.cpp \
   wallet/walletdb.cpp \
@@ -306,7 +308,6 @@ libdogecoin_consensus_a_SOURCES = \
 libdogecoin_common_a_CPPFLAGS = $(AM_CPPFLAGS) $(BITCOIN_INCLUDES)
 libdogecoin_common_a_CXXFLAGS = $(AM_CXXFLAGS) $(PIE_FLAGS)
 libdogecoin_common_a_SOURCES = \
-  alert.cpp \
   amount.cpp \
   arith_uint256.cpp \
   auxpow.cpp \
@@ -354,7 +355,10 @@ libdogecoin_util_a_SOURCES = \
   $(BITCOIN_CORE_H)
 
 if GLIBC_BACK_COMPAT
+
 libdogecoin_util_a_SOURCES += compat/glibc_compat.cpp
+AM_LDFLAGS += $(COMPAT_LDFLAGS)
+
 endif
 
 # cli: shared between bitcoin-cli and bitcoin-qt
@@ -493,10 +497,6 @@ clean-local:
 	@test -f $(WINDRES)
 	## FIXME: How to get the appropriate modulename_CPPFLAGS in here?
 	$(AM_V_GEN) $(WINDRES) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(CPPFLAGS) -DWINDRES_PREPROC -i $< -o $@
-
-.mm.o:
-	$(AM_V_CXX) $(OBJCXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) \
-	  $(CPPFLAGS) $(AM_CXXFLAGS) $(QT_INCLUDES) $(AM_CXXFLAGS) $(PIE_FLAGS) $(CXXFLAGS) -c -o $@ $<
 
 check-symbols: $(bin_PROGRAMS)
 if GLIBC_BACK_COMPAT

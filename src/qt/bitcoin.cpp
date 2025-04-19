@@ -1,4 +1,5 @@
 // Copyright (c) 2011-2016 The Bitcoin Core developers
+// Copyright (c) 2021 The Dogecoin Core developers
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
@@ -197,7 +198,7 @@ class BitcoinApplication: public QApplication
 {
     Q_OBJECT
 public:
-    explicit BitcoinApplication(int &argc, char **argv);
+    explicit BitcoinApplication();
     ~BitcoinApplication();
 
 #ifdef ENABLE_WALLET
@@ -312,8 +313,11 @@ void BitcoinCore::shutdown()
     }
 }
 
-BitcoinApplication::BitcoinApplication(int &argc, char **argv):
-    QApplication(argc, argv),
+static int qt_argc = 1;
+static const char* qt_argv = "dogecoin-qt";
+
+BitcoinApplication::BitcoinApplication():
+    QApplication(qt_argc, const_cast<char **>(&qt_argv)),
     coreThread(0),
     optionsModel(0),
     clientModel(0),
@@ -517,7 +521,7 @@ void BitcoinApplication::shutdownResult(int retval)
 
 void BitcoinApplication::handleRunawayException(const QString &message)
 {
-    QMessageBox::critical(0, "Runaway exception", BitcoinGUI::tr("A fatal error occurred. Dogecoin can no longer continue safely and will quit.") + QString("\n\n") + message);
+    QMessageBox::critical(0, BitcoinGUI::tr("Runaway exception"), BitcoinGUI::tr("A fatal error occurred. Dogecoin can no longer continue safely and will quit.") + QString("\n\n") + message);
     ::exit(EXIT_FAILURE);
 }
 
@@ -550,13 +554,12 @@ int main(int argc, char *argv[])
     Q_INIT_RESOURCE(bitcoin);
     Q_INIT_RESOURCE(bitcoin_locale);
 
-    BitcoinApplication app(argc, argv);
 #if QT_VERSION > 0x050100
     // Generate high-dpi pixmaps
     QApplication::setAttribute(Qt::AA_UseHighDpiPixmaps);
 #endif
 #if QT_VERSION >= 0x050600
-    QGuiApplication::setAttribute(Qt::AA_EnableHighDpiScaling);
+    QCoreApplication::setAttribute(Qt::AA_EnableHighDpiScaling);
 #endif
 #ifdef Q_OS_MAC
     QApplication::setAttribute(Qt::AA_DontShowIconsInMenus);
@@ -568,6 +571,8 @@ int main(int argc, char *argv[])
     sslconf.setProtocol(QSsl::TlsV1_0OrLater);
     QSslConfiguration::setDefaultConfiguration(sslconf);
 #endif
+
+    BitcoinApplication app;
 
     // Register meta types used for QMetaObject::invokeMethod
     qRegisterMetaType< bool* >();

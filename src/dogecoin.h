@@ -1,4 +1,4 @@
-// Copyright (c) 2015 The Dogecoin Core developers
+// Copyright (c) 2015-2021 The Dogecoin Core developers
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
@@ -18,5 +18,4 @@ unsigned int CalculateDogecoinNextWorkRequired(const CBlockIndex* pindexLast, in
  */
 bool CheckAuxPowProofOfWork(const CBlockHeader& block, const Consensus::Params& params);
 
-CAmount GetDogecoinMinRelayFee(const CTransaction& tx, unsigned int nBytes, bool fAllowFree);
-CAmount GetDogecoinDustFee(const std::vector<CTxOut> &vout, CFeeRate &baseFeeRate);
+

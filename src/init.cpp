@@ -1,5 +1,6 @@
 // Copyright (c) 2009-2010 Satoshi Nakamoto
 // Copyright (c) 2009-2016 The Bitcoin Core developers
+// Copyright (c) 2022 The Dogecoin Core developers
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
@@ -325,12 +326,12 @@ std::string HelpMessage(HelpMessageMode mode)
     std::string strUsage = HelpMessageGroup(_("Options:"));
     strUsage += HelpMessageOpt("-?", _("Print this help message and exit"));
     strUsage += HelpMessageOpt("-version", _("Print version and exit"));
-    strUsage += HelpMessageOpt("-alerts", strprintf(_("Receive and display P2P network alerts (default: %u)"), DEFAULT_ALERTS));
-    strUsage += HelpMessageOpt("-alertnotify=<cmd>", _("Execute command when a relevant alert is received or we see a really long fork (%s in cmd is replaced by message)"));
+    strUsage += HelpMessageOpt("-alertnotify=<cmd>", _("Execute command when we see a really long fork (%s in cmd is replaced by message)"));
     strUsage += HelpMessageOpt("-blocknotify=<cmd>", _("Execute command when the best block changes (%s in cmd is replaced by block hash, %i is replaced by block number)"));
     if (showDebug)
         strUsage += HelpMessageOpt("-blocksonly", strprintf(_("Whether to operate in a blocks only mode (default: %u)"), DEFAULT_BLOCKSONLY));
     strUsage +=HelpMessageOpt("-assumevalid=<hex>", strprintf(_("If this block is in the chain assume that it and its ancestors are valid and potentially skip their script verification (0 to verify all, default: %s, testnet: %s)"), Params(CBaseChainParams::MAIN).GetConsensus(0).defaultAssumeValid.GetHex(), Params(CBaseChainParams::TESTNET).GetConsensus(0).defaultAssumeValid.GetHex()));
+    strUsage += HelpMessageOpt("-backupdir=<dir>", _("Specify directory where to write backups and data dumps (default datadir/backups)"));
     strUsage += HelpMessageOpt("-conf=<file>", strprintf(_("Specify configuration file (default: %s)"), BITCOIN_CONF_FILENAME));
     if (mode == HMM_BITCOIND)
     {
@@ -473,8 +474,9 @@ std::string HelpMessage(HelpMessageMode mode)
     if (showDebug) {
         strUsage += HelpMessageOpt("-acceptnonstdtxn", strprintf("Relay and mine \"non-standard\" transactions (%sdefault: %u)", "testnet/regtest only; ", !Params(CBaseChainParams::TESTNET).RequireStandard()));
         strUsage += HelpMessageOpt("-incrementalrelayfee=<amt>", strprintf("Fee rate (in %s/kB) used to define cost of relay, used for mempool limiting and BIP 125 replacement. (default: %s)", CURRENCY_UNIT, FormatMoney(DEFAULT_INCREMENTAL_RELAY_FEE)));
-        strUsage += HelpMessageOpt("-dustrelayfee=<amt>", strprintf("Fee rate (in %s/kB) used to defined dust, the value of an output such that it will cost about 1/3 of its value in fees at this fee rate to spend it. (default: %s)", CURRENCY_UNIT, FormatMoney(DUST_RELAY_TX_FEE)));
     }
+    strUsage += HelpMessageOpt("-dustlimit=<amt>", strprintf(_("Amount under which a transaction output is considered dust, in %s (default: %s)"), CURRENCY_UNIT, FormatMoney(DEFAULT_DUST_LIMIT)));
+    strUsage += HelpMessageOpt("-harddustlimit=<amt>", strprintf(_("Amount under which a transaction output is considered non-standard and will not be accepted or relayed, in %s (default: %s)"), CURRENCY_UNIT, FormatMoney(DEFAULT_HARD_DUST_LIMIT)));
     strUsage += HelpMessageOpt("-bytespersigop", strprintf(_("Equivalent bytes per sigop in transactions for relay and mining (default: %u)"), DEFAULT_BYTES_PER_SIGOP));
     strUsage += HelpMessageOpt("-datacarrier", strprintf(_("Relay and mine data carrier transactions (default: %u)"), DEFAULT_ACCEPT_DATACARRIER));
     strUsage += HelpMessageOpt("-datacarriersize", strprintf(_("Maximum size of data in data carrier transactions we relay and mine (default: %u)"), MAX_OP_RETURN_RELAY));
@@ -502,6 +504,7 @@ std::string HelpMessage(HelpMessageMode mode)
     if (showDebug) {
         strUsage += HelpMessageOpt("-rpcworkqueue=<n>", strprintf("Set the depth of the work queue to service RPC calls (default: %d)", DEFAULT_HTTP_WORKQUEUE));
         strUsage += HelpMessageOpt("-rpcservertimeout=<n>", strprintf("Timeout during HTTP requests (default: %d)", DEFAULT_HTTP_SERVER_TIMEOUT));
+        strUsage += HelpMessageOpt("-rpcnamecoinapi", strprintf(_("Use Namecoin-compatible AuxPow API structure, (default: %u)"), DEFAULT_USE_NAMECOIN_API));
     }
 
     return strUsage;
@@ -801,6 +804,7 @@ ServiceFlags nRelevantServices = NODE_NETWORK;
 int nMaxConnections;
 int nUserMaxConnections;
 int nFD;
+int nAvailableFds;
 ServiceFlags nLocalServices = NODE_NETWORK;
 
 }
@@ -901,7 +905,8 @@ bool AppInitParameterInteraction()
     nFD = RaiseFileDescriptorLimit(nMaxConnections + MIN_CORE_FILEDESCRIPTORS + MAX_ADDNODE_CONNECTIONS);
     if (nFD < MIN_CORE_FILEDESCRIPTORS)
         return InitError(_("Not enough file descriptors available."));
-    nMaxConnections = std::min(nFD - MIN_CORE_FILEDESCRIPTORS - MAX_ADDNODE_CONNECTIONS, nMaxConnections);
+    nAvailableFds = nFD - MIN_CORE_FILEDESCRIPTORS - MAX_ADDNODE_CONNECTIONS;
+    nMaxConnections = std::min(nAvailableFds, nMaxConnections);
 
     if (nMaxConnections < nUserMaxConnections)
         InitWarning(strprintf(_("Reducing -maxconnections from %d to %d, because of system limitations."), nUserMaxConnections, nMaxConnections));
@@ -1012,11 +1017,11 @@ bool AppInitParameterInteraction()
         if (!ParseMoney(GetArg("-minrelaytxfee", ""), n) || 0 == n)
             return InitError(AmountErrMsg("minrelaytxfee", GetArg("-minrelaytxfee", "")));
         // High fee check is done afterward in CWallet::ParameterInteraction()
-        ::minRelayTxFee = CFeeRate(n);
-    } else if (incrementalRelayFee > ::minRelayTxFee) {
+        ::minRelayTxFeeRate = CFeeRate(n);
+    } else if (incrementalRelayFee > ::minRelayTxFeeRate) {
         // Allow only setting incrementalRelayFee to control both
-        ::minRelayTxFee = incrementalRelayFee;
-        LogPrintf("Increasing minrelaytxfee to %s to match incrementalrelayfee\n",::minRelayTxFee.ToString());
+        ::minRelayTxFeeRate = incrementalRelayFee;
+        LogPrintf("Increasing minrelaytxfee to %s to match incrementalrelayfee\n",::minRelayTxFeeRate.ToString());
     }
 
     // Sanity check argument for min fee for including tx in block
@@ -1028,31 +1033,45 @@ bool AppInitParameterInteraction()
             return InitError(AmountErrMsg("blockmintxfee", GetArg("-blockmintxfee", "")));
     }
 
-    // Feerate used to define dust.  Shouldn't be changed lightly as old
-    // implementations may inadvertently create non-standard transactions
-    if (IsArgSet("-dustrelayfee"))
-    {
-        CAmount n = 0;
-        if (!ParseMoney(GetArg("-dustrelayfee", ""), n) || 0 == n)
-            return InitError(AmountErrMsg("dustrelayfee", GetArg("-dustrelayfee", "")));
-        dustRelayFee = CFeeRate(n);
-    }
-
     fRequireStandard = !GetBoolArg("-acceptnonstdtxn", !chainparams.RequireStandard());
     if (chainparams.RequireStandard() && !fRequireStandard)
         return InitError(strprintf("acceptnonstdtxn is not currently supported for %s chain", chainparams.NetworkIDString()));
     nBytesPerSigOp = GetArg("-bytespersigop", nBytesPerSigOp);
+
+    if (IsArgSet("-harddustlimit"))
+    {
+        CAmount n = nHardDustLimit;
+        if (!ParseMoney(GetArg("-harddustlimit", ""), n))
+            return InitError(AmountErrMsg("harddustlimit", GetArg("-harddustlimit", "")));
+        nHardDustLimit = n;
+    }
+
+    if (IsArgSet("-dustlimit"))
+    {
+        CAmount n = nDustLimit;
+        if (!ParseMoney(GetArg("-dustlimit", ""), n))
+            return InitError(AmountErrMsg("dustlimit", GetArg("-dustlimit", "")));
+
+        nDustLimit = n;
+    }
+
+    if (nDustLimit < nHardDustLimit)
+    {
+      nDustLimit = nHardDustLimit;
+      LogPrintf("Increasing -dustlimit to %s to match -harddustlimit\n", FormatMoney(nHardDustLimit));
+    }
 
 #ifdef ENABLE_WALLET
     if (!CWallet::ParameterInteraction())
         return false;
 #endif
 
+    // Configure usage of the namecoin AuxPow API structure
+    fUseNamecoinApi = GetBoolArg("-rpcnamecoinapi", DEFAULT_USE_NAMECOIN_API);
+
     fIsBareMultisigStd = GetBoolArg("-permitbaremultisig", DEFAULT_PERMIT_BAREMULTISIG);
     fAcceptDatacarrier = GetBoolArg("-datacarrier", DEFAULT_ACCEPT_DATACARRIER);
     nMaxDatacarrierBytes = GetArg("-datacarriersize", nMaxDatacarrierBytes);
-
-    fAlerts = GetBoolArg("-alerts", DEFAULT_ALERTS);
 
     // Option to startup with mocktime set (used for regression testing):
     SetMockTime(GetArg("-mocktime", 0)); // SetMockTime(0) is a no-op
@@ -1181,6 +1200,7 @@ bool AppInitMain(boost::thread_group& threadGroup, CScheduler& scheduler)
         LogPrintf("Startup time: %s\n", DateTimeStrFormat("%Y-%m-%d %H:%M:%S", GetTime()));
     LogPrintf("Default data directory %s\n", GetDefaultDataDir().string());
     LogPrintf("Using data directory %s\n", GetDataDir().string());
+    LogPrintf("Using backup directory %s\n", GetBackupDir().string());
     LogPrintf("Using config file %s\n", GetConfigFile(GetArg("-conf", BITCOIN_CONF_FILENAME)).string());
     LogPrintf("Using at most %i automatic connections (%i file descriptors available)\n", nMaxConnections, nFD);
 
@@ -1338,7 +1358,7 @@ bool AppInitMain(boost::thread_group& threadGroup, CScheduler& scheduler)
         if (!mapMultiArgs.count("-bind") && !mapMultiArgs.count("-whitebind")) {
             struct in_addr inaddr_any;
             inaddr_any.s_addr = INADDR_ANY;
-            fBound |= Bind(connman, CService(in6addr_any, GetListenPort()), BF_NONE);
+            fBound |= Bind(connman, CService((in6_addr)IN6ADDR_ANY_INIT, GetListenPort()), BF_NONE);
             fBound |= Bind(connman, CService(inaddr_any, GetListenPort()), !fBound ? BF_REPORT_ERROR : BF_NONE);
         }
         if (!fBound)
@@ -1642,6 +1662,7 @@ bool AppInitMain(boost::thread_group& threadGroup, CScheduler& scheduler)
     connOptions.nLocalServices = nLocalServices;
     connOptions.nRelevantServices = nRelevantServices;
     connOptions.nMaxConnections = nMaxConnections;
+    connOptions.nAvailableFds = nAvailableFds;
     connOptions.nMaxOutbound = std::min(MAX_OUTBOUND_CONNECTIONS, connOptions.nMaxConnections);
     connOptions.nMaxAddnode = MAX_ADDNODE_CONNECTIONS;
     connOptions.nMaxFeeler = 1;
