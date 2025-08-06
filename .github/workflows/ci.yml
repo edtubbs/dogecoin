@@ -74,7 +74,7 @@ jobs:
             packages: g++-aarch64-linux-gnu qemu-user-static qemu-user
             run-bench: false
             test-script: |
-              qemu-aarch64 -E LD_LIBRARY_PATH=/usr/aarch64-linux-gnu/lib/ /usr/aarch64-linux-gnu/lib/ld-linux-aarch64.so.1 src/test/test_dogecoin
+              qemu-aarch64 -cpu cortex-a53 -E LD_LIBRARY_PATH=/usr/aarch64-linux-gnu/lib /usr/aarch64-linux-gnu/lib/ld-linux-aarch64.so.1 src/test/test_dogecoin
             check-security: true
             check-symbols: false
             dep-opts: "NO_QT=1"
