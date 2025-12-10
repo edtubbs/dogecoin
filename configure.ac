@@ -247,6 +247,12 @@ AC_ARG_WITH([armv82-crypto],
   [armv82_crypto=$withval],
   [armv82_crypto=no])
 
+AC_ARG_WITH([bip39],
+  [AS_HELP_STRING([--with-bip39],
+  [Build with bip39 support (default is no)])],
+  [use_bip39=$withval],
+  [use_bip39=no])
+
 AC_ARG_ENABLE(man,
     [AS_HELP_STRING([--disable-man],
                     [do not install man pages (default is to install)])],,
@@ -895,7 +901,9 @@ fi
 # Configure Scrypt SSE2
 if test x$use_scrypt_sse2 = xyes; then
   DOGECOIN_REQUIRE_EXPERIMENTAL
-  AC_DEFINE(USE_SSE2, 1, [Define this symbol if SSE2 works])
+  AC_CHECK_HEADER([cpuid.h],
+    [AC_DEFINE(USE_SSE2, 1, [Define this symbol if SSE2 works])],
+    [AC_MSG_ERROR([cpuid.h header not found, cannot build with scrypt SSE2])])
 fi
 
 if test x$armv8_crypto = xyes; then
@@ -921,6 +929,11 @@ if test x$armv82_crypto = xyes; then
      AC_DEFINE(USE_ARMV8, 1, [Define this symbol if armv8 crypto works])
      ARMV82_CXXFLAGS=""])
   CPPFLAGS="$CPPFLAGS_SAVE"
+fi
+
+if test x$use_bip39 = xyes; then
+  DOGECOIN_REQUIRE_EXPERIMENTAL
+  AC_DEFINE(USE_BIP39, 1, [Define this symbol if BIP39 works])
 fi
 
 if test x$use_pkgconfig = xyes; then
@@ -1238,6 +1251,7 @@ AM_CONDITIONAL([ENABLE_QT],[test x$bitcoin_enable_qt = xyes])
 AM_CONDITIONAL([ENABLE_QT_TESTS],[test x$BUILD_TEST_QT = xyes])
 AM_CONDITIONAL([ENABLE_BENCH],[test x$use_bench = xyes])
 AM_CONDITIONAL([USE_QRCODE], [test x$use_qr = xyes])
+AM_CONDITIONAL([USE_BIP39],[test x$use_bip39 = xyes])
 AM_CONDITIONAL([USE_LCOV],[test x$use_lcov = xyes])
 AM_CONDITIONAL([GLIBC_BACK_COMPAT],[test x$use_glibc_compat = xyes])
 AM_CONDITIONAL([HARDEN],[test x$use_hardening = xyes])
@@ -1383,6 +1397,8 @@ if test x$allow_experimental = xyes; then
     echo "    ARMv82 crypto = $armv82_crypto"
     echo
     echo "    ARMV82_CXXFLAGS = $ARMV82_CXXFLAGS"
+    echo "    LIB BIP39     = $use_lib"
+    echo "    BIP39         = $use_bip39"
 fi
 echo
 echo "  target os     = $TARGET_OS"
