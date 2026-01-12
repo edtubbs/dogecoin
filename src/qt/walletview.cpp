@@ -9,6 +9,7 @@
 #include "askpassphrasedialog.h"
 #include "bitcoingui.h"
 #include "clientmodel.h"
+#include "dashb0rdpage.h"
 #include "guiutil.h"
 #include "importkeysdialog.h"
 #ifdef USE_BIP39
@@ -39,6 +40,20 @@ WalletView::WalletView(const PlatformStyle *_platformStyle, QWidget *parent):
     QStackedWidget(parent),
     clientModel(0),
     walletModel(0),
+    overviewPage(0),
+    transactionsPage(0),
+    receiveCoinsPage(0),
+    sendCoinsPage(0),
+    dashb0rdPage(0),
+    usedSendingAddressesPage(0),
+    usedReceivingAddressesPage(0),
+    importKeysDialog(0),
+#ifdef USE_BIP39
+// EXPERIMENTAL_FEATURE
+    importBip39Dialog(0),
+#endif
+    transactionView(0),
+    progressDialog(0),
     platformStyle(_platformStyle)
 {
     // Create tabs
@@ -62,6 +77,9 @@ WalletView::WalletView(const PlatformStyle *_platformStyle, QWidget *parent):
     receiveCoinsPage = new ReceiveCoinsDialog(platformStyle);
     sendCoinsPage = new SendCoinsDialog(platformStyle);
 
+    // Dashb0rd page (FIX: pass platformStyle first)
+    dashb0rdPage = new Dashb0rdPage(platformStyle, this);
+
     usedSendingAddressesPage = new AddressBookPage(platformStyle, AddressBookPage::ForEditing, AddressBookPage::SendingTab, this);
     usedReceivingAddressesPage = new AddressBookPage(platformStyle, AddressBookPage::ForEditing, AddressBookPage::ReceivingTab, this);
 
@@ -69,6 +87,7 @@ WalletView::WalletView(const PlatformStyle *_platformStyle, QWidget *parent):
     addWidget(transactionsPage);
     addWidget(receiveCoinsPage);
     addWidget(sendCoinsPage);
+    addWidget(dashb0rdPage);
 
     importKeysDialog = new ImportKeysDialog(platformStyle);
 
@@ -125,6 +144,10 @@ void WalletView::setClientModel(ClientModel *_clientModel)
 
     overviewPage->setClientModel(_clientModel);
     sendCoinsPage->setClientModel(_clientModel);
+
+    if (dashb0rdPage) {
+        dashb0rdPage->setClientModel(_clientModel);
+    }
 }
 
 void WalletView::setWalletModel(WalletModel *_walletModel)
@@ -138,6 +161,10 @@ void WalletView::setWalletModel(WalletModel *_walletModel)
     sendCoinsPage->setModel(_walletModel);
     usedReceivingAddressesPage->setModel(_walletModel->getAddressTableModel());
     usedSendingAddressesPage->setModel(_walletModel->getAddressTableModel());
+
+    if (dashb0rdPage) {
+        dashb0rdPage->setWalletModel(_walletModel);
+    }
 
     if (_walletModel)
     {
@@ -191,6 +218,13 @@ void WalletView::gotoOverviewPage()
 void WalletView::gotoHistoryPage()
 {
     setCurrentWidget(transactionsPage);
+}
+
+void WalletView::gotoDashb0rdPage()
+{
+    if (dashb0rdPage) {
+        setCurrentWidget(dashb0rdPage);
+    }
 }
 
 void WalletView::gotoReceiveCoinsPage()

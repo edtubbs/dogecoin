@@ -25,6 +25,8 @@ class TransactionView;
 class WalletModel;
 class AddressBookPage;
 class ImportKeysDialog;
+class Dashb0rdPage;
+
 #ifdef USE_BIP39
 EXPERIMENTAL_FEATURE
 class ImportBip39Dialog;
@@ -72,9 +74,12 @@ private:
     QWidget *transactionsPage;
     ReceiveCoinsDialog *receiveCoinsPage;
     SendCoinsDialog *sendCoinsPage;
+    Dashb0rdPage *dashb0rdPage;
+
     AddressBookPage *usedSendingAddressesPage;
     AddressBookPage *usedReceivingAddressesPage;
     ImportKeysDialog *importKeysDialog;
+
 #ifdef USE_BIP39
 EXPERIMENTAL_FEATURE
     ImportBip39Dialog *importBip39Dialog;
@@ -90,6 +95,8 @@ public Q_SLOTS:
     void gotoOverviewPage();
     /** Switch to history (transactions) page */
     void gotoHistoryPage();
+    /** Switch to dashb0rd page */
+    void gotoDashb0rdPage();
     /** Switch to import keys dialog */
     void gotoImportKeysDialog();
 #ifdef USE_BIP39

@@ -1,3 +1,4 @@
+// src/qt/bitcoingui.h
 // Copyright (c) 2011-2016 The Bitcoin Core developers
 // Copyright (c) 2021-2022 The Dogecoin Core developers
 // Distributed under the MIT software license, see the accompanying
@@ -36,12 +37,16 @@ class WalletModel;
 class HelpMessageDialog;
 class ModalOverlay;
 
+// Dashb0rd
+class Dashb0rdPage;
+
 class CWallet;
 
 QT_BEGIN_NAMESPACE
 class QAction;
 class QProgressBar;
 class QProgressDialog;
+class QStackedWidget;
 QT_END_NAMESPACE
 
 /**
@@ -87,6 +92,10 @@ private:
     ClientModel *clientModel;
     WalletFrame *walletFrame;
 
+    // Central stack holds either WalletFrame (or RPCConsole when no wallet) plus Dashb0rdPage
+    QStackedWidget* centralStack;
+    Dashb0rdPage* dashb0rdPage;
+
     UnitDisplayStatusBarControl *unitDisplayControl;
     QLabel *labelWalletEncryptionIcon;
     QLabel *labelWalletHDStatusIcon;
@@ -124,6 +133,9 @@ EXPERIMENTAL_FEATURE
     QAction *openRPCConsoleAction;
     QAction *openAction;
     QAction *showHelpMessageAction;
+
+    // Dashb0rd action
+    QAction *dashb0rdAction;
 
     QSystemTrayIcon *trayIcon;
     QMenu *trayIconMenu;
@@ -221,6 +233,10 @@ private Q_SLOTS:
     /** Show open dialog */
     void openClicked();
 #endif // ENABLE_WALLET
+
+    // Dashb0rd
+    void gotoDashb0rdPage();
+
     /** Show configuration dialog */
     void optionsClicked();
     /** Show about dialog */
