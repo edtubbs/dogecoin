@@ -27,6 +27,8 @@
 #include "hash.h"
 
 #include <stdint.h>
+#include <iomanip>
+#include <sstream>
 
 #include <univalue.h>
 
@@ -1265,6 +1267,64 @@ UniValue getblockchaininfo(const JSONRPCRequest& request)
     return obj;
 }
 
+UniValue getdashboardmetrics(const JSONRPCRequest& request)
+{
+    if (request.fHelp || request.params.size() != 0)
+        throw runtime_error(
+            "getdashboardmetrics\n"
+            "Returns metrics formatted for dogebox dashboard integration.\n"
+            "\nResult:\n"
+            "{\n"
+            "  \"chain\": \"xxxx\",                    (string) current network name\n"
+            "  \"blocks\": xxxxxx,                     (numeric) current block height\n"
+            "  \"headers\": xxxxxx,                    (numeric) current header count\n"
+            "  \"difficulty\": xxxxxx,                 (numeric) current difficulty\n"
+            "  \"verification_progress\": \"xx.xx%\",  (string) sync progress as percentage\n"
+            "  \"initial_block_download\": \"xxxx\",   (string) whether in IBD mode\n"
+            "  \"chain_size_human\": \"xx.xx XX\"      (string) blockchain size in human readable format\n"
+            "}\n"
+            "\nExamples:\n"
+            + HelpExampleCli("getdashboardmetrics", "")
+            + HelpExampleRpc("getdashboardmetrics", "")
+        );
+
+    LOCK(cs_main);
+
+    UniValue result(UniValue::VOBJ);
+    
+    // Get basic chain info
+    result.pushKV("chain", Params().NetworkIDString());
+    result.pushKV("blocks", (int)chainActive.Height());
+    result.pushKV("headers", pindexBestHeader ? pindexBestHeader->nHeight : -1);
+    result.pushKV("difficulty", (double)GetDifficulty());
+    
+    // Calculate verification progress as percentage string
+    double progressRatio = GuessVerificationProgress(Params().TxData(), chainActive.Tip());
+    std::ostringstream progressStream;
+    progressStream << std::fixed << std::setprecision(2) << (progressRatio * 100.0) << "%";
+    result.pushKV("verification_progress", progressStream.str());
+    
+    // Get initial block download status
+    result.pushKV("initial_block_download", IsInitialBlockDownload() ? "true" : "false");
+    
+    // Convert blockchain size to human readable format
+    uint64_t diskSize = CalculateCurrentUsage();
+    const char* sizeUnits[] = {"B", "KB", "MB", "GB", "TB"};
+    int unitIdx = 0;
+    double humanSize = (double)diskSize;
+    
+    while (humanSize >= 1024.0 && unitIdx < 4) {
+        humanSize /= 1024.0;
+        unitIdx++;
+    }
+    
+    std::ostringstream sizeStream;
+    sizeStream << std::fixed << std::setprecision(2) << humanSize << " " << sizeUnits[unitIdx];
+    result.pushKV("chain_size_human", sizeStream.str());
+    
+    return result;
+}
+
 /** Comparison function for sorting the getchaintips heads.  */
 struct CompareBlocksByHeight
 {
@@ -1858,6 +1918,7 @@ static const CRPCCommand commands[] =
 { //  category              name                      actor (function)         okSafe argNames
   //  --------------------- ------------------------  -----------------------  ------ ----------
     { "blockchain",         "getblockchaininfo",      &getblockchaininfo,      true,  {} },
+    { "blockchain",         "getdashboardmetrics",    &getdashboardmetrics,    true,  {} },
     { "blockchain",         "getblockstats",          &getblockstats,          true,  {"hash", "stats"} },
     { "blockchain",         "getbestblockhash",       &getbestblockhash,       true,  {} },
     { "blockchain",         "getblockcount",          &getblockcount,          true,  {} },
