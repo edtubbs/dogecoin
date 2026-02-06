@@ -124,9 +124,9 @@ static bool GetHWRand(unsigned char* ent32) {
 
 void RandAddSeed()
 {
-    // Seed with CPU performance counter
-    // Note: With direct OS RNG usage, seeding is no longer necessary
-    // This function is kept for API compatibility but does nothing
+    // Note: With direct OS RNG usage, explicit seeding is no longer necessary
+    // This function is kept for API compatibility
+    // Getting the performance counter for potential side-channel timing info
     int64_t nCounter = GetPerformanceCounter();
     memory_cleanse((void*)&nCounter, sizeof(nCounter));
 }
@@ -268,24 +268,26 @@ void GetOSRand(unsigned char *ent32)
 void GetRandBytes(unsigned char* buf, int num)
 {
     // Use OS RNG directly instead of OpenSSL
-    // For small requests, just use OS RNG directly
-    if (num <= 32) {
-        unsigned char ent32[32];
-        GetOSRand(ent32);
-        memcpy(buf, ent32, num);
-        memory_cleanse(ent32, 32);
-        return;
-    }
+    if (num <= 0) return;
     
-    // For larger requests, repeatedly call OS RNG
     int offset = 0;
     while (offset < num) {
         unsigned char ent32[32];
-        GetOSRand(ent32);
-        int to_copy = (num - offset) < 32 ? (num - offset) : 32;
-        memcpy(buf + offset, ent32, to_copy);
-        memory_cleanse(ent32, 32);
-        offset += to_copy;
+        int remaining = num - offset;
+        
+        if (remaining <= 32) {
+            // Last chunk - get exactly what we need
+            GetOSRand(ent32);
+            memcpy(buf + offset, ent32, remaining);
+            memory_cleanse(ent32, 32);
+            break;
+        } else {
+            // Get full 32 bytes
+            GetOSRand(ent32);
+            memcpy(buf + offset, ent32, 32);
+            memory_cleanse(ent32, 32);
+            offset += 32;
+        }
     }
 }
 

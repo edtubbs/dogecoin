@@ -6,21 +6,18 @@
 #include "cleanse.h"
 
 #include <cstring>
+#include <atomic>
 
 void memory_cleanse(void *ptr, size_t len)
 {
     /* Secure memory cleansing without OpenSSL.
      * As best as we can, scrub data from memory in a way that the compiler
-     * won't optimize away. This is somewhat similar to the implementation in
-     * libsodium and OpenSSL's OPENSSL_cleanse.
+     * won't optimize away.
      */
     std::memset(ptr, 0, len);
     
-    /* Memory barrier that scares the compiler away from optimizing out the memset.
-     * Prevents the compiler from assuming that the memory is unused after this point.
-     *
-     * This is a portable approach that works on all platforms. We use a volatile
-     * pointer to force the compiler to treat the memory as if it's being read.
+    /* Memory barrier that prevents the compiler from optimizing out the memset.
+     * This uses a C++11 atomic fence which is portable across all platforms.
      */
-    __asm__ __volatile__("" : : "r"(ptr) : "memory");
+    std::atomic_signal_fence(std::memory_order_seq_cst);
 }

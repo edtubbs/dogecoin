@@ -873,6 +873,9 @@ if test x$use_pkgconfig = xyes; then
     [PKG_CHECK_MODULES],
     [
       dnl OpenSSL is no longer required for dogecoin-qt and dogecoind
+      dnl Set variables to empty to avoid undefined variable errors
+      SSL_LIBS=""
+      CRYPTO_LIBS=""
       dnl PKG_CHECK_MODULES([SSL], [libssl],, [AC_MSG_ERROR(openssl  not found.)])
       dnl PKG_CHECK_MODULES([CRYPTO], [libcrypto],,[AC_MSG_ERROR(libcrypto  not found.)])
       if test x$use_qr != xno; then
@@ -898,6 +901,9 @@ if test x$use_pkgconfig = xyes; then
   )
 else
   dnl OpenSSL is no longer required for dogecoin-qt and dogecoind
+  dnl Set variables to empty to avoid undefined variable errors
+  SSL_LIBS=""
+  CRYPTO_LIBS=""
   dnl AC_CHECK_HEADER([openssl/crypto.h],,AC_MSG_ERROR(libcrypto headers missing))
   dnl AC_CHECK_LIB([crypto],      [main],CRYPTO_LIBS=-lcrypto, AC_MSG_ERROR(libcrypto missing))
 
