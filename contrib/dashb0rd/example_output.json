@@ -1,0 +1,23 @@
+{
+  "chain_tip_height": 5234567,
+  "chain_tip_difficulty": 8912345.67891234,
+  "chain_tip_time": "2026-02-06T02:00:00",
+  "chain_tip_bits_hex": "0x1a01ffff",
+  "smpv_mempool_txs": 1234,
+  "smpv_total_bytes": 5678900,
+  "smpv_types_p2pkh": 4500,
+  "smpv_types_p2sh": 123,
+  "smpv_types_multisig": 45,
+  "smpv_types_op_return": 12,
+  "smpv_types_nonstandard": 3,
+  "smpv_types_vout_total": 4683,
+  "stats_blocks": 100,
+  "stats_transactions": 23456,
+  "stats_tps": 3.89421,
+  "stats_volume": 45678901.23456789,
+  "stats_outputs": 67890,
+  "stats_bytes": 98765432,
+  "stats_median_fee_per_block": 1.23456789,
+  "stats_avg_fee_per_block": 1.45678901,
+  "uptime_sec": 86400
+}
