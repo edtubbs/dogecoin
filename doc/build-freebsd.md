@@ -8,11 +8,10 @@ Clang is installed by default as `cc` compiler, this makes it easier to get
 started than on other distros. Installing dependencies:
 
     pkg install autoconf automake libtool pkgconf
-    pkg install boost-libs openssl libevent
+    pkg install boost-libs libevent
     pkg install gmake
 
 You need to use GNU make (`gmake`) instead of `make`.
-(`libressl` instead of `openssl` will also work)
 
 For the wallet (optional):
 

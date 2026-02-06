@@ -8,7 +8,7 @@ Fedora build guide
 
 ```sh
 sudo dnf install gcc-c++ libtool which diffutils make autoconf automake \
-                 openssl-devel libevent-devel boost-devel libdb-cxx-devel
+                 libevent-devel boost-devel libdb-cxx-devel
 ```
 ### Optional elements
 

@@ -35,7 +35,7 @@ chmod -R go-w "$(brew --prefix)/share/zsh"
 Install dependencies via Brew.
 
 ```sh
-brew install autoconf automake libtool miniupnpc openssl pkg-config protobuf \
+brew install autoconf automake libtool miniupnpc pkg-config protobuf \
              qt5 zeromq qrencode librsvg boost berkeley-db@5 libevent
 ```
 
