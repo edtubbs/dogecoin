@@ -104,6 +104,12 @@ static void sha256_process_x8_avx2(uint32_t* states[8], const unsigned char* dat
     }
 }
 
+// Wrapper for external use (e.g., from hash.cpp)
+extern "C" void sha256_process_x8_avx2_wrapper(uint32_t* states[8], const unsigned char* data[8], size_t blocks)
+{
+    sha256_process_x8_avx2(states, data, blocks);
+}
+
 // Internal implementation code.
 namespace
 {
