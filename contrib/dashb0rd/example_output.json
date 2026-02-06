@@ -1,9 +1,0 @@
-{
-  "chain": "main",
-  "blocks": 5234567,
-  "headers": 5234567,
-  "difficulty": 8912345.67,
-  "verification_progress": "99.95%",
-  "initial_block_download": "false",
-  "chain_size_human": "78.43 GB"
-}
