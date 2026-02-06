@@ -41,6 +41,19 @@ Returns blockchain metrics formatted for dogebox dashboard integration.
 dogecoin-cli getdashboardmetrics
 ```
 
+**Example Output:**
+```json
+{
+  "chain": "main",
+  "blocks": 5234567,
+  "headers": 5234567,
+  "difficulty": 8912345.67,
+  "verification_progress": "99.95%",
+  "initial_block_download": "false",
+  "chain_size_human": "78.43 GB"
+}
+```
+
 ### RPC Call
 ```bash
 curl --user myuser:mypass --data-binary '{"jsonrpc":"2.0","id":"dashboard","method":"getdashboardmetrics","params":[]}' -H 'content-type: text/plain;' http://127.0.0.1:22555/
