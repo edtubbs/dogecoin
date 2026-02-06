@@ -24,9 +24,12 @@
 #include "undo.h"
 #include "util.h"
 #include "utilstrencodings.h"
+#include "utiltime.h"
 #include "hash.h"
+#include "script/standard.h"
 
 #include <stdint.h>
+#include <algorithm>
 #include <iomanip>
 #include <sstream>
 
@@ -1272,16 +1275,30 @@ UniValue getdashboardmetrics(const JSONRPCRequest& request)
     if (request.fHelp || request.params.size() != 0)
         throw runtime_error(
             "getdashboardmetrics\n"
-            "Returns metrics formatted for dogebox dashboard integration.\n"
+            "Returns metrics formatted for libdogecoin dashboard integration.\n"
             "\nResult:\n"
             "{\n"
-            "  \"chain\": \"xxxx\",                    (string) current network name\n"
-            "  \"blocks\": xxxxxx,                     (numeric) current block height\n"
-            "  \"headers\": xxxxxx,                    (numeric) current header count\n"
-            "  \"difficulty\": xxxxxx,                 (numeric) current difficulty\n"
-            "  \"verification_progress\": \"xx.xx%\",  (string) sync progress as percentage\n"
-            "  \"initial_block_download\": \"xxxx\",   (string) whether in IBD mode\n"
-            "  \"chain_size_human\": \"xx.xx XX\"      (string) blockchain size in human readable format\n"
+            "  \"chain_tip_height\": x,                (numeric) current chain height\n"
+            "  \"chain_tip_difficulty\": x,            (numeric) current difficulty\n"
+            "  \"chain_tip_time\": \"xxxx\",           (string) chain tip time in ISO-8601 format\n"
+            "  \"chain_tip_bits_hex\": \"0xxxxx\",     (string) compact difficulty bits in hex\n"
+            "  \"smpv_mempool_txs\": x,                (numeric) count of transactions in mempool\n"
+            "  \"smpv_total_bytes\": x,                (numeric) total mempool size in bytes\n"
+            "  \"smpv_types_p2pkh\": x,                (numeric) P2PKH outputs in mempool\n"
+            "  \"smpv_types_p2sh\": x,                 (numeric) P2SH outputs in mempool\n"
+            "  \"smpv_types_multisig\": x,             (numeric) multisig outputs in mempool\n"
+            "  \"smpv_types_op_return\": x,            (numeric) OP_RETURN outputs in mempool\n"
+            "  \"smpv_types_nonstandard\": x,          (numeric) nonstandard outputs in mempool\n"
+            "  \"smpv_types_vout_total\": x,           (numeric) total outputs in mempool\n"
+            "  \"stats_blocks\": x,                    (numeric) blocks analyzed in rolling window\n"
+            "  \"stats_transactions\": x,              (numeric) total transactions in rolling window\n"
+            "  \"stats_tps\": x,                       (numeric) estimated transactions per second\n"
+            "  \"stats_volume\": x,                    (numeric) sum of output values in DOGE\n"
+            "  \"stats_outputs\": x,                   (numeric) total outputs in rolling window\n"
+            "  \"stats_bytes\": x,                     (numeric) total block bytes in rolling window\n"
+            "  \"stats_median_fee_per_block\": x,      (numeric) median fee per block in DOGE\n"
+            "  \"stats_avg_fee_per_block\": x,         (numeric) average fee per block in DOGE\n"
+            "  \"uptime_sec\": x                       (numeric) node uptime in seconds\n"
             "}\n"
             "\nExamples:\n"
             + HelpExampleCli("getdashboardmetrics", "")
@@ -1292,37 +1309,180 @@ UniValue getdashboardmetrics(const JSONRPCRequest& request)
 
     UniValue result(UniValue::VOBJ);
     
-    // Get basic chain info
-    result.pushKV("chain", Params().NetworkIDString());
-    result.pushKV("blocks", (int)chainActive.Height());
-    result.pushKV("headers", pindexBestHeader ? pindexBestHeader->nHeight : -1);
-    result.pushKV("difficulty", (double)GetDifficulty());
+    // Chain tip metrics
+    CBlockIndex* tip = chainActive.Tip();
+    if (!tip)
+        throw JSONRPCError(RPC_INTERNAL_ERROR, "Chain tip not available");
     
-    // Calculate verification progress as percentage string
-    double progressRatio = GuessVerificationProgress(Params().TxData(), chainActive.Tip());
-    std::ostringstream progressStream;
-    progressStream << std::fixed << std::setprecision(2) << (progressRatio * 100.0) << "%";
-    result.pushKV("verification_progress", progressStream.str());
+    result.pushKV("chain_tip_height", (double)chainActive.Height());
+    result.pushKV("chain_tip_difficulty", GetDifficulty());
+    result.pushKV("chain_tip_time", DateTimeStrFormat("%Y-%m-%dT%H:%M:%S", tip->GetBlockTime()));
     
-    // Get initial block download status
-    // Note: Returns string "true"/"false" as required by dogebox manifest specification
-    result.pushKV("initial_block_download", IsInitialBlockDownload() ? "true" : "false");
+    std::ostringstream bitsHex;
+    bitsHex << "0x" << std::hex << tip->nBits;
+    result.pushKV("chain_tip_bits_hex", bitsHex.str());
     
-    // Convert blockchain size to human readable format
-    uint64_t diskSize = CalculateCurrentUsage();
-    const char* sizeUnits[] = {"B", "KB", "MB", "GB", "TB"};
-    const int maxUnitIdx = sizeof(sizeUnits) / sizeof(sizeUnits[0]) - 1;
-    int unitIdx = 0;
-    double humanSize = (double)diskSize;
-    
-    while (humanSize >= 1024.0 && unitIdx < maxUnitIdx) {
-        humanSize /= 1024.0;
-        unitIdx++;
+    // Mempool metrics
+    {
+        LOCK(mempool.cs);
+        
+        result.pushKV("smpv_mempool_txs", (double)mempool.size());
+        result.pushKV("smpv_total_bytes", (double)mempool.DynamicMemoryUsage());
+        
+        // Count output types in mempool
+        int64_t p2pkh_count = 0;
+        int64_t p2sh_count = 0;
+        int64_t multisig_count = 0;
+        int64_t op_return_count = 0;
+        int64_t nonstandard_count = 0;
+        int64_t total_vouts = 0;
+        
+        for (const CTxMemPoolEntry& e : mempool.mapTx) {
+            const CTransaction& tx = e.GetTx();
+            for (const CTxOut& txout : tx.vout) {
+                total_vouts++;
+                
+                txnouttype type;
+                std::vector<std::vector<unsigned char>> vSolutions;
+                if (Solver(txout.scriptPubKey, type, vSolutions)) {
+                    switch (type) {
+                        case TX_PUBKEYHASH:
+                            p2pkh_count++;
+                            break;
+                        case TX_SCRIPTHASH:
+                            p2sh_count++;
+                            break;
+                        case TX_MULTISIG:
+                            multisig_count++;
+                            break;
+                        case TX_NULL_DATA:
+                            op_return_count++;
+                            break;
+                        case TX_NONSTANDARD:
+                            nonstandard_count++;
+                            break;
+                        default:
+                            break;
+                    }
+                } else {
+                    nonstandard_count++;
+                }
+            }
+        }
+        
+        result.pushKV("smpv_types_p2pkh", (double)p2pkh_count);
+        result.pushKV("smpv_types_p2sh", (double)p2sh_count);
+        result.pushKV("smpv_types_multisig", (double)multisig_count);
+        result.pushKV("smpv_types_op_return", (double)op_return_count);
+        result.pushKV("smpv_types_nonstandard", (double)nonstandard_count);
+        result.pushKV("smpv_types_vout_total", (double)total_vouts);
     }
     
-    std::ostringstream sizeStream;
-    sizeStream << std::fixed << std::setprecision(2) << humanSize << " " << sizeUnits[unitIdx];
-    result.pushKV("chain_size_human", sizeStream.str());
+    // Rolling statistics (last 100 blocks)
+    const int STATS_WINDOW = 100;
+    int blocks_analyzed = 0;
+    int64_t total_transactions = 0;
+    int64_t total_outputs = 0;
+    int64_t total_bytes = 0;
+    CAmount total_volume = 0;
+    std::vector<CAmount> fees_per_block;
+    int64_t total_time_span = 0;
+    
+    CBlockIndex* pindex = tip;
+    CBlockIndex* pindexStart = pindex;
+    
+    for (int i = 0; i < STATS_WINDOW && pindex; i++) {
+        CBlock block;
+        if (ReadBlockFromDisk(block, pindex, Params().GetConsensus(pindex->nHeight))) {
+            blocks_analyzed++;
+            total_transactions += block.vtx.size();
+            total_bytes += ::GetSerializeSize(block, SER_NETWORK, PROTOCOL_VERSION);
+            
+            CAmount block_fee = 0;
+            for (size_t j = 0; j < block.vtx.size(); j++) {
+                const CTransaction& tx = *block.vtx[j];
+                
+                for (const CTxOut& txout : tx.vout) {
+                    total_outputs++;
+                    total_volume += txout.nValue;
+                }
+                
+                if (!tx.IsCoinBase()) {
+                    CAmount tx_value_in = 0;
+                    for (const CTxIn& txin : tx.vin) {
+                        CTransactionRef txPrev;
+                        uint256 hashBlock;
+                        if (GetTransaction(txin.prevout.hash, txPrev, Params().GetConsensus(pindex->nHeight), hashBlock, true)) {
+                            if (txin.prevout.n < txPrev->vout.size()) {
+                                tx_value_in += txPrev->vout[txin.prevout.n].nValue;
+                            }
+                        }
+                    }
+                    
+                    CAmount tx_value_out = 0;
+                    for (const CTxOut& txout : tx.vout) {
+                        tx_value_out += txout.nValue;
+                    }
+                    
+                    if (tx_value_in > 0) {
+                        block_fee += (tx_value_in - tx_value_out);
+                    }
+                }
+            }
+            fees_per_block.push_back(block_fee);
+            
+            pindexStart = pindex;
+        }
+        
+        pindex = pindex->pprev;
+    }
+    
+    if (blocks_analyzed > 0) {
+        if (pindexStart && tip) {
+            total_time_span = tip->GetBlockTime() - pindexStart->GetBlockTime();
+        }
+    }
+    
+    result.pushKV("stats_blocks", (double)blocks_analyzed);
+    result.pushKV("stats_transactions", (double)total_transactions);
+    
+    double tps = 0.0;
+    if (total_time_span > 0) {
+        tps = (double)total_transactions / (double)total_time_span;
+    }
+    result.pushKV("stats_tps", tps);
+    
+    result.pushKV("stats_volume", ValueFromAmount(total_volume));
+    result.pushKV("stats_outputs", (double)total_outputs);
+    result.pushKV("stats_bytes", (double)total_bytes);
+    
+    // Calculate median and average fees
+    UniValue median_fee = 0.0;
+    UniValue avg_fee = 0.0;
+    
+    if (!fees_per_block.empty()) {
+        std::vector<CAmount> sorted_fees = fees_per_block;
+        std::sort(sorted_fees.begin(), sorted_fees.end());
+        
+        size_t mid = sorted_fees.size() / 2;
+        if (sorted_fees.size() % 2 == 0) {
+            median_fee = ValueFromAmount((sorted_fees[mid - 1] + sorted_fees[mid]) / 2);
+        } else {
+            median_fee = ValueFromAmount(sorted_fees[mid]);
+        }
+        
+        CAmount total_fees = 0;
+        for (CAmount fee : fees_per_block) {
+            total_fees += fee;
+        }
+        avg_fee = ValueFromAmount(total_fees / (CAmount)fees_per_block.size());
+    }
+    
+    result.pushKV("stats_median_fee_per_block", median_fee);
+    result.pushKV("stats_avg_fee_per_block", avg_fee);
+    
+    // Uptime
+    result.pushKV("uptime_sec", (double)(GetTime() - GetStartupTime()));
     
     return result;
 }
