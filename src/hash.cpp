@@ -10,6 +10,9 @@
 #include "pubkey.h"
 
 #if defined(USE_AVX2_8WAY)
+// Forward declaration of the 8-way processing function
+extern "C" void sha256_process_x8_avx2_wrapper(uint32_t* states[8], const unsigned char* data[8], size_t blocks);
+
 // Helper to compute double-SHA256 for 8 pairs of hashes (merkle tree node computation)
 // This is optimized for the common case of hashing two 32-byte values (64 bytes total)
 void CHash256Batch::Finalize8(const unsigned char* inputs[8], 
@@ -19,15 +22,81 @@ void CHash256Batch::Finalize8(const unsigned char* inputs[8],
 {
     if (count == 0 || count > BATCH_SIZE) return;
     
-    // For now, fallback to sequential processing
-    // A proper implementation would:
-    // 1. Use CSHA256 to process each input with proper padding
-    // 2. Collect intermediate hashes
-    // 3. Use 8-way for the second SHA256 pass
-    // This requires more complex state management
+    // SHA256 initial hash values
+    static const uint32_t sha256_init[8] = {
+        0x6a09e667ul, 0xbb67ae85ul, 0x3c6ef372ul, 0xa54ff53aul,
+        0x510e527ful, 0x9b05688cul, 0x1f83d9abul, 0x5be0cd19ul
+    };
     
+    // Check if all inputs are 64 bytes (merkle tree case - two 32-byte hashes)
+    bool all_64_bytes = true;
     for (size_t i = 0; i < count; i++) {
-        CHash256().Write(inputs[i], input_lengths[i]).Finalize(outputs[i]);
+        if (input_lengths[i] != 64) {
+            all_64_bytes = false;
+            break;
+        }
+    }
+    
+    // Fast path for 64-byte inputs (merkle tree case)
+    if (all_64_bytes) {
+        // Allocate storage for states
+        uint32_t states_storage[8][8];
+        uint32_t* states[8];
+        unsigned char intermediate[8][32];
+        unsigned char padded_intermediate[8][64];
+        
+        // Initialize states for first SHA256 pass
+        for (size_t i = 0; i < 8; i++) {
+            states[i] = states_storage[i];
+            memcpy(states[i], sha256_init, 32);
+        }
+        
+        // Setup data pointers for first pass (pad unused lanes with first input)
+        const unsigned char* data_ptrs[8];
+        for (size_t i = 0; i < 8; i++) {
+            data_ptrs[i] = (i < count) ? inputs[i] : inputs[0];
+        }
+        
+        // First SHA256 pass: Process 64-byte inputs (exactly 1 block)
+        sha256_process_x8_avx2_wrapper(states, data_ptrs, 1);
+        
+        // Extract intermediate hashes (convert from state to bytes)
+        for (size_t i = 0; i < count; i++) {
+            for (int j = 0; j < 8; j++) {
+                WriteBE32(intermediate[i] + j * 4, states[i][j]);
+            }
+        }
+        
+        // Prepare for second SHA256 pass: pad intermediate hashes
+        // SHA256 padding for 32-byte input: data + 0x80 + zeros + length (256 bits)
+        for (size_t i = 0; i < count; i++) {
+            memcpy(padded_intermediate[i], intermediate[i], 32);
+            padded_intermediate[i][32] = 0x80;  // Padding bit
+            memset(padded_intermediate[i] + 33, 0, 31 - 8);  // Zeros
+            // Length in bits = 256 bits = 0x100 (big-endian at end)
+            WriteBE64(padded_intermediate[i] + 56, 256);
+        }
+        
+        // Reset states for second SHA256 pass
+        for (size_t i = 0; i < 8; i++) {
+            memcpy(states[i], sha256_init, 32);
+            data_ptrs[i] = padded_intermediate[(i < count) ? i : 0];
+        }
+        
+        // Second SHA256 pass: Process padded intermediate hashes (1 block)
+        sha256_process_x8_avx2_wrapper(states, data_ptrs, 1);
+        
+        // Extract final hashes
+        for (size_t i = 0; i < count; i++) {
+            for (int j = 0; j < 8; j++) {
+                WriteBE32(outputs[i] + j * 4, states[i][j]);
+            }
+        }
+    } else {
+        // Fallback to sequential processing for non-64-byte inputs
+        for (size_t i = 0; i < count; i++) {
+            CHash256().Write(inputs[i], input_lengths[i]).Finalize(outputs[i]);
+        }
     }
 }
 #endif // USE_AVX2_8WAY
