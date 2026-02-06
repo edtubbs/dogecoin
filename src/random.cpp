@@ -41,9 +41,6 @@
 #include <cpuid.h>
 #endif
 
-#include <openssl/err.h>
-#include <openssl/rand.h>
-
 static void RandFailure()
 {
     LogPrintf("Failed to read randomness, aborting\n");
@@ -128,8 +125,9 @@ static bool GetHWRand(unsigned char* ent32) {
 void RandAddSeed()
 {
     // Seed with CPU performance counter
+    // Note: With direct OS RNG usage, seeding is no longer necessary
+    // This function is kept for API compatibility but does nothing
     int64_t nCounter = GetPerformanceCounter();
-    RAND_add(&nCounter, sizeof(nCounter), 1.5);
     memory_cleanse((void*)&nCounter, sizeof(nCounter));
 }
 
@@ -138,8 +136,9 @@ static void RandAddSeedPerfmon()
     RandAddSeed();
 
 #ifdef WIN32
-    // Don't need this on Linux, OpenSSL automatically uses /dev/urandom
     // Seed with the entire set of perfmon data
+    // Note: With direct OS RNG usage, this is no longer necessary for seeding
+    // This function is kept for API compatibility but does minimal work
 
     // This can take up to 2 seconds, so only do it every 10 minutes
     static int64_t nLastPerfmon;
@@ -160,7 +159,7 @@ static void RandAddSeedPerfmon()
     }
     RegCloseKey(HKEY_PERFORMANCE_DATA);
     if (ret == ERROR_SUCCESS) {
-        RAND_add(vData.data(), nSize, nSize / 100.0);
+        // Data collected but not used for seeding anymore
         memory_cleanse(vData.data(), nSize);
         LogPrint("rand", "%s: %lu bytes\n", __func__, nSize);
     } else {
@@ -268,8 +267,25 @@ void GetOSRand(unsigned char *ent32)
 
 void GetRandBytes(unsigned char* buf, int num)
 {
-    if (RAND_bytes(buf, num) != 1) {
-        RandFailure();
+    // Use OS RNG directly instead of OpenSSL
+    // For small requests, just use OS RNG directly
+    if (num <= 32) {
+        unsigned char ent32[32];
+        GetOSRand(ent32);
+        memcpy(buf, ent32, num);
+        memory_cleanse(ent32, 32);
+        return;
+    }
+    
+    // For larger requests, repeatedly call OS RNG
+    int offset = 0;
+    while (offset < num) {
+        unsigned char ent32[32];
+        GetOSRand(ent32);
+        int to_copy = (num - offset) < 32 ? (num - offset) : 32;
+        memcpy(buf + offset, ent32, to_copy);
+        memory_cleanse(ent32, 32);
+        offset += to_copy;
     }
 }
 
@@ -395,9 +411,7 @@ bool Random_SanityCheck()
     uint64_t stop = GetPerformanceCounter();
     if (stop == start) return false;
 
-    // We called GetPerformanceCounter. Use it as entropy.
-    RAND_add((const unsigned char*)&start, sizeof(start), 1);
-    RAND_add((const unsigned char*)&stop, sizeof(stop), 1);
+    // We called GetPerformanceCounter - no longer used for seeding
 
     return true;
 }
