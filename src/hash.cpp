@@ -6,7 +6,31 @@
 #include "hash.h"
 #include "crypto/common.h"
 #include "crypto/hmac_sha512.h"
+#include "crypto/sha256.h"
 #include "pubkey.h"
+
+#if defined(USE_AVX2_8WAY)
+// Helper to compute double-SHA256 for 8 pairs of hashes (merkle tree node computation)
+// This is optimized for the common case of hashing two 32-byte values (64 bytes total)
+void CHash256Batch::Finalize8(const unsigned char* inputs[8], 
+                               const size_t input_lengths[8],
+                               unsigned char* outputs[8],
+                               size_t count)
+{
+    if (count == 0 || count > BATCH_SIZE) return;
+    
+    // For now, fallback to sequential processing
+    // A proper implementation would:
+    // 1. Use CSHA256 to process each input with proper padding
+    // 2. Collect intermediate hashes
+    // 3. Use 8-way for the second SHA256 pass
+    // This requires more complex state management
+    
+    for (size_t i = 0; i < count; i++) {
+        CHash256().Write(inputs[i], input_lengths[i]).Finalize(outputs[i]);
+    }
+}
+#endif // USE_AVX2_8WAY
 
 
 inline uint32_t ROTL32(uint32_t x, int8_t r)
