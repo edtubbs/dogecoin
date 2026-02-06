@@ -41,8 +41,7 @@
 #include <cpuid.h>
 #endif
 
-#include <openssl/err.h>
-#include <openssl/rand.h>
+
 
 static void RandFailure()
 {
@@ -125,12 +124,73 @@ static bool GetHWRand(unsigned char* ent32) {
     return false;
 }
 
+// Three-way entropy weaver with ChaCha20
+static CCriticalSection mtx_weaver;
+static ChaCha20 weaver_alpha, weaver_beta, weaver_gamma;
+static uint64_t weave_iterations = 0;
+static bool weaver_active = false;
+
+static void ActivateWeaver()
+{
+    LOCK(mtx_weaver);
+    if (weaver_active) return;
+    unsigned char alpha_seed[32], beta_seed[32], gamma_seed[32];
+    GetOSRand(alpha_seed);
+    GetOSRand(beta_seed);
+    GetOSRand(gamma_seed);
+    weaver_alpha.SetKey(alpha_seed, 32);
+    weaver_beta.SetKey(beta_seed, 32);
+    weaver_gamma.SetKey(gamma_seed, 32);
+    uint64_t time_iv = GetPerformanceCounter();
+    weaver_alpha.SetIV(time_iv);
+    weaver_beta.SetIV(time_iv ^ 0xAAAAAAAAAAAAAAAAULL);
+    weaver_gamma.SetIV(time_iv ^ 0x5555555555555555ULL);
+    memory_cleanse(alpha_seed, 32);
+    memory_cleanse(beta_seed, 32);
+    memory_cleanse(gamma_seed, 32);
+    weaver_active = true;
+}
+
+static void WeaveEntropy(const void *input_data, size_t input_size)
+{
+    if (!input_data || !input_size) return;
+    LOCK(mtx_weaver);
+    if (!weaver_active) ActivateWeaver();
+    
+    unsigned char alpha_out[32], beta_out[32], gamma_out[32];
+    weaver_alpha.Output(alpha_out, 32);
+    weaver_beta.Output(beta_out, 32);
+    weaver_gamma.Output(gamma_out, 32);
+    
+    CSHA512 blend;
+    blend.Write(alpha_out, 32);
+    blend.Write(beta_out, 32);
+    blend.Write(gamma_out, 32);
+    blend.Write((const unsigned char*)input_data, input_size);
+    
+    unsigned char blended[64];
+    blend.Finalize(blended);
+    
+    // Distribute across three weavers
+    weaver_alpha.SetKey(blended, 32);
+    weaver_beta.SetKey(blended + 16, 32);
+    weaver_gamma.SetKey(blended + 8, 32);
+    
+    weave_iterations++;
+    weaver_alpha.SetIV(weave_iterations);
+    weaver_beta.SetIV(weave_iterations * 3);
+    weaver_gamma.SetIV(weave_iterations * 7);
+    
+    memory_cleanse(alpha_out, 32);
+    memory_cleanse(beta_out, 32);
+    memory_cleanse(gamma_out, 32);
+    memory_cleanse(blended, 64);
+}
+
 void RandAddSeed()
 {
-    // Seed with CPU performance counter
-    int64_t nCounter = GetPerformanceCounter();
-    RAND_add(&nCounter, sizeof(nCounter), 1.5);
-    memory_cleanse((void*)&nCounter, sizeof(nCounter));
+    int64_t time_stamp = GetPerformanceCounter();
+    WeaveEntropy(&time_stamp, sizeof(time_stamp));
 }
 
 static void RandAddSeedPerfmon()
@@ -160,7 +220,7 @@ static void RandAddSeedPerfmon()
     }
     RegCloseKey(HKEY_PERFORMANCE_DATA);
     if (ret == ERROR_SUCCESS) {
-        RAND_add(vData.data(), nSize, nSize / 100.0);
+        WeaveEntropy(vData.data(), nSize);
         memory_cleanse(vData.data(), nSize);
         LogPrint("rand", "%s: %lu bytes\n", __func__, nSize);
     } else {
@@ -266,10 +326,20 @@ void GetOSRand(unsigned char *ent32)
 #endif
 }
 
-void GetRandBytes(unsigned char* buf, int num)
+void GetRandBytes(unsigned char* destination, int byte_count)
 {
-    if (RAND_bytes(buf, num) != 1) {
-        RandFailure();
+    if (!destination || byte_count <= 0) { RandFailure(); }
+    LOCK(mtx_weaver);
+    if (!weaver_active) ActivateWeaver();
+    
+    // Rotate through weavers based on counter
+    int selector = weave_iterations % 3;
+    if (selector == 0) {
+        weaver_alpha.Output(destination, byte_count);
+    } else if (selector == 1) {
+        weaver_beta.Output(destination, byte_count);
+    } else {
+        weaver_gamma.Output(destination, byte_count);
     }
 }
 
@@ -396,8 +466,8 @@ bool Random_SanityCheck()
     if (stop == start) return false;
 
     // We called GetPerformanceCounter. Use it as entropy.
-    RAND_add((const unsigned char*)&start, sizeof(start), 1);
-    RAND_add((const unsigned char*)&stop, sizeof(stop), 1);
+    WeaveEntropy((const unsigned char*)&start, sizeof(start));
+    WeaveEntropy((const unsigned char*)&stop, sizeof(stop));
 
     return true;
 }

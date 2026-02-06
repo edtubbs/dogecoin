@@ -13,11 +13,11 @@
 #include <stdint.h>
 #include <limits>
 
-/* Seed OpenSSL PRNG with additional entropy data */
+/* Seed with additional entropy */
 void RandAddSeed();
 
 /**
- * Functions to gather random data via the OpenSSL PRNG
+ * Functions to gather random data
  */
 void GetRandBytes(unsigned char* buf, int num);
 uint64_t GetRand(uint64_t nMax);
