@@ -1314,7 +1314,7 @@ UniValue getdashboardmetrics(const JSONRPCRequest& request)
     if (!tip)
         throw JSONRPCError(RPC_INTERNAL_ERROR, "Chain tip not available");
     
-    result.pushKV("chain_tip_height", (double)chainActive.Height());
+    result.pushKV("chain_tip_height", (int64_t)chainActive.Height());
     result.pushKV("chain_tip_difficulty", GetDifficulty());
     result.pushKV("chain_tip_time", DateTimeStrFormat("%Y-%m-%dT%H:%M:%S", tip->GetBlockTime()));
     
@@ -1326,8 +1326,8 @@ UniValue getdashboardmetrics(const JSONRPCRequest& request)
     {
         LOCK(mempool.cs);
         
-        result.pushKV("smpv_mempool_txs", (double)mempool.size());
-        result.pushKV("smpv_total_bytes", (double)mempool.DynamicMemoryUsage());
+        result.pushKV("smpv_mempool_txs", (int64_t)mempool.size());
+        result.pushKV("smpv_total_bytes", (int64_t)mempool.DynamicMemoryUsage());
         
         // Count output types in mempool
         int64_t p2pkh_count = 0;
@@ -1362,6 +1362,7 @@ UniValue getdashboardmetrics(const JSONRPCRequest& request)
                             nonstandard_count++;
                             break;
                         default:
+                            // Other types (TX_PUBKEY, TX_WITNESS_*) are not counted separately
                             break;
                     }
                 } else {
@@ -1370,12 +1371,12 @@ UniValue getdashboardmetrics(const JSONRPCRequest& request)
             }
         }
         
-        result.pushKV("smpv_types_p2pkh", (double)p2pkh_count);
-        result.pushKV("smpv_types_p2sh", (double)p2sh_count);
-        result.pushKV("smpv_types_multisig", (double)multisig_count);
-        result.pushKV("smpv_types_op_return", (double)op_return_count);
-        result.pushKV("smpv_types_nonstandard", (double)nonstandard_count);
-        result.pushKV("smpv_types_vout_total", (double)total_vouts);
+        result.pushKV("smpv_types_p2pkh", (int64_t)p2pkh_count);
+        result.pushKV("smpv_types_p2sh", (int64_t)p2sh_count);
+        result.pushKV("smpv_types_multisig", (int64_t)multisig_count);
+        result.pushKV("smpv_types_op_return", (int64_t)op_return_count);
+        result.pushKV("smpv_types_nonstandard", (int64_t)nonstandard_count);
+        result.pushKV("smpv_types_vout_total", (int64_t)total_vouts);
     }
     
     // Rolling statistics (last 100 blocks)
@@ -1398,38 +1399,30 @@ UniValue getdashboardmetrics(const JSONRPCRequest& request)
             total_transactions += block.vtx.size();
             total_bytes += ::GetSerializeSize(block, SER_NETWORK, PROTOCOL_VERSION);
             
+            // Calculate block fee from coinbase
             CAmount block_fee = 0;
-            for (size_t j = 0; j < block.vtx.size(); j++) {
-                const CTransaction& tx = *block.vtx[j];
-                
-                for (const CTxOut& txout : tx.vout) {
-                    total_outputs++;
-                    total_volume += txout.nValue;
+            if (!block.vtx.empty() && block.vtx[0]->IsCoinBase()) {
+                CAmount coinbase_out = 0;
+                for (const CTxOut& txout : block.vtx[0]->vout) {
+                    coinbase_out += txout.nValue;
                 }
-                
-                if (!tx.IsCoinBase()) {
-                    CAmount tx_value_in = 0;
-                    for (const CTxIn& txin : tx.vin) {
-                        CTransactionRef txPrev;
-                        uint256 hashBlock;
-                        if (GetTransaction(txin.prevout.hash, txPrev, Params().GetConsensus(pindex->nHeight), hashBlock, true)) {
-                            if (txin.prevout.n < txPrev->vout.size()) {
-                                tx_value_in += txPrev->vout[txin.prevout.n].nValue;
-                            }
-                        }
-                    }
-                    
-                    CAmount tx_value_out = 0;
-                    for (const CTxOut& txout : tx.vout) {
-                        tx_value_out += txout.nValue;
-                    }
-                    
-                    if (tx_value_in > 0) {
-                        block_fee += (tx_value_in - tx_value_out);
-                    }
+                // Block reward at this height
+                uint256 prevHash = pindex->pprev ? pindex->pprev->GetBlockHash() : uint256();
+                CAmount block_subsidy = GetDogecoinBlockSubsidy(pindex->nHeight, Params().GetConsensus(pindex->nHeight), prevHash);
+                // Fee is coinbase output minus subsidy
+                if (coinbase_out > block_subsidy) {
+                    block_fee = coinbase_out - block_subsidy;
                 }
             }
             fees_per_block.push_back(block_fee);
+            
+            // Count outputs and volume
+            for (const auto& tx : block.vtx) {
+                for (const CTxOut& txout : tx->vout) {
+                    total_outputs++;
+                    total_volume += txout.nValue;
+                }
+            }
             
             pindexStart = pindex;
         }
@@ -1443,8 +1436,8 @@ UniValue getdashboardmetrics(const JSONRPCRequest& request)
         }
     }
     
-    result.pushKV("stats_blocks", (double)blocks_analyzed);
-    result.pushKV("stats_transactions", (double)total_transactions);
+    result.pushKV("stats_blocks", (int64_t)blocks_analyzed);
+    result.pushKV("stats_transactions", (int64_t)total_transactions);
     
     double tps = 0.0;
     if (total_time_span > 0) {
@@ -1453,8 +1446,8 @@ UniValue getdashboardmetrics(const JSONRPCRequest& request)
     result.pushKV("stats_tps", tps);
     
     result.pushKV("stats_volume", ValueFromAmount(total_volume));
-    result.pushKV("stats_outputs", (double)total_outputs);
-    result.pushKV("stats_bytes", (double)total_bytes);
+    result.pushKV("stats_outputs", (int64_t)total_outputs);
+    result.pushKV("stats_bytes", (int64_t)total_bytes);
     
     // Calculate median and average fees
     UniValue median_fee = 0.0;
@@ -1482,7 +1475,7 @@ UniValue getdashboardmetrics(const JSONRPCRequest& request)
     result.pushKV("stats_avg_fee_per_block", avg_fee);
     
     // Uptime
-    result.pushKV("uptime_sec", (double)(GetTime() - GetStartupTime()));
+    result.pushKV("uptime_sec", (int64_t)(GetTime() - GetStartupTime()));
     
     return result;
 }
