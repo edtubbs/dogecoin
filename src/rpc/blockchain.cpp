@@ -1305,15 +1305,17 @@ UniValue getdashboardmetrics(const JSONRPCRequest& request)
     result.pushKV("verification_progress", progressStream.str());
     
     // Get initial block download status
+    // Note: Returns string "true"/"false" as required by dogebox manifest specification
     result.pushKV("initial_block_download", IsInitialBlockDownload() ? "true" : "false");
     
     // Convert blockchain size to human readable format
     uint64_t diskSize = CalculateCurrentUsage();
     const char* sizeUnits[] = {"B", "KB", "MB", "GB", "TB"};
+    const int maxUnitIdx = sizeof(sizeUnits) / sizeof(sizeUnits[0]) - 1;
     int unitIdx = 0;
     double humanSize = (double)diskSize;
     
-    while (humanSize >= 1024.0 && unitIdx < 4) {
+    while (humanSize >= 1024.0 && unitIdx < maxUnitIdx) {
         humanSize /= 1024.0;
         unitIdx++;
     }
