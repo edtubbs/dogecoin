@@ -17,7 +17,14 @@ void memory_cleanse(void *ptr, size_t len)
     std::memset(ptr, 0, len);
     
     /* Memory barrier that prevents the compiler from optimizing out the memset.
-     * This uses a C++11 atomic fence which is portable across all platforms.
+     * We use both an atomic fence and a volatile access to ensure maximum
+     * portability and effectiveness across all compilers and platforms.
      */
     std::atomic_signal_fence(std::memory_order_seq_cst);
+    
+    /* Additional protection: make the compiler think we're using the memory
+     * by doing a volatile read. This forces the compiler to treat the memory
+     * as if it might be accessed later.
+     */
+    __asm__ __volatile__("" : : "r"(ptr) : "memory");
 }

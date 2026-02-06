@@ -270,13 +270,16 @@ void GetRandBytes(unsigned char* buf, int num)
     // Use OS RNG directly instead of OpenSSL
     if (num <= 0) return;
     
+    // Note: GetOSRand() always returns exactly 32 bytes (NUM_OS_RANDOM_BYTES)
+    // This is a limitation of the underlying OS APIs
     int offset = 0;
     while (offset < num) {
         unsigned char ent32[32];
         int remaining = num - offset;
         
         if (remaining <= 32) {
-            // Last chunk - get exactly what we need
+            // Last chunk - get 32 bytes but only use what we need
+            // We cannot request fewer bytes from GetOSRand
             GetOSRand(ent32);
             memcpy(buf + offset, ent32, remaining);
             memory_cleanse(ent32, 32);
