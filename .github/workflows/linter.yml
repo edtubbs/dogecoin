@@ -3,9 +3,11 @@ on:
   push:
     paths-ignore:
       - '**/*.md'
+      - '**/*.txt'
   pull_request:
     paths-ignore:
       - '**/*.md'
+      - '**/*.txt'
 
 jobs:
   translations:

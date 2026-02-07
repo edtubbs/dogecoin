@@ -178,3 +178,81 @@ It will do the following automatically:
 - add missing translations to the build system (TODO)
 
 See doc/translation-process.md for more information.
+
+test-build-local.sh
+===================
+
+Quick build validation script for testing changes before pushing to CI.
+This helps catch build errors early and reduces CI failures.
+
+Usage:
+```bash
+./contrib/devtools/test-build-local.sh [HOST]
+```
+
+The script will:
+1. Run autogen.sh to generate configure script
+2. Run configure with Qt6 options
+3. Test basic compilation
+4. Report any errors with helpful diagnostics
+
+For more details, see [BUILD_TESTING.md](BUILD_TESTING.md).
+
+pre-push.sample
+===============
+
+Git pre-push hook that reminds developers to test build-related changes
+before pushing. This helps prevent CI failures from untested changes.
+
+To install:
+```bash
+cp contrib/devtools/pre-push.sample .git/hooks/pre-push
+chmod +x .git/hooks/pre-push
+```
+
+The hook will:
+- Detect changes to build-related files (*.cpp, *.h, configure.ac, Makefile.am, etc.)
+- Prompt to confirm build has been tested
+- Can be bypassed with `git push --no-verify` if needed
+
+BUILD_TESTING.md
+================
+
+Comprehensive documentation for testing builds locally before pushing.
+Covers:
+- Quick build testing procedures
+- Full build and test workflows
+- Common build issues and solutions
+- CI matrix configurations
+- Debugging tips for CI failures
+
+Essential reading for anyone modifying:
+- Build system files (configure.ac, Makefile.am)
+- Dependencies (depends/ directory)
+- Qt-related code
+
+validate-depends.sh
+===================
+
+Validates the depends system configuration before attempting to build.
+This helps catch configuration errors early without needing network access
+or a full build.
+
+Usage:
+```bash
+./contrib/devtools/validate-depends.sh
+```
+
+The script checks:
+- All required package definitions exist (*.mk files)
+- Qt 6 packages are correctly configured
+- XCB libraries for Linux Qt builds are present
+- Qt patches exist and are referenced correctly
+- Configuration files include proper dependencies
+
+Returns:
+- Exit code 0 if all checks pass
+- Exit code 1 if critical errors are found
+
+This is especially useful before attempting to build depends to ensure
+all files are present and correctly configured.

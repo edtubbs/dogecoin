@@ -1,0 +1,96 @@
+#!/usr/bin/env bash
+#
+# An example hook script to verify what is about to be pushed. Called by "git
+# push" after it has checked the remote status, but before anything has been
+# pushed. If this script exits with a non-zero status nothing will be pushed.
+#
+# This hook is called with the following parameters:
+#
+# $1 -- Name of the remote to which the push is being done
+# $2 -- URL to which the push is being done
+#
+# If pushing without setting a remote (i.e., "git push origin master") the
+# remote name and URL will be the same.
+#
+# Information about the commits being pushed is supplied as lines to
+# the standard input in the form:
+#
+#   <local ref> <local sha1> <remote ref> <remote sha1>
+
+set -e
+
+remote="$1"
+url="$2"
+
+# Colors
+RED='\033[0;31m'
+YELLOW='\033[1;33m'
+GREEN='\033[0;32m'
+NC='\033[0m' # No Color
+
+echo ""
+echo -e "${YELLOW}╔══════════════════════════════════════════════════════════════╗${NC}"
+echo -e "${YELLOW}║                  Pre-Push Build Check                        ║${NC}"
+echo -e "${YELLOW}╔══════════════════════════════════════════════════════════════╗${NC}"
+echo ""
+
+# Check if we're pushing changes to source files that would affect the build
+has_build_changes=0
+while read local_ref local_sha remote_ref remote_sha; do
+    if [ "$local_sha" = "0000000000000000000000000000000000000000" ]; then
+        # Handle delete
+        continue
+    fi
+    
+    if [ "$remote_sha" = "0000000000000000000000000000000000000000" ]; then
+        # New branch, check all commits
+        range="$local_sha"
+    else
+        # Update to existing branch, check new commits
+        range="$remote_sha..$local_sha"
+    fi
+    
+    # Check for changes in build-related files
+    if git diff --name-only "$range" | grep -qE '\.(cpp|h|c|hpp|cc|cxx|ac|am|mk|m4)$|^configure|^Makefile|^depends/'; then
+        has_build_changes=1
+        break
+    fi
+done
+
+if [ $has_build_changes -eq 0 ]; then
+    echo -e "${GREEN}No build-related changes detected. Skipping build check.${NC}"
+    echo ""
+    exit 0
+fi
+
+echo -e "${YELLOW}Build-related changes detected!${NC}"
+echo ""
+echo "It's highly recommended to test the build before pushing to avoid CI failures."
+echo ""
+echo "Options:"
+echo "  1. Run quick build test:"
+echo -e "     ${GREEN}./contrib/devtools/test-build-local.sh${NC}"
+echo ""
+echo "  2. Skip check and push anyway:"
+echo -e "     ${YELLOW}git push --no-verify${NC}"
+echo ""
+echo "  3. Cancel push (Ctrl+C or enter 'n' below)"
+echo ""
+
+# Ask user if they want to continue
+read -p "Have you tested the build? (y/N): " -n 1 -r
+echo
+if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+    echo ""
+    echo -e "${RED}Push cancelled. Please test the build first.${NC}"
+    echo ""
+    echo "Run: ./contrib/devtools/test-build-local.sh"
+    echo ""
+    exit 1
+fi
+
+echo ""
+echo -e "${GREEN}Proceeding with push...${NC}"
+echo ""
+
+exit 0

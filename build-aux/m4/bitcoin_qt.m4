@@ -53,8 +53,8 @@ dnl CAUTION: Do not use this inside of a conditional.
 AC_DEFUN([BITCOIN_QT_INIT],[
   dnl enable qt support
   AC_ARG_WITH([gui],
-    [AS_HELP_STRING([--with-gui@<:@=no|qt5|auto@:>@],
-    [build bitcoin-qt GUI (default=auto, qt5 tried first)])],
+    [AS_HELP_STRING([--with-gui@<:@=no|qt6|auto@:>@],
+    [build bitcoin-qt GUI (default=auto, qt6 tried first)])],
     [
      bitcoin_qt_want_version=$withval
      if test x$bitcoin_qt_want_version = xyes; then
@@ -100,10 +100,10 @@ AC_DEFUN([BITCOIN_QT_CONFIGURE],[
   fi
 
   dnl This is ugly and complicated. Yuck. Works as follows:
-  dnl We can't discern whether Qt4 builds are static or not. For Qt5, we can
+  dnl We can't discern whether Qt4 builds are static or not. For Qt6, we can
   dnl check a header to find out. When Qt is built statically, some plugins must
   dnl be linked into the final binary as well. These plugins have changed between
-  dnl Qt4 and Qt5. With Qt5, languages moved into core and the WindowsIntegration
+  dnl Qt4 and Qt6. With Qt6, languages moved into core and the WindowsIntegration
   dnl plugin was added. Since we can't tell if Qt4 is static or not, it is
   dnl assumed for windows builds.
   dnl _BITCOIN_QT_CHECK_STATIC_PLUGINS does a quick link-check and appends the
@@ -120,7 +120,7 @@ AC_DEFUN([BITCOIN_QT_CONFIGURE],[
       AC_DEFINE(QT_STATICPLUGIN, 1, [Define this symbol if qt plugins are static])
       AC_CACHE_CHECK(for Qt < 5.4, bitcoin_cv_need_acc_widget,[AC_COMPILE_IFELSE([AC_LANG_PROGRAM(
           [[#include <QtCore>]],[[
-          #if QT_VERSION >= 0x050400
+          #if QT_VERSION >= 0x060400
           choke;
           #endif
           ]])],
@@ -152,7 +152,7 @@ AC_DEFUN([BITCOIN_QT_CONFIGURE],[
 
   if test x$use_pkgconfig$qt_bin_path = xyes; then
     if test x$bitcoin_qt_got_major_vers = x5; then
-      qt_bin_path="`$PKG_CONFIG --variable=host_bins Qt5Core 2>/dev/null`"
+      qt_bin_path="`$PKG_CONFIG --variable=host_bins Qt6Core 2>/dev/null`"
     fi
   fi
 
@@ -254,26 +254,26 @@ dnl All macros below are internal and should _not_ be used from the main
 dnl configure.ac.
 dnl ----
 
-dnl Internal. Check if the included version of Qt is Qt5.
+dnl Internal. Check if the included version of Qt is Qt6.
 dnl Requires: INCLUDES must be populated as necessary.
-dnl Output: bitcoin_cv_qt5=yes|no
+dnl Output: bitcoin_cv_qt6=yes|no
 AC_DEFUN([_BITCOIN_QT_CHECK_QT5],[
-  AC_CACHE_CHECK(for Qt 5, bitcoin_cv_qt5,[
+  AC_CACHE_CHECK(for Qt 6, bitcoin_cv_qt6,[
   AC_COMPILE_IFELSE([AC_LANG_PROGRAM(
     [[#include <QtCore>]],
     [[
-      #if QT_VERSION < 0x050000
+      #if QT_VERSION < 0x060000
       choke me
       #else
       return 0;
       #endif
     ]])],
-    [bitcoin_cv_qt5=yes],
-    [bitcoin_cv_qt5=no])
+    [bitcoin_cv_qt6=yes],
+    [bitcoin_cv_qt6=no])
 ])])
 
 dnl Internal. Check if the linked version of Qt was built as static libs.
-dnl Requires: Qt5. This check cannot determine if Qt4 is static.
+dnl Requires: Qt6. This check cannot determine if Qt4 is static.
 dnl Requires: INCLUDES and LIBS must be populated as necessary.
 dnl Output: bitcoin_cv_static_qt=yes|no
 dnl Output: Defines QT_STATICPLUGIN if plugins are static.
@@ -331,20 +331,20 @@ AC_DEFUN([_BITCOIN_QT_FIND_STATIC_PLUGINS],[
      if test x$use_pkgconfig = xyes; then
      : dnl
      m4_ifdef([PKG_CHECK_MODULES],[
-       PKG_CHECK_MODULES([QTPLATFORM], [Qt5PlatformSupport], [QT_LIBS="$QTPLATFORM_LIBS $QT_LIBS"])
+       PKG_CHECK_MODULES([QTPLATFORM], [Qt6PlatformSupport], [QT_LIBS="$QTPLATFORM_LIBS $QT_LIBS"])
        if test x$TARGET_OS = xlinux; then
-         if ${PKG_CONFIG} --exists "Qt5Core >= 5.5" 2>/dev/null; then
-           PKG_CHECK_MODULES([QTXCBQPA], [Qt5XcbQpa], [QT_LIBS="$QTXCBQPA_LIBS $QT_LIBS"])
+         if ${PKG_CONFIG} --exists "Qt6Core >= 5.5" 2>/dev/null; then
+           PKG_CHECK_MODULES([QTXCBQPA], [Qt6XcbQpa], [QT_LIBS="$QTXCBQPA_LIBS $QT_LIBS"])
          fi
        elif test x$TARGET_OS = xdarwin; then
-         PKG_CHECK_MODULES([QTPRINT], [Qt5PrintSupport], [QT_LIBS="$QTPRINT_LIBS $QT_LIBS"])
+         PKG_CHECK_MODULES([QTPRINT], [Qt6PrintSupport], [QT_LIBS="$QTPRINT_LIBS $QT_LIBS"])
        fi
      ])
      else
        if test x$TARGET_OS = xwindows; then
          AC_CACHE_CHECK(for Qt >= 5.6, bitcoin_cv_need_platformsupport,[AC_COMPILE_IFELSE([AC_LANG_PROGRAM(
              [[#include <QtCore>]],[[
-             #if QT_VERSION < 0x050600
+             #if QT_VERSION < 0x060600
              choke;
              #endif
              ]])],
@@ -376,16 +376,16 @@ AC_DEFUN([_BITCOIN_QT_FIND_LIBS_WITH_PKGCONFIG],[
   m4_ifdef([PKG_CHECK_MODULES],[
   auto_priority_version=$1
   if test x$auto_priority_version = x; then
-    auto_priority_version=qt5
+    auto_priority_version=qt6
   fi
-    if test x$bitcoin_qt_want_version = xqt5 ||  ( test x$bitcoin_qt_want_version = xauto && test x$auto_priority_version = xqt5 ); then
-      QT_LIB_PREFIX=Qt5
+    if test x$bitcoin_qt_want_version = xqt6 ||  ( test x$bitcoin_qt_want_version = xauto && test x$auto_priority_version = xqt6 ); then
+      QT_LIB_PREFIX=Qt6
       bitcoin_qt_got_major_vers=5
     fi
-    qt5_modules="Qt5Core Qt5Gui Qt5Network Qt5Widgets Qt5PrintSupport"
+    qt6_modules="Qt6Core Qt6Gui Qt6Network Qt6Widgets"
     BITCOIN_QT_CHECK([
-      if test x$bitcoin_qt_want_version = xqt5 || ( test x$bitcoin_qt_want_version = xauto && test x$auto_priority_version = xqt5 ); then
-        PKG_CHECK_MODULES([QT], [$qt5_modules], [QT_INCLUDES="$QT_CFLAGS"; have_qt=yes],[have_qt=no])
+      if test x$bitcoin_qt_want_version = xqt6 || ( test x$bitcoin_qt_want_version = xauto && test x$auto_priority_version = xqt6 ); then
+        PKG_CHECK_MODULES([QT], [$qt6_modules], [QT_INCLUDES="$QT_CFLAGS"; have_qt=yes],[have_qt=no])
       fi
 
       if test x$have_qt != xyes; then
@@ -417,7 +417,7 @@ AC_DEFUN([_BITCOIN_QT_FIND_LIBS_WITHOUT_PKGCONFIG],[
   TEMP_LIBS="$LIBS"
   BITCOIN_QT_CHECK([
     if test x$qt_include_path != x; then
-      QT_INCLUDES="-I$qt_include_path -I$qt_include_path/QtCore -I$qt_include_path/QtGui -I$qt_include_path/QtWidgets -I$qt_include_path/QtNetwork -I$qt_include_path/QtTest -I$qt_include_path/QtDBus -I$qt_include_path/QtPrintSupport"
+      QT_INCLUDES="-I$qt_include_path -I$qt_include_path/QtCore -I$qt_include_path/QtGui -I$qt_include_path/QtWidgets -I$qt_include_path/QtNetwork -I$qt_include_path/QtTest -I$qt_include_path/QtDBus"
       CPPFLAGS="$QT_INCLUDES $CPPFLAGS"
     fi
   ])
@@ -430,8 +430,8 @@ AC_DEFUN([_BITCOIN_QT_FIND_LIBS_WITHOUT_PKGCONFIG],[
     if test x$bitcoin_qt_want_version = xauto; then
       _BITCOIN_QT_CHECK_QT5
     fi
-    if test x$bitcoin_cv_qt5 = xyes || test x$bitcoin_qt_want_version = xqt5; then
-      QT_LIB_PREFIX=Qt5
+    if test x$bitcoin_cv_qt6 = xyes || test x$bitcoin_qt_want_version = xqt6; then
+      QT_LIB_PREFIX=Qt6
       bitcoin_qt_got_major_vers=5
     fi
   ])
@@ -456,7 +456,6 @@ AC_DEFUN([_BITCOIN_QT_FIND_LIBS_WITHOUT_PKGCONFIG],[
   BITCOIN_QT_CHECK(AC_CHECK_LIB([${QT_LIB_PREFIX}Gui]    ,[main],,BITCOIN_QT_FAIL(lib$QT_LIB_PREFIXGui not found)))
   BITCOIN_QT_CHECK(AC_CHECK_LIB([${QT_LIB_PREFIX}Network],[main],,BITCOIN_QT_FAIL(lib$QT_LIB_PREFIXNetwork not found)))
   BITCOIN_QT_CHECK(AC_CHECK_LIB([${QT_LIB_PREFIX}Widgets],[main],,BITCOIN_QT_FAIL(lib$QT_LIB_PREFIXWidgets not found)))
-  BITCOIN_QT_CHECK(AC_CHECK_LIB([${QT_LIB_PREFIX}PrintSupport],[main],,BITCOIN_QT_FAIL(lib$QT_LIB_PREFIXPrintSupport not found)))
   QT_LIBS="$LIBS"
   LIBS="$TEMP_LIBS"
 
