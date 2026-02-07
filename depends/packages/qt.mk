@@ -143,7 +143,6 @@ $(package)_config_opts_linux += -no-feature-xlib
 $(package)_config_opts_linux += -no-xcb-xlib
 $(package)_config_opts_linux += -pkg-config
 $(package)_config_opts_linux += -system-freetype
-$(package)_config_opts_linux += -xcb
 ifneq ($(LTO),)
 $(package)_config_opts_linux += -ltcg
 endif
@@ -207,6 +206,10 @@ $(package)_cmake_opts += -DCMAKE_FRAMEWORK_PATH=$(OSX_SDK)/System/Library/Framew
 $(package)_cmake_opts += -DQT_INTERNAL_APPLE_SDK_VERSION=$(OSX_SDK_VERSION)
 $(package)_cmake_opts += -DQT_INTERNAL_XCODE_VERSION=$(XCODE_VERSION)
 $(package)_cmake_opts += -DQT_NO_APPLE_SDK_MAX_VERSION_CHECK=ON
+endif
+ifeq ($(host_os),linux)
+# Enable XCB support for Linux builds using the XCB libraries from depends
+$(package)_cmake_opts += -DINPUT_xcb=yes
 endif
 endef
 
