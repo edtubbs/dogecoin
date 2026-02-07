@@ -230,3 +230,29 @@ Essential reading for anyone modifying:
 - Build system files (configure.ac, Makefile.am)
 - Dependencies (depends/ directory)
 - Qt-related code
+
+validate-depends.sh
+===================
+
+Validates the depends system configuration before attempting to build.
+This helps catch configuration errors early without needing network access
+or a full build.
+
+Usage:
+```bash
+./contrib/devtools/validate-depends.sh
+```
+
+The script checks:
+- All required package definitions exist (*.mk files)
+- Qt 6 packages are correctly configured
+- XCB libraries for Linux Qt builds are present
+- Qt patches exist and are referenced correctly
+- Configuration files include proper dependencies
+
+Returns:
+- Exit code 0 if all checks pass
+- Exit code 1 if critical errors are found
+
+This is especially useful before attempting to build depends to ensure
+all files are present and correctly configured.
