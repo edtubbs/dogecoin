@@ -162,6 +162,9 @@ $(package)_config_env_darwin += OBJCXX="$$($(package)_cxx)"
 $(package)_cmake_opts := -DCMAKE_PREFIX_PATH=$(host_prefix)
 $(package)_cmake_opts += -DQT_FEATURE_cxx20=ON
 $(package)_cmake_opts += -DQT_ENABLE_CXX_EXTENSIONS=OFF
+# Force Qt to build with older cmake (Ubuntu 20.04 has 3.16, Qt prefers 3.21+)
+# This is not officially supported but necessary for compatibility.
+$(package)_cmake_opts += -DQT_FORCE_MIN_CMAKE_VERSION_FOR_BUILDING_QT=3.16
 ifneq ($(V),)
 $(package)_cmake_opts += --log-level=STATUS
 endif
