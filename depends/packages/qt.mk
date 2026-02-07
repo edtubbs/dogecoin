@@ -208,8 +208,9 @@ $(package)_cmake_opts += -DQT_INTERNAL_XCODE_VERSION=$(XCODE_VERSION)
 $(package)_cmake_opts += -DQT_NO_APPLE_SDK_MAX_VERSION_CHECK=ON
 endif
 ifeq ($(host_os),linux)
-# Enable XCB support for Linux builds using the XCB libraries from depends
-$(package)_cmake_opts += -DINPUT_xcb=yes
+# For Linux, let Qt auto-detect XCB from CMAKE_PREFIX_PATH (our depends).
+# We don't force it with INPUT_xcb as that triggers system library checks.
+# The XCB libraries and dependencies are provided via linux_dependencies above.
 endif
 endef
 
