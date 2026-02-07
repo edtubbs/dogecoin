@@ -244,18 +244,18 @@ def check_ELF_interpreter(binary) -> bool:
     return binary.concrete.interpreter == expected_interpreter
 
 CHECKS = {
-lief.Binary.FORMATS.ELF: [
+lief.EXE_FORMATS.ELF: [
     ('IMPORTED_SYMBOLS', check_imported_symbols),
     ('EXPORTED_SYMBOLS', check_exported_symbols),
     ('LIBRARY_DEPENDENCIES', check_ELF_libraries),
     ('INTERPRETER_NAME', check_ELF_interpreter),
 ],
-lief.Binary.FORMATS.MACHO: [
+lief.EXE_FORMATS.MACHO: [
     ('DYNAMIC_LIBRARIES', check_MACHO_libraries),
     ('MIN_OS', check_MACHO_min_os),
     ('SDK', check_MACHO_sdk),
 ],
-lief.Binary.FORMATS.PE: [
+lief.EXE_FORMATS.PE: [
     ('DYNAMIC_LIBRARIES', check_PE_libraries),
     #('SUBSYSTEM_VERSION', check_PE_subsystem_version),
     #Note: needs to be set during build before we can check for it
@@ -268,7 +268,7 @@ if __name__ == '__main__':
         try:
             binary = lief.parse(filename)
             etype = binary.format
-            if etype == lief.Binary.FORMATS.UNKNOWN:
+            if etype == lief.EXE_FORMATS.UNKNOWN:
                 print(f'{filename}: unknown executable format')
                 retval = 1
                 continue

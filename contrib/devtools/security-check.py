@@ -222,26 +222,26 @@ BASE_MACHO = [
 ]
 
 CHECKS = {
-    lief.Binary.FORMATS.ELF: {
-        #lief.Binary.ARCHITECTURES.X86: BASE_ELF + [('CONTROL_FLOW', check_ELF_control_flow)],
+    lief.EXE_FORMATS.ELF: {
+        #lief.ARCHITECTURES.X86: BASE_ELF + [('CONTROL_FLOW', check_ELF_control_flow)],
         # Note: until gcc8 or higher is used for release binaries,
         # do not check for CONTROL_FLOW
-        lief.Binary.ARCHITECTURES.X86: BASE_ELF,
-        lief.Binary.ARCHITECTURES.ARM: BASE_ELF,
-        lief.Binary.ARCHITECTURES.ARM64: BASE_ELF,
-        lief.Binary.ARCHITECTURES.PPC: BASE_ELF,
-        lief.Binary.ARCHITECTURES.RISCV: BASE_ELF,
+        lief.ARCHITECTURES.X86: BASE_ELF,
+        lief.ARCHITECTURES.ARM: BASE_ELF,
+        lief.ARCHITECTURES.ARM64: BASE_ELF,
+        lief.ARCHITECTURES.PPC: BASE_ELF,
+        lief.ARCHITECTURES.RISCV: BASE_ELF,
     },
-    lief.Binary.FORMATS.PE: {
-        lief.Binary.ARCHITECTURES.X86: BASE_PE,
+    lief.EXE_FORMATS.PE: {
+        lief.ARCHITECTURES.X86: BASE_PE,
     },
-    lief.Binary.FORMATS.MACHO: {
-        lief.Binary.ARCHITECTURES.X86: BASE_MACHO + [('PIE', check_PIE),
+    lief.EXE_FORMATS.MACHO: {
+        lief.ARCHITECTURES.X86: BASE_MACHO + [('PIE', check_PIE),
                                               ('NX', check_NX),
                                               #('CONTROL_FLOW', check_MACHO_control_flow)
                                               # Note: Needs change in boost for -fcf-protection
                                               ],
-        lief.Binary.ARCHITECTURES.ARM64: BASE_MACHO,
+        lief.ARCHITECTURES.ARM64: BASE_MACHO,
     }
 }
 
@@ -254,12 +254,12 @@ if __name__ == '__main__':
             arch = binary.abstract.header.architecture
             binary.concrete
 
-            if etype == lief.Binary.FORMATS.UNKNOWN:
+            if etype == lief.EXE_FORMATS.UNKNOWN:
                 print(f'{filename}: unknown executable format')
                 retval = 1
                 continue
 
-            if arch == lief.Binary.ARCHITECTURES.NONE:
+            if arch == lief.ARCHITECTURES.NONE:
                 print(f'{filename}: unknown architecture')
                 retval = 1
                 continue
