@@ -79,7 +79,6 @@ $(1)_download_path_fixed=$(subst :,\:,$$($(1)_download_path))
 
 #default commands
 # The default behavior for tar will try to set ownership when running as uid 0 and may not succeed, --no-same-owner disables this behavior
-$(1)_patches_path ?= $(PATCHES_PATH)/$(1)
 $(1)_fetch_cmds ?= $(call fetch_file,$(1),$(subst \:,:,$$($(1)_download_path_fixed)),$$($(1)_download_file),$($(1)_file_name),$($(1)_sha256_hash))
 $(1)_extract_cmds ?= mkdir -p $$($(1)_extract_dir) && echo "$$($(1)_sha256_hash)  $$($(1)_source)" > $$($(1)_extract_dir)/.$$($(1)_file_name).hash &&  $(build_SHA256SUM) -c $$($(1)_extract_dir)/.$$($(1)_file_name).hash && tar --no-same-owner --strip-components=1 -xf $$($(1)_source)
 $(1)_preprocess_cmds ?=
@@ -232,6 +231,9 @@ $(foreach package,$(all_packages),$(eval $(call int_vars,$(package))))
 
 #include package files
 $(foreach package,$(all_packages),$(eval include packages/$(package).mk))
+
+#set patches_path defaults after including package files but before computing hashes
+$(foreach package,$(all_packages),$(eval $(package)_patches_path?=$(PATCHES_PATH)/$(package)))
 
 #compute a hash of all files that comprise this package's build recipe
 $(foreach package,$(all_packages),$(eval $(call int_get_build_recipe_hash,$(package))))
