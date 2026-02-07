@@ -28,8 +28,29 @@ To contribute a patch, the workflow is as follows:
   - Create a topic branch from the relevant development branch.
   - Commit changes to the branch.
   - Test your changes, which **must** include the unit and RPC tests passing.
+  - **For build-related changes**: Test the build locally before pushing (see below).
   - Push topic branch to your copy of the repository.
   - Raise a Pull Request via GitHub.
+
+### Testing Builds Before Pushing
+
+If your changes affect the build system (e.g., changes to `configure.ac`, `Makefile.am`, 
+`depends/` directory, or Qt-related files), it's **critical** to test the build locally 
+before pushing to avoid CI failures.
+
+**Quick build test:**
+```bash
+./contrib/devtools/test-build-local.sh
+```
+
+**Set up automatic reminders:**
+```bash
+cp contrib/devtools/pre-push.sample .git/hooks/pre-push
+chmod +x .git/hooks/pre-push
+```
+
+For detailed information about build testing, see 
+[contrib/devtools/BUILD_TESTING.md](contrib/devtools/BUILD_TESTING.md).
 
 The coding conventions in the [developer notes](doc/developer-notes.md) must be
 adhered to.
