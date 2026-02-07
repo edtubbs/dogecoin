@@ -134,7 +134,8 @@ endif
 $(package)_config_opts_darwin := -no-dbus
 $(package)_config_opts_darwin += -no-feature-printsupport
 $(package)_config_opts_darwin += -no-freetype
-$(package)_config_opts_darwin += -no-pkg-config
+# Qt 6 requires pkg-config files for proper module detection
+# $(package)_config_opts_darwin += -no-pkg-config
 
 $(package)_config_opts_linux := -dbus-runtime
 $(package)_config_opts_linux += -fontconfig
@@ -150,7 +151,8 @@ $(package)_config_opts_freebsd := $$($(package)_config_opts_linux)
 
 $(package)_config_opts_mingw32 := -no-dbus
 $(package)_config_opts_mingw32 += -no-freetype
-$(package)_config_opts_mingw32 += -no-pkg-config
+# Qt 6 requires pkg-config files for proper module detection
+# $(package)_config_opts_mingw32 += -no-pkg-config
 
 # CMake build options.
 $(package)_config_env := CC="$$($(package)_cc)"
