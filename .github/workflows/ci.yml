@@ -294,6 +294,12 @@ jobs:
           ./autogen.sh
           # Set PKG_CONFIG_PATH so configure can find Qt .pc files in depends
           export PKG_CONFIG_PATH=`pwd`/depends/${{ matrix.host }}/lib/pkgconfig
+          # Debug: Show what's in pkgconfig directory and verify PKG_CONFIG_PATH
+          echo "PKG_CONFIG_PATH=$PKG_CONFIG_PATH"
+          echo "Contents of pkgconfig directory:"
+          ls -la depends/${{ matrix.host }}/lib/pkgconfig/ || echo "pkgconfig directory does not exist!"
+          echo "Testing pkg-config for Qt6Core:"
+          pkg-config --exists Qt6Core && echo "Qt6Core found" || echo "Qt6Core NOT found"
           ./configure --prefix=`pwd`/depends/${{ matrix.host }} ${{ matrix.config-opts }} --enable-reduce-exports || ( cat config.log && false)
           make $MAKEJOBS ${{ matrix.goal }} || ( echo "Build failure. Verbose build follows." && make ${{ matrix.goal }} V=1 ; false )
 
