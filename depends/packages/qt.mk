@@ -136,6 +136,7 @@ $(package)_config_opts_darwin += -no-feature-printsupport
 $(package)_config_opts_darwin += -no-freetype
 # Qt 6 requires pkg-config files for proper module detection
 # $(package)_config_opts_darwin += -no-pkg-config
+# CACHE_BUST: Force rebuild to generate .pc files - 2026-02-08
 
 $(package)_config_opts_linux := -dbus-runtime
 $(package)_config_opts_linux += -fontconfig
