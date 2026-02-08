@@ -27,6 +27,9 @@ jobs:
       WINEDEBUG: fixme-all
       WINEPREFIX: /tmp/wineprefix/
       SDK_URL: https://depends.dogecoincore.org
+      # Use GCC-11 for Qt 6 C++20 constexpr support
+      CC: gcc-11
+      CXX: g++-11
 
     strategy:
       fail-fast: false
