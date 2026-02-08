@@ -1,5 +1,5 @@
-default_build_CC = gcc
-default_build_CXX = g++
+default_build_CC = $(if $(CC),$(CC),gcc)
+default_build_CXX = $(if $(CXX),$(CXX),g++)
 default_build_AR = ar
 default_build_RANLIB = ranlib
 default_build_STRIP = strip
