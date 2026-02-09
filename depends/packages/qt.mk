@@ -281,6 +281,10 @@ endif
 
 define $(package)_config_cmds
   cd qtbase && \
+  echo "=== Qt Configure Command ===" && \
+  echo "config_opts: $($(package)_config_opts)" && \
+  echo "cmake_opts: $($(package)_cmake_opts)" && \
+  echo "Full command: ./configure -top-level $($(package)_config_opts) -- $($(package)_cmake_opts)" && \
   ./configure -top-level $($(package)_config_opts) -- $($(package)_cmake_opts)
 endef
 
