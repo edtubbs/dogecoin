@@ -2925,9 +2925,12 @@ bool ProcessMessages(CNode* pfrom, CConnman& connman, const std::atomic<bool>& i
                 }
                 state->nMessagesInWindow++;
                 if (state->nMessagesInWindow > MAX_PEER_MSG_RATE) {
-                    LogPrintf("Peer %d exceeded message rate limit (%d msgs in %ds)\n",
-                              pfrom->GetId(), state->nMessagesInWindow, PEER_MSG_RATE_WINDOW);
-                    Misbehaving(pfrom->GetId(), PEER_MSG_RATE_DOS_SCORE);
+                    // Score accumulates across windows; only penalize once per window
+                    if (state->nMessagesInWindow == MAX_PEER_MSG_RATE + 1) {
+                        LogPrintf("Peer %d exceeded message rate limit (%d msgs in %ds)\n",
+                                  pfrom->GetId(), state->nMessagesInWindow, PEER_MSG_RATE_WINDOW);
+                        Misbehaving(pfrom->GetId(), PEER_MSG_RATE_DOS_SCORE);
+                    }
                     return fMoreWork;
                 }
             }

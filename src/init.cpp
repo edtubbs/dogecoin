@@ -874,7 +874,13 @@ bool AppInitBasicSetup()
 
     // MITRE ATT&CK T1003: Lock process memory to prevent sensitive data from being swapped to disk
     if (mlockall(MCL_CURRENT | MCL_FUTURE) == -1) {
-        LogPrintf("WARNING: Failed to lock process memory with mlockall(): %s. Sensitive data may be written to swap.\n", strerror(errno));
+        if (errno == ENOMEM || errno == EPERM) {
+            LogPrintf("WARNING: Failed to lock process memory with mlockall(): %s. "
+                      "Consider adjusting RLIMIT_MEMLOCK or granting CAP_IPC_LOCK capability.\n", strerror(errno));
+        } else {
+            LogPrintf("WARNING: Failed to lock process memory with mlockall(): %s. "
+                      "Sensitive data may be written to swap.\n", strerror(errno));
+        }
     }
 
     // Clean shutdown on SIGTERM

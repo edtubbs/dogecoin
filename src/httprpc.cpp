@@ -182,7 +182,7 @@ static bool HTTPReq_JSONRPC(HTTPRequest* req, const std::string &)
                     LogPrintf("ThreadRPCServer rate-limited connection from %s (%d failures, %ds remaining)\n",
                               peerAddr, it->second.nFailures, RPC_AUTH_LOCKOUT_SECONDS - elapsed);
                     req->WriteHeader("WWW-Authenticate", WWW_AUTH_HEADER_DATA);
-                    req->WriteReply(HTTP_FORBIDDEN);
+                    req->WriteReply(HTTP_TOO_MANY_REQUESTS);
                     return false;
                 }
                 // Lockout period expired, reset counter
@@ -213,10 +213,10 @@ static bool HTTPReq_JSONRPC(HTTPRequest* req, const std::string &)
             nFailures = attempt.nFailures;
         }
 
-        /* Deter brute-forcing with escalating delay
+        /* Deter brute-forcing with escalating delay (capped at 750ms to avoid thread exhaustion).
            If this results in a DoS the user really
            shouldn't have their RPC port exposed. */
-        MilliSleep(250 * std::min(nFailures, RPC_AUTH_MAX_FAILURES));
+        MilliSleep(250 * std::min(nFailures, 3));
 
         req->WriteHeader("WWW-Authenticate", WWW_AUTH_HEADER_DATA);
         req->WriteReply(HTTP_UNAUTHORIZED);
