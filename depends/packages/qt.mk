@@ -166,6 +166,8 @@ $(package)_cmake_opts += -DQT_ENABLE_CXX_EXTENSIONS=OFF
 # Force Qt to build with older cmake (Ubuntu 20.04 has 3.16, Qt prefers 3.21+)
 # This is not officially supported but necessary for compatibility.
 $(package)_cmake_opts += -DQT_FORCE_MIN_CMAKE_VERSION_FOR_BUILDING_QT=3.16
+# Explicitly enable pkg-config file generation via cmake
+$(package)_cmake_opts += -DFEATURE_pkg_config=ON
 ifneq ($(V),)
 $(package)_cmake_opts += --log-level=STATUS
 endif
