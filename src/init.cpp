@@ -51,6 +51,8 @@
 
 #ifndef WIN32
 #include <signal.h>
+#include <sys/mman.h>
+#include <unistd.h>
 #endif
 
 #include <boost/algorithm/string/classification.hpp>
@@ -860,8 +862,19 @@ bool AppInitBasicSetup()
         return InitError("Initializing networking failed");
 
 #ifndef WIN32
+    // MITRE ATT&CK T1548: Warn if running as root (privilege escalation risk)
+    if (geteuid() == 0) {
+        InitWarning(_("WARNING: Running as root is not recommended. This is a security risk."));
+        LogPrintf("WARNING: %s is running as root. Consider using a dedicated unprivileged user.\n", PACKAGE_NAME);
+    }
+
     if (!GetBoolArg("-sysperms", false)) {
         umask(077);
+    }
+
+    // MITRE ATT&CK T1003: Lock process memory to prevent sensitive data from being swapped to disk
+    if (mlockall(MCL_CURRENT | MCL_FUTURE) == -1) {
+        LogPrintf("WARNING: Failed to lock process memory with mlockall(): %s. Sensitive data may be written to swap.\n", strerror(errno));
     }
 
     // Clean shutdown on SIGTERM
@@ -1254,6 +1267,12 @@ bool AppInitMain(boost::thread_group& threadGroup, CScheduler& scheduler)
         uiInterface.InitMessage.connect(SetRPCWarmupStatus);
         if (!AppInitServers(threadGroup))
             return InitError(_("Unable to start HTTP server. See debug log for details."));
+
+        // MITRE ATT&CK T1040: Warn that the RPC interface does not use TLS
+        LogPrintf("WARNING: RPC interface is not encrypted (no TLS). Avoid exposing RPC to untrusted networks.\n");
+        if (mapMultiArgs.count("-rpcallowip")) {
+            LogPrintf("WARNING: RPC is accessible from non-localhost addresses. Ensure a secure tunnel is in use.\n");
+        }
     }
 
     int64_t nStart;
