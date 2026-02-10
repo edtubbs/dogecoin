@@ -4,10 +4,17 @@
 
 // Unit tests for MITRE ATT&CK mitigations
 
+#if defined(HAVE_CONFIG_H)
+#include "config/bitcoin-config.h"
+#endif
+
 #include "net.h"
 #include "net_processing.h"
 #include "validation.h"
+
+#ifdef ENABLE_WALLET
 #include "wallet/crypter.h"
+#endif
 
 #include "test/test_bitcoin.h"
 
@@ -15,6 +22,7 @@
 
 BOOST_FIXTURE_TEST_SUITE(mitre_mitigation_tests, BasicTestingSetup)
 
+#ifdef ENABLE_WALLET
 // T1110: Verify increased KDF default iteration count
 BOOST_AUTO_TEST_CASE(wallet_kdf_minimum_iterations)
 {
@@ -44,6 +52,7 @@ BOOST_AUTO_TEST_CASE(wallet_kdf_encrypt_decrypt)
     BOOST_CHECK(crypter.Decrypt(vchCiphertext, vchDecrypted));
     BOOST_CHECK(vchPlaintext == vchDecrypted);
 }
+#endif // ENABLE_WALLET
 
 // T1499: Verify message rate limiting constants are reasonable
 BOOST_AUTO_TEST_CASE(peer_message_rate_constants)
