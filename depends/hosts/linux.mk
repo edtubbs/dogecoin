@@ -1,3 +1,4 @@
+# CMake system identification for Qt6 cross-compilation
 linux_cmake_system_name=Linux
 linux_cmake_system_version=1
 

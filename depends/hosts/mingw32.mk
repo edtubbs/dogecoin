@@ -1,4 +1,6 @@
+# CMake system identification for Qt6 cross-compilation
 mingw32_cmake_system_name=Windows
+# Minimum Windows version (10 = Windows 10)
 mingw32_cmake_system_version=10
 
 mingw32_CFLAGS=-pipe
