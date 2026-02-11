@@ -1,0 +1,75 @@
+========================================
+Intel 8-Way SHA256 Assembly Fix Summary
+========================================
+
+PROBLEM:
+--------
+The code tried to use Intel's 8-way AVX2 assembly (sha256_oct_avx2) but the 
+C++ data structure didn't match the assembly's expectations, causing data 
+corruption and incorrect hash results.
+
+ROOT CAUSE:
+-----------
+The old SHA256_ARGS structure:
+  - Used void** pointers (pointers to pointer arrays)
+  - Had wrong layout with 3 fields (data, state, inp_size)
+  - Didn't match the assembly's expected memory layout
+
+The assembly expected:
+  - Transposed digest data at offset 0 (256 bytes)
+  - Array of 8 data pointers at offset 256 (64 bytes)
+  - Total: 320 bytes
+
+SOLUTION:
+---------
+Fixed the SHA256_ARGS_AVX2 structure to match assembly expectations:
+
+  typedef struct {
+      uint32_t digest[8][8];              // 256 bytes: transposed digest
+      const unsigned char* data_ptr[8];   // 64 bytes: 8 data pointers  
+  } SHA256_ARGS_AVX2;
+
+Added sha256_process_x8_avx2() helper function that:
+  1. Transposes input states into digest[word][lane] format
+  2. Sets up data pointers
+  3. Calls assembly function
+  4. Transposes output back
+
+CHANGES MADE:
+-------------
+1. src/crypto/sha256.cpp
+   - Fixed SHA256_ARGS_AVX2 structure (lines 57-66)
+   - Added sha256_process_x8_avx2() helper (lines 70-105)
+   - Updated Transform_AVX2() documentation (lines 309-327)
+
+2. INTEL_8WAY_SHA256_FIX.md (new)
+   - Comprehensive documentation of the fix
+   - Usage examples and best practices
+
+3. src/crypto/sha256_8way_example.cpp (new)
+   - Code example showing correct usage
+   - Documents common mistakes to avoid
+
+KEY INSIGHTS:
+-------------
+- The 8-way function processes 8 INDEPENDENT hashes in parallel
+- NOT for accelerating sequential blocks of a single hash
+- Requires data transposition: digest[word][lane] format
+- Best for: mining, batch validation, parallel workloads
+
+VERIFICATION:
+-------------
+Created test program confirming structure layout:
+  ✓ Total size: 320 bytes
+  ✓ digest offset: 0, size: 256 bytes
+  ✓ data_ptr offset: 256, size: 64 bytes
+
+BUILD:
+------
+Enable with: ./configure --with-intel-avx2-8way
+
+FILES MODIFIED:
+---------------
+- src/crypto/sha256.cpp (modified)
+- INTEL_8WAY_SHA256_FIX.md (new)
+- src/crypto/sha256_8way_example.cpp (new)
