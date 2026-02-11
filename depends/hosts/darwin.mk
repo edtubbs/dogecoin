@@ -9,6 +9,9 @@ clangxx_prog=$(clang_prog)++
 darwin_CC=$(build_prefix)/bin/clang -target $(host) -mmacosx-version-min=$(OSX_MIN_VERSION) --sysroot $(OSX_SDK) -mlinker-version=$(LD64_VERSION)
 darwin_CXX=$(clang_prog)++ -target $(host) -mmacosx-version-min=$(OSX_MIN_VERSION) --sysroot $(OSX_SDK) -mlinker-version=$(LD64_VERSION) -stdlib=libc++
 
+darwin_cmake_system_name=Darwin
+darwin_cmake_system_version=1
+
 darwin_CFLAGS=-pipe
 darwin_CXXFLAGS=$(darwin_CFLAGS)
 

@@ -1,3 +1,6 @@
+mingw32_cmake_system_name=Windows
+mingw32_cmake_system_version=10
+
 mingw32_CFLAGS=-pipe
 mingw32_CXXFLAGS=$(mingw32_CFLAGS)
 
