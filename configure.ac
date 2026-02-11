@@ -715,8 +715,14 @@ fi
 
 BITCOIN_QT_INIT
 
+dnl Qt 6 static builds don't generate pkg-config files reliably.
+dnl Force use of direct library detection instead of pkg-config.
+dnl This uses _BITCOIN_QT_FIND_LIBS_WITHOUT_PKGCONFIG which finds Qt
+dnl libraries directly in the depends directory.
+use_pkgconfig_qt=no
+
 dnl sets $bitcoin_enable_qt, $bitcoin_enable_qt_test, $bitcoin_enable_qt_dbus
-BITCOIN_QT_CONFIGURE([$use_pkgconfig], [qt6])
+BITCOIN_QT_CONFIGURE([$use_pkgconfig_qt], [qt6])
 
 if test x$build_bitcoin_utils$build_bitcoind$bitcoin_enable_qt$use_tests$use_bench = xnonononono; then
     use_boost=no
