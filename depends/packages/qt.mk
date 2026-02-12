@@ -16,6 +16,7 @@ $(package)_patches += qtbase_platformsupport.patch
 $(package)_patches += qtbase_plugins_cocoa.patch
 $(package)_patches += qtbase_plugins_windows11style.patch
 $(package)_patches += qtbase_skip_tools.patch
+$(package)_patches += qtbase_mingw_fixes.patch
 $(package)_patches += rcc_hardcode_timestamp.patch
 $(package)_patches += qttools_skip_dependencies.patch
 $(package)_patches += static_fixes.patch
@@ -173,17 +174,21 @@ $(package)_cmake_opts += --log-level=STATUS
 endif
 
 $(package)_cmake_opts += -DQT_USE_DEFAULT_CMAKE_OPTIMIZATION_FLAGS=ON
-$(package)_cmake_opts += -DCMAKE_C_FLAGS="$$($(package)_cppflags) $$($$($(package)_type)_CFLAGS) -ffile-prefix-map=$$($(package)_extract_dir)=/usr"
+$(package)_cmake_prefix_map_flag := -ffile-prefix-map=$$($(package)_extract_dir)=/usr
+ifeq ($(host_os),darwin)
+$(package)_cmake_prefix_map_flag :=
+endif
+$(package)_cmake_opts += -DCMAKE_C_FLAGS="$$($(package)_cppflags) $$($$($(package)_type)_CFLAGS) $($(package)_cmake_prefix_map_flag)"
 $(package)_cmake_opts += -DCMAKE_C_FLAGS_RELEASE="$$($$($(package)_type)_release_CFLAGS)"
 $(package)_cmake_opts += -DCMAKE_C_FLAGS_DEBUG="$$($$($(package)_type)_debug_CFLAGS)"
-$(package)_cmake_opts += -DCMAKE_CXX_FLAGS="$$($(package)_cppflags) $$($$($(package)_type)_CXXFLAGS) -ffile-prefix-map=$$($(package)_extract_dir)=/usr"
+$(package)_cmake_opts += -DCMAKE_CXX_FLAGS="$$($(package)_cppflags) $$($$($(package)_type)_CXXFLAGS) $($(package)_cmake_prefix_map_flag)"
 $(package)_cmake_opts += -DCMAKE_CXX_FLAGS_RELEASE="$$($$($(package)_type)_release_CXXFLAGS)"
 $(package)_cmake_opts += -DCMAKE_CXX_FLAGS_DEBUG="$$($$($(package)_type)_debug_CXXFLAGS)"
 ifeq ($(host_os),darwin)
-$(package)_cmake_opts += -DCMAKE_OBJC_FLAGS="$$($(package)_cppflags) $$($$($(package)_type)_CFLAGS) -ffile-prefix-map=$$($(package)_extract_dir)=/usr"
+$(package)_cmake_opts += -DCMAKE_OBJC_FLAGS="$$($(package)_cppflags) $$($$($(package)_type)_CFLAGS) $($(package)_cmake_prefix_map_flag)"
 $(package)_cmake_opts += -DCMAKE_OBJC_FLAGS_RELEASE="$$($$($(package)_type)_release_CFLAGS)"
 $(package)_cmake_opts += -DCMAKE_OBJC_FLAGS_DEBUG="$$($$($(package)_type)_debug_CFLAGS)"
-$(package)_cmake_opts += -DCMAKE_OBJCXX_FLAGS="$$($(package)_cppflags) $$($$($(package)_type)_CXXFLAGS) -ffile-prefix-map=$$($(package)_extract_dir)=/usr"
+$(package)_cmake_opts += -DCMAKE_OBJCXX_FLAGS="$$($(package)_cppflags) $$($$($(package)_type)_CXXFLAGS) $($(package)_cmake_prefix_map_flag)"
 $(package)_cmake_opts += -DCMAKE_OBJCXX_FLAGS_RELEASE="$$($$($(package)_type)_release_CXXFLAGS)"
 $(package)_cmake_opts += -DCMAKE_OBJCXX_FLAGS_DEBUG="$$($$($(package)_type)_debug_CXXFLAGS)"
 endif
@@ -212,9 +217,8 @@ $(package)_cmake_opts += -DQT_INTERNAL_XCODE_VERSION=$(XCODE_VERSION)
 $(package)_cmake_opts += -DQT_NO_APPLE_SDK_MAX_VERSION_CHECK=ON
 endif
 ifeq ($(host_os),linux)
-# For Linux, let Qt auto-detect XCB from CMAKE_PREFIX_PATH (our depends).
-# We don't force it with INPUT_xcb as that triggers system library checks.
-# The XCB libraries and dependencies are provided via linux_dependencies above.
+# Explicitly enable XCB to ensure the qxcb platform plugin is built.
+$(package)_cmake_opts += -DINPUT_xcb=yes
 endif
 endef
 
