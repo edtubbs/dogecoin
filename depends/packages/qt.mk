@@ -192,9 +192,6 @@ $(package)_cmake_opts += -DCMAKE_EXE_LINKER_FLAGS_RELEASE="$$($$($(package)_type
 $(package)_cmake_opts += -DCMAKE_EXE_LINKER_FLAGS_DEBUG="$$($$($(package)_type)_debug_LDFLAGS)"
 
 ifneq ($(host),$(build))
-$(package)_cmake_opts += -DCMAKE_SYSTEM_NAME=$($(host_os)_cmake_system_name)
-$(package)_cmake_opts += -DCMAKE_SYSTEM_VERSION=$($(host_os)_cmake_system_version)
-$(package)_cmake_opts += -DCMAKE_SYSTEM_PROCESSOR=$(host_arch)
 # Native packages cannot be used during cross-compiling. However,
 # Qt still unconditionally tries to find them, which causes issues
 # in some cases, such as when cross-compiling from macOS to Windows.
@@ -204,12 +201,36 @@ $(package)_cmake_opts += -DCMAKE_DISABLE_FIND_PACKAGE_WrapSystemDoubleConversion
 $(package)_cmake_opts += -DCMAKE_DISABLE_FIND_PACKAGE_WrapSystemMd4c=TRUE
 $(package)_cmake_opts += -DCMAKE_DISABLE_FIND_PACKAGE_WrapZSTD=TRUE
 endif
+# For Windows/macOS cross-compilation, CMake needs CMAKE_SYSTEM_NAME set to
+# the target OS so it enters cross-compilation mode and builds platform-specific
+# code (e.g., Windows headers, Objective-C for macOS). We also need explicit
+# compiler paths since CMake won't auto-detect cross-compilers.
+# For Linux targets (even with differing host triplets), we don't set
+# CMAKE_SYSTEM_NAME because the build machine is already Linux, and setting
+# it would unnecessarily trigger cross-compilation mode, breaking Qt's
+# auto-detection of XCB and other Linux-specific dependencies.
+ifeq ($(host_os),mingw32)
+$(package)_cmake_opts += -DCMAKE_SYSTEM_NAME=$($(host_os)_cmake_system_name)
+$(package)_cmake_opts += -DCMAKE_SYSTEM_VERSION=$($(host_os)_cmake_system_version)
+$(package)_cmake_opts += -DCMAKE_SYSTEM_PROCESSOR=$(host_arch)
+$(package)_cmake_opts += -DCMAKE_C_COMPILER=$$($(package)_cc)
+$(package)_cmake_opts += -DCMAKE_CXX_COMPILER=$$($(package)_cxx)
+endif
 ifeq ($(host_os),darwin)
+$(package)_cmake_opts += -DCMAKE_SYSTEM_NAME=$($(host_os)_cmake_system_name)
+$(package)_cmake_opts += -DCMAKE_SYSTEM_VERSION=$($(host_os)_cmake_system_version)
+$(package)_cmake_opts += -DCMAKE_SYSTEM_PROCESSOR=$(host_arch)
+$(package)_cmake_opts += -DCMAKE_C_COMPILER=$$($(package)_cc)
+$(package)_cmake_opts += -DCMAKE_CXX_COMPILER=$$($(package)_cxx)
 $(package)_cmake_opts += -DCMAKE_INSTALL_NAME_TOOL=true
 $(package)_cmake_opts += -DCMAKE_FRAMEWORK_PATH=$(OSX_SDK)/System/Library/Frameworks
 $(package)_cmake_opts += -DQT_INTERNAL_APPLE_SDK_VERSION=$(OSX_SDK_VERSION)
 $(package)_cmake_opts += -DQT_INTERNAL_XCODE_VERSION=$(XCODE_VERSION)
 $(package)_cmake_opts += -DQT_NO_APPLE_SDK_MAX_VERSION_CHECK=ON
+# Darwin cross-compilation requires explicit Objective-C compiler settings.
+# The cross-clang handles Objective-C natively.
+$(package)_cmake_opts += -DCMAKE_OBJC_COMPILER=$$($(package)_cc)
+$(package)_cmake_opts += -DCMAKE_OBJCXX_COMPILER=$$($(package)_cxx)
 endif
 ifeq ($(host_os),linux)
 # For Linux, let Qt auto-detect XCB from CMAKE_PREFIX_PATH (our depends).

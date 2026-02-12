@@ -292,11 +292,15 @@ jobs:
         run: |
           depends/${{ matrix.host }}/native/bin/ccache --max-size=$CCACHE_SIZE
           ./autogen.sh
-          # Debug: Check if Qt .pc files exist before configure
+          # Debug: Check if Qt .pc files and plugins exist before configure
           echo "=== Checking for Qt .pc files ==="
           find depends/${{ matrix.host }} -name "*.pc" -type f | grep -i qt || echo "No Qt .pc files found"
           echo "=== Contents of depends/${{ matrix.host }}/lib/pkgconfig/ ==="
           ls -la depends/${{ matrix.host }}/lib/pkgconfig/ 2>/dev/null || echo "pkgconfig directory does not exist"
+          echo "=== Checking for Qt plugins ==="
+          find depends/${{ matrix.host }} -name "libqxcb*" -o -name "libqwindows*" -o -name "libqcocoa*" 2>/dev/null || echo "No Qt platform plugins found"
+          echo "=== Checking plugins directory ==="
+          ls -laR depends/${{ matrix.host }}/plugins/ 2>/dev/null || echo "No plugins directory"
           echo "=== Running configure ==="
           # PKG_CONFIG_PATH is set by config.site (from depends/config.site.in)
           ./configure --prefix=`pwd`/depends/${{ matrix.host }} ${{ matrix.config-opts }} --enable-reduce-exports || ( cat config.log && false)
