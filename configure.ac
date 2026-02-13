@@ -323,11 +323,13 @@ AC_ARG_WITH([daemon],
   [build_bitcoind=yes])
 
 use_pkgconfig=yes
+use_pkgconfig_qt=$use_pkgconfig
 case $host in
   *mingw*)
 
-     #pkgconfig does more harm than good with MinGW
-     use_pkgconfig=no
+      #pkgconfig does more harm than good with MinGW
+      use_pkgconfig=no
+      use_pkgconfig_qt=yes
 
      TARGET_OS=windows
      AC_CHECK_LIB([mingwthrd],      [main],, AC_MSG_ERROR(lib missing))
@@ -726,7 +728,7 @@ fi
 BITCOIN_QT_INIT
 
 dnl sets $bitcoin_enable_qt, $bitcoin_enable_qt_test, $bitcoin_enable_qt_dbus
-BITCOIN_QT_CONFIGURE([$use_pkgconfig], [qt5])
+BITCOIN_QT_CONFIGURE([$use_pkgconfig_qt], [qt5])
 
 if test x$build_bitcoin_utils$build_bitcoind$bitcoin_enable_qt$use_tests$use_bench = xnonononono; then
     use_boost=no
