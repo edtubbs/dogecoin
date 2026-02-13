@@ -145,6 +145,7 @@ $(package)_config_opts_linux += -no-feature-xlib
 $(package)_config_opts_linux += -no-xcb-xlib
 $(package)_config_opts_linux += -pkg-config
 $(package)_config_opts_linux += -system-freetype
+$(package)_cppflags_linux += -I$(host_prefix)/include/xcb-shared
 ifneq ($(LTO),)
 $(package)_config_opts_linux += -ltcg
 endif
