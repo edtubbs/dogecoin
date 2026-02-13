@@ -219,6 +219,7 @@ endif
 ifeq ($(host_os),linux)
 # Explicitly enable XCB to ensure the qxcb platform plugin is built.
 $(package)_cmake_opts += -DINPUT_xcb=yes
+$(package)_cmake_opts += -DTEST_xcb_syslibs=ON
 endif
 endef
 
