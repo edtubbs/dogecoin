@@ -329,7 +329,7 @@ case $host in
 
       #pkgconfig does more harm than good with MinGW
       use_pkgconfig=no
-      use_pkgconfig_qt=yes
+      use_pkgconfig_qt=no
 
      TARGET_OS=windows
      AC_CHECK_LIB([mingwthrd],      [main],, AC_MSG_ERROR(lib missing))
