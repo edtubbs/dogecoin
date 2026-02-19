@@ -21,14 +21,14 @@ Reference: https://raw.githubusercontent.com/edtubbs/pups/d6f530e74f76a63a1eb4c6
 
 | SPV Metric | Core Implementation | Notes |
 |------------|---------------------|-------|
-| smpv_mempool_txs | smpv_mempool_txs | mempool.size() |
-| smpv_total_bytes | smpv_total_bytes | mempool.DynamicMemoryUsage() |
-| smpv_types_p2pkh | smpv_types_p2pkh | Counted from mempool transactions |
-| smpv_types_p2sh | smpv_types_p2sh | Counted from mempool transactions |
-| smpv_types_multisig | smpv_types_multisig | Counted from mempool transactions |
-| smpv_types_op_return | smpv_types_op_return | Counted from mempool transactions |
-| smpv_types_nonstandard | smpv_types_nonstandard | Counted from mempool transactions |
-| smpv_types_vout_total | smpv_types_vout_total | Total outputs in mempool |
+| smpv_mempool_txs | mempool_tx_count | mempool.size() |
+| smpv_total_bytes | mempool_total_bytes | mempool.DynamicMemoryUsage() |
+| smpv_types_p2pkh | mempool_p2pkh_count | Counted from mempool transactions |
+| smpv_types_p2sh | mempool_p2sh_count | Counted from mempool transactions |
+| smpv_types_multisig | mempool_multisig_count | Counted from mempool transactions |
+| smpv_types_op_return | mempool_op_return_count | Counted from mempool transactions |
+| smpv_types_nonstandard | mempool_nonstandard_count | Counted from mempool transactions |
+| smpv_types_vout_total | mempool_output_count | Total outputs in mempool |
 
 ### ✅ Rolling Statistics (100 blocks)
 

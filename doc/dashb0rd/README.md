@@ -19,14 +19,14 @@ Returns blockchain and network metrics formatted for dogebox dashboard integrati
   "chain_tip_difficulty": 8912345.67,
   "chain_tip_time": "2026-02-06T02:00:00",
   "chain_tip_bits_hex": "0x1a01ffff",
-  "smpv_mempool_txs": 1234,
-  "smpv_total_bytes": 5678900,
-  "smpv_types_p2pkh": 4500,
-  "smpv_types_p2sh": 123,
-  "smpv_types_multisig": 45,
-  "smpv_types_op_return": 12,
-  "smpv_types_nonstandard": 3,
-  "smpv_types_vout_total": 4683,
+  "mempool_tx_count": 1234,
+  "mempool_total_bytes": 5678900,
+  "mempool_p2pkh_count": 4500,
+  "mempool_p2sh_count": 123,
+  "mempool_multisig_count": 45,
+  "mempool_op_return_count": 12,
+  "mempool_nonstandard_count": 3,
+  "mempool_output_count": 4683,
   "stats_blocks": 100,
   "stats_transactions": 23456,
   "stats_tps": 3.89,
@@ -50,14 +50,14 @@ Returns blockchain and network metrics formatted for dogebox dashboard integrati
 
 ### Mempool Metrics
 
-- **smpv_mempool_txs** (integer): Number of transactions in the mempool
-- **smpv_total_bytes** (integer): Total memory usage of the mempool in bytes
-- **smpv_types_p2pkh** (integer): Count of Pay-to-PubKey-Hash outputs in mempool
-- **smpv_types_p2sh** (integer): Count of Pay-to-Script-Hash outputs in mempool
-- **smpv_types_multisig** (integer): Count of multisig outputs in mempool
-- **smpv_types_op_return** (integer): Count of OP_RETURN outputs in mempool
-- **smpv_types_nonstandard** (integer): Count of nonstandard outputs in mempool
-- **smpv_types_vout_total** (integer): Total number of outputs across all mempool transactions
+- **mempool_tx_count** (integer): Number of transactions in the mempool
+- **mempool_total_bytes** (integer): Total memory usage of the mempool in bytes
+- **mempool_p2pkh_count** (integer): Count of Pay-to-PubKey-Hash outputs in mempool
+- **mempool_p2sh_count** (integer): Count of Pay-to-Script-Hash outputs in mempool
+- **mempool_multisig_count** (integer): Count of multisig outputs in mempool
+- **mempool_op_return_count** (integer): Count of OP_RETURN outputs in mempool
+- **mempool_nonstandard_count** (integer): Count of nonstandard outputs in mempool
+- **mempool_output_count** (integer): Total number of outputs across all mempool transactions
 
 ### Rolling Statistics (Last 100 Blocks)
 

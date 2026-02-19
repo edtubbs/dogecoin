@@ -1282,14 +1282,14 @@ UniValue getdashboardmetrics(const JSONRPCRequest& request)
             "  \"chain_tip_difficulty\": x,            (numeric) current difficulty\n"
             "  \"chain_tip_time\": \"xxxx\",           (string) chain tip time in ISO-8601 format\n"
             "  \"chain_tip_bits_hex\": \"0xxxxx\",     (string) compact difficulty bits in hex\n"
-            "  \"smpv_mempool_txs\": x,                (numeric) count of transactions in mempool\n"
-            "  \"smpv_total_bytes\": x,                (numeric) total mempool size in bytes\n"
-            "  \"smpv_types_p2pkh\": x,                (numeric) P2PKH outputs in mempool\n"
-            "  \"smpv_types_p2sh\": x,                 (numeric) P2SH outputs in mempool\n"
-            "  \"smpv_types_multisig\": x,             (numeric) multisig outputs in mempool\n"
-            "  \"smpv_types_op_return\": x,            (numeric) OP_RETURN outputs in mempool\n"
-            "  \"smpv_types_nonstandard\": x,          (numeric) nonstandard outputs in mempool\n"
-            "  \"smpv_types_vout_total\": x,           (numeric) total outputs in mempool\n"
+            "  \"mempool_tx_count\": x,                (numeric) count of transactions in mempool\n"
+            "  \"mempool_total_bytes\": x,             (numeric) total mempool size in bytes\n"
+            "  \"mempool_p2pkh_count\": x,             (numeric) P2PKH outputs in mempool\n"
+            "  \"mempool_p2sh_count\": x,              (numeric) P2SH outputs in mempool\n"
+            "  \"mempool_multisig_count\": x,          (numeric) multisig outputs in mempool\n"
+            "  \"mempool_op_return_count\": x,         (numeric) OP_RETURN outputs in mempool\n"
+            "  \"mempool_nonstandard_count\": x,       (numeric) nonstandard outputs in mempool\n"
+            "  \"mempool_output_count\": x,            (numeric) total outputs in mempool\n"
             "  \"stats_blocks\": x,                    (numeric) blocks analyzed in rolling window\n"
             "  \"stats_transactions\": x,              (numeric) total transactions in rolling window\n"
             "  \"stats_tps\": x,                       (numeric) estimated transactions per second\n"
@@ -1326,8 +1326,8 @@ UniValue getdashboardmetrics(const JSONRPCRequest& request)
     {
         LOCK(mempool.cs);
         
-        result.pushKV("smpv_mempool_txs", (int64_t)mempool.size());
-        result.pushKV("smpv_total_bytes", (int64_t)mempool.DynamicMemoryUsage());
+        result.pushKV("mempool_tx_count", (int64_t)mempool.size());
+        result.pushKV("mempool_total_bytes", (int64_t)mempool.DynamicMemoryUsage());
         
         // Count output types in mempool
         int64_t p2pkh_count = 0;
@@ -1371,12 +1371,12 @@ UniValue getdashboardmetrics(const JSONRPCRequest& request)
             }
         }
         
-        result.pushKV("smpv_types_p2pkh", (int64_t)p2pkh_count);
-        result.pushKV("smpv_types_p2sh", (int64_t)p2sh_count);
-        result.pushKV("smpv_types_multisig", (int64_t)multisig_count);
-        result.pushKV("smpv_types_op_return", (int64_t)op_return_count);
-        result.pushKV("smpv_types_nonstandard", (int64_t)nonstandard_count);
-        result.pushKV("smpv_types_vout_total", (int64_t)total_vouts);
+        result.pushKV("mempool_p2pkh_count", (int64_t)p2pkh_count);
+        result.pushKV("mempool_p2sh_count", (int64_t)p2sh_count);
+        result.pushKV("mempool_multisig_count", (int64_t)multisig_count);
+        result.pushKV("mempool_op_return_count", (int64_t)op_return_count);
+        result.pushKV("mempool_nonstandard_count", (int64_t)nonstandard_count);
+        result.pushKV("mempool_output_count", (int64_t)total_vouts);
     }
     
     // Rolling statistics (last 100 blocks)
