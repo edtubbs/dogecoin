@@ -6,6 +6,7 @@
 #include "walletframe.h"
 
 #include "bitcoingui.h"
+#include "dashb0rd.h"
 #include "walletview.h"
 
 #include <cstdio>
@@ -17,7 +18,8 @@
 WalletFrame::WalletFrame(const PlatformStyle *_platformStyle, BitcoinGUI *_gui) :
     QFrame(_gui),
     gui(_gui),
-    platformStyle(_platformStyle)
+    platformStyle(_platformStyle),
+    dashb0rd(nullptr)
 {
     // Leave HBox hook for adding a list view later
     QHBoxLayout *walletFrameLayout = new QHBoxLayout(this);
@@ -29,6 +31,10 @@ WalletFrame::WalletFrame(const PlatformStyle *_platformStyle, BitcoinGUI *_gui) 
     QLabel *noWallet = new QLabel(tr("No wallet has been loaded."));
     noWallet->setAlignment(Qt::AlignCenter);
     walletStack->addWidget(noWallet);
+    
+    // Create dashboard widget
+    dashb0rd = new Dashb0rd(platformStyle, this);
+    walletStack->addWidget(dashb0rd);
 }
 
 WalletFrame::~WalletFrame()
@@ -38,6 +44,11 @@ WalletFrame::~WalletFrame()
 void WalletFrame::setClientModel(ClientModel *_clientModel)
 {
     this->clientModel = _clientModel;
+    
+    // Set client model for dashboard
+    if (dashb0rd) {
+        dashb0rd->setClientModel(_clientModel);
+    }
 }
 
 bool WalletFrame::addWallet(const QString& name, WalletModel *walletModel)
@@ -150,6 +161,12 @@ void WalletFrame::gotoVerifyMessageTab(QString addr)
     WalletView *walletView = currentWalletView();
     if (walletView)
         walletView->gotoVerifyMessageTab(addr);
+}
+
+void WalletFrame::gotoDashb0rdPage()
+{
+    if (dashb0rd)
+        walletStack->setCurrentWidget(dashb0rd);
 }
 
 void WalletFrame::encryptWallet(bool status)

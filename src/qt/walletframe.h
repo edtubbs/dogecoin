@@ -11,6 +11,7 @@
 
 class BitcoinGUI;
 class ClientModel;
+class Dashb0rd;
 class PlatformStyle;
 class SendCoinsRecipient;
 class WalletModel;
@@ -55,6 +56,7 @@ private:
     BitcoinGUI *gui;
     ClientModel *clientModel;
     QMap<QString, WalletView*> mapWalletViews;
+    Dashb0rd *dashb0rd;
 
     bool bOutOfSync;
 
@@ -71,6 +73,8 @@ public Q_SLOTS:
     void gotoReceiveCoinsPage();
     /** Switch to send coins page */
     void gotoSendCoinsPage(QString addr = "");
+    /** Switch to dashboard page */
+    void gotoDashb0rdPage();
 
     /** Show Sign/Verify Message dialog and switch to sign message tab */
     void gotoSignMessageTab(QString addr = "");
