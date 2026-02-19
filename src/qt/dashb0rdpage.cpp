@@ -13,12 +13,7 @@
 #include "platformstyle.h"
 #include "sparklinewidget.h"
 
-#include "rpc/client.h"
-#include "rpc/protocol.h"
 #include "util.h"
-#include "utilstrencodings.h"
-
-#include <univalue.h>
 
 #include <QDateTime>
 #include <QFont>
@@ -272,13 +267,10 @@ void Dashb0rdPage::pollStats()
         return;
     }
 
-    // Call getdashboardmetrics RPC
+    // Get metrics directly from ClientModel
+    // In a production implementation, you could call the getdashboardmetrics RPC
     try {
-        UniValue params(UniValue::VARR);
-        UniValue result = m_clientModel->getChainTipBlockHash(); // We'll use a different approach
-        
-        // For now, get metrics directly from ClientModel
-        // In a production implementation, you'd call the RPC through the client
+        // Using ClientModel methods for now instead of RPC
         
         // Network stats (available from ClientModel)
         const int conns = m_clientModel->getNumConnections();
