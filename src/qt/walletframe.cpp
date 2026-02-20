@@ -239,7 +239,14 @@ void WalletFrame::usedReceivingAddresses()
 
 WalletView *WalletFrame::currentWalletView()
 {
-    return qobject_cast<WalletView*>(walletStack->currentWidget());
+    WalletView* current = qobject_cast<WalletView*>(walletStack->currentWidget());
+    if (current) {
+        return current;
+    }
+    if (!mapWalletViews.isEmpty()) {
+        return mapWalletViews.constBegin().value();
+    }
+    return nullptr;
 }
 
 void WalletFrame::outOfSyncWarningClicked()

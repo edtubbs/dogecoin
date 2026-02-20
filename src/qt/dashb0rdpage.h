@@ -14,6 +14,7 @@ class QLabel;
 class QTimer;
 class SparklineWidget;
 class WalletModel;
+class QString;
 
 class Dashb0rdPage : public QWidget
 {
@@ -31,6 +32,7 @@ private Q_SLOTS:
 
 private:
     void pushSample(QVector<double>& series, SparklineWidget* spark, double value);
+    QWidget* createMetricBox(const QString& label, QLabel*& valueLabel, SparklineWidget*& spark);
 
     ClientModel* m_clientModel;
     WalletModel* m_walletModel;
@@ -45,7 +47,13 @@ private:
     QLabel* m_chainTipTimeValue;
     QLabel* m_chainTipBitsValue;
     SparklineWidget* m_chainTipHeightSpark;
+    SparklineWidget* m_chainTipDifficultySpark;
+    SparklineWidget* m_chainTipTimeSpark;
+    SparklineWidget* m_chainTipBitsSpark;
     QVector<double> m_chainTipHeightSeries;
+    QVector<double> m_chainTipDifficultySeries;
+    QVector<double> m_chainTipTimeSeries;
+    QVector<double> m_chainTipBitsSeries;
 
     // Mempool Metrics
     QLabel* m_mempoolTxCountValue;
@@ -56,10 +64,22 @@ private:
     QLabel* m_mempoolOpReturnValue;
     QLabel* m_mempoolNonstandardValue;
     QLabel* m_mempoolOutputCountValue;
-    SparklineWidget* m_mempoolTxSpark;
-    SparklineWidget* m_mempoolBytesSpark;
-    QVector<double> m_mempoolTxSeries;
-    QVector<double> m_mempoolBytesSeries;
+    SparklineWidget* m_mempoolTxCountSpark;
+    SparklineWidget* m_mempoolTotalBytesSpark;
+    SparklineWidget* m_mempoolP2pkhSpark;
+    SparklineWidget* m_mempoolP2shSpark;
+    SparklineWidget* m_mempoolMultisigSpark;
+    SparklineWidget* m_mempoolOpReturnSpark;
+    SparklineWidget* m_mempoolNonstandardSpark;
+    SparklineWidget* m_mempoolOutputCountSpark;
+    QVector<double> m_mempoolTxCountSeries;
+    QVector<double> m_mempoolTotalBytesSeries;
+    QVector<double> m_mempoolP2pkhSeries;
+    QVector<double> m_mempoolP2shSeries;
+    QVector<double> m_mempoolMultisigSeries;
+    QVector<double> m_mempoolOpReturnSeries;
+    QVector<double> m_mempoolNonstandardSeries;
+    QVector<double> m_mempoolOutputCountSeries;
 
     // Rolling Stats Metrics
     QLabel* m_statsBlocksValue;
@@ -70,17 +90,27 @@ private:
     QLabel* m_statsBytesValue;
     QLabel* m_statsMedianFeeValue;
     QLabel* m_statsAvgFeeValue;
+    SparklineWidget* m_statsBlocksSpark;
+    SparklineWidget* m_statsTransactionsSpark;
     SparklineWidget* m_statsTpsSpark;
+    SparklineWidget* m_statsVolumeSpark;
+    SparklineWidget* m_statsOutputsSpark;
+    SparklineWidget* m_statsBytesSpark;
+    SparklineWidget* m_statsMedianFeeSpark;
+    SparklineWidget* m_statsAvgFeeSpark;
+    QVector<double> m_statsBlocksSeries;
+    QVector<double> m_statsTransactionsSeries;
     QVector<double> m_statsTpsSeries;
+    QVector<double> m_statsVolumeSeries;
+    QVector<double> m_statsOutputsSeries;
+    QVector<double> m_statsBytesSeries;
+    QVector<double> m_statsMedianFeeSeries;
+    QVector<double> m_statsAvgFeeSeries;
 
     // Uptime
     QLabel* m_uptimeValue;
-
-    // Network (for comparison with old metrics)
-    QLabel* m_connectionsValue;
-    QLabel* m_networkActiveValue;
-    SparklineWidget* m_connectionsSpark;
-    QVector<double> m_connectionsSeries;
+    SparklineWidget* m_uptimeSpark;
+    QVector<double> m_uptimeSeries;
 };
 
 #endif // BITCOIN_QT_DASHB0RDPAGE_H

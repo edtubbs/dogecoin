@@ -13,51 +13,58 @@
 #include "platformstyle.h"
 #include "sparklinewidget.h"
 
+#include "rpc/client.h"
+#include "rpc/server.h"
 #include "util.h"
+
+#include <univalue.h>
 
 #include <QDateTime>
 #include <QFont>
+#include <QFrame>
 #include <QGridLayout>
-#include <QGroupBox>
 #include <QLabel>
+#include <QPalette>
 #include <QScrollArea>
 #include <QTimer>
 #include <QVBoxLayout>
+
+#include <algorithm>
+#include <limits>
 
 namespace {
 static const int kPollIntervalMs = 1000;
 static const int kMaxSparkPoints = 120;
 
-static QLabel* MakeKeyLabel(const QString& txt)
-{
-    QLabel* l = new QLabel(txt);
-    l->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
-    l->setTextInteractionFlags(Qt::TextSelectableByMouse);
-    return l;
-}
-
 static QLabel* MakeValueLabel()
 {
     QLabel* l = new QLabel(QObject::tr("n/a"));
-    l->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+    l->setAlignment(Qt::AlignCenter);
     l->setTextInteractionFlags(Qt::TextSelectableByMouse);
-    l->setMinimumWidth(140);
+    QFont f = l->font();
+    f.setPointSize(f.pointSize() + 2);
+    l->setFont(f);
     return l;
 }
 
-static void AddRow(QGridLayout* grid, int row, const QString& key, QLabel*& outValue)
+static int64_t GetInt64(const UniValue& obj, const char* key)
 {
-    grid->addWidget(MakeKeyLabel(key), row, 0);
-    outValue = MakeValueLabel();
-    grid->addWidget(outValue, row, 1);
+    const UniValue& v = find_value(obj, key);
+    return v.isNum() ? v.get_int64() : 0;
 }
 
-static void StyleSectionTitle(QGroupBox* box)
+static double GetDouble(const UniValue& obj, const char* key)
 {
-    QFont f = box->font();
-    f.setBold(true);
-    box->setFont(f);
+    const UniValue& v = find_value(obj, key);
+    return v.isNum() ? v.get_real() : 0.0;
 }
+
+static QString GetString(const UniValue& obj, const char* key)
+{
+    const UniValue& v = find_value(obj, key);
+    return v.isStr() ? QString::fromStdString(v.get_str()) : QString();
+}
+
 } // namespace
 
 Dashb0rdPage::Dashb0rdPage(const PlatformStyle* platformStyle, QWidget* parent)
@@ -72,6 +79,9 @@ Dashb0rdPage::Dashb0rdPage(const PlatformStyle* platformStyle, QWidget* parent)
     , m_chainTipTimeValue(nullptr)
     , m_chainTipBitsValue(nullptr)
     , m_chainTipHeightSpark(nullptr)
+    , m_chainTipDifficultySpark(nullptr)
+    , m_chainTipTimeSpark(nullptr)
+    , m_chainTipBitsSpark(nullptr)
     , m_mempoolTxCountValue(nullptr)
     , m_mempoolTotalBytesValue(nullptr)
     , m_mempoolP2pkhValue(nullptr)
@@ -80,8 +90,14 @@ Dashb0rdPage::Dashb0rdPage(const PlatformStyle* platformStyle, QWidget* parent)
     , m_mempoolOpReturnValue(nullptr)
     , m_mempoolNonstandardValue(nullptr)
     , m_mempoolOutputCountValue(nullptr)
-    , m_mempoolTxSpark(nullptr)
-    , m_mempoolBytesSpark(nullptr)
+    , m_mempoolTxCountSpark(nullptr)
+    , m_mempoolTotalBytesSpark(nullptr)
+    , m_mempoolP2pkhSpark(nullptr)
+    , m_mempoolP2shSpark(nullptr)
+    , m_mempoolMultisigSpark(nullptr)
+    , m_mempoolOpReturnSpark(nullptr)
+    , m_mempoolNonstandardSpark(nullptr)
+    , m_mempoolOutputCountSpark(nullptr)
     , m_statsBlocksValue(nullptr)
     , m_statsTransactionsValue(nullptr)
     , m_statsTpsValue(nullptr)
@@ -90,17 +106,21 @@ Dashb0rdPage::Dashb0rdPage(const PlatformStyle* platformStyle, QWidget* parent)
     , m_statsBytesValue(nullptr)
     , m_statsMedianFeeValue(nullptr)
     , m_statsAvgFeeValue(nullptr)
+    , m_statsBlocksSpark(nullptr)
+    , m_statsTransactionsSpark(nullptr)
     , m_statsTpsSpark(nullptr)
+    , m_statsVolumeSpark(nullptr)
+    , m_statsOutputsSpark(nullptr)
+    , m_statsBytesSpark(nullptr)
+    , m_statsMedianFeeSpark(nullptr)
+    , m_statsAvgFeeSpark(nullptr)
     , m_uptimeValue(nullptr)
-    , m_connectionsValue(nullptr)
-    , m_networkActiveValue(nullptr)
-    , m_connectionsSpark(nullptr)
+    , m_uptimeSpark(nullptr)
 {
-    // Create scroll area to fit all metrics
     QScrollArea* scrollArea = new QScrollArea(this);
     scrollArea->setWidgetResizable(true);
     scrollArea->setFrameShape(QFrame::NoFrame);
-    
+
     QWidget* scrollContent = new QWidget();
     QVBoxLayout* outer = new QVBoxLayout(scrollContent);
     outer->setContentsMargins(18, 14, 18, 14);
@@ -117,99 +137,56 @@ Dashb0rdPage::Dashb0rdPage(const PlatformStyle* platformStyle, QWidget* parent)
     m_lastUpdated->setTextInteractionFlags(Qt::TextSelectableByMouse);
     outer->addWidget(m_lastUpdated);
 
-    QGridLayout* topGrid = new QGridLayout();
-    topGrid->setHorizontalSpacing(14);
-    topGrid->setVerticalSpacing(12);
-    outer->addLayout(topGrid);
+    QGridLayout* grid = new QGridLayout();
+    grid->setHorizontalSpacing(10);
+    grid->setVerticalSpacing(10);
 
-    // Chain Tip Metrics Section
-    QGroupBox* chainTipBox = new QGroupBox(tr("Chain Tip"));
-    StyleSectionTitle(chainTipBox);
-    QGridLayout* chainTipGrid = new QGridLayout(chainTipBox);
-    chainTipGrid->setColumnStretch(0, 1);
-    chainTipGrid->setColumnStretch(1, 0);
+    int row = 0;
+    int col = 0;
+    const int cols = 4;
 
-    AddRow(chainTipGrid, 0, tr("Height"), m_chainTipHeightValue);
-    AddRow(chainTipGrid, 1, tr("Difficulty"), m_chainTipDifficultyValue);
-    AddRow(chainTipGrid, 2, tr("Time"), m_chainTipTimeValue);
-    AddRow(chainTipGrid, 3, tr("Bits (hex)"), m_chainTipBitsValue);
+    auto addMetric = [&](const QString& label, QLabel*& value, SparklineWidget*& spark) {
+        grid->addWidget(createMetricBox(label, value, spark), row, col);
+        if (++col >= cols) {
+            col = 0;
+            ++row;
+        }
+    };
 
-    m_chainTipHeightSpark = new SparklineWidget(chainTipBox);
-    m_chainTipHeightSpark->setMinimumHeight(38);
-    chainTipGrid->addWidget(m_chainTipHeightSpark, 4, 0, 1, 2);
+    addMetric(tr("Block Height"), m_chainTipHeightValue, m_chainTipHeightSpark);
+    addMetric(tr("Difficulty"), m_chainTipDifficultyValue, m_chainTipDifficultySpark);
+    addMetric(tr("Chain Tip Time"), m_chainTipTimeValue, m_chainTipTimeSpark);
+    addMetric(tr("Bits (hex)"), m_chainTipBitsValue, m_chainTipBitsSpark);
 
-    topGrid->addWidget(chainTipBox, 0, 0);
+    addMetric(tr("Mempool TX"), m_mempoolTxCountValue, m_mempoolTxCountSpark);
+    addMetric(tr("Mempool Bytes"), m_mempoolTotalBytesValue, m_mempoolTotalBytesSpark);
+    addMetric(tr("P2PKH Count"), m_mempoolP2pkhValue, m_mempoolP2pkhSpark);
+    addMetric(tr("P2SH Count"), m_mempoolP2shValue, m_mempoolP2shSpark);
+    addMetric(tr("Multisig Count"), m_mempoolMultisigValue, m_mempoolMultisigSpark);
+    addMetric(tr("OP_RETURN Count"), m_mempoolOpReturnValue, m_mempoolOpReturnSpark);
+    addMetric(tr("Nonstandard Count"), m_mempoolNonstandardValue, m_mempoolNonstandardSpark);
+    addMetric(tr("Total Outputs"), m_mempoolOutputCountValue, m_mempoolOutputCountSpark);
 
-    // Mempool Metrics Section
-    QGroupBox* mempoolBox = new QGroupBox(tr("Mempool"));
-    StyleSectionTitle(mempoolBox);
-    QGridLayout* memGrid = new QGridLayout(mempoolBox);
-    memGrid->setColumnStretch(0, 1);
-    memGrid->setColumnStretch(1, 0);
+    addMetric(tr("Blocks (100)"), m_statsBlocksValue, m_statsBlocksSpark);
+    addMetric(tr("Transactions"), m_statsTransactionsValue, m_statsTransactionsSpark);
+    addMetric(tr("TPS"), m_statsTpsValue, m_statsTpsSpark);
+    addMetric(tr("Volume (DOGE)"), m_statsVolumeValue, m_statsVolumeSpark);
+    addMetric(tr("Outputs"), m_statsOutputsValue, m_statsOutputsSpark);
+    addMetric(tr("Bytes"), m_statsBytesValue, m_statsBytesSpark);
+    addMetric(tr("Median Fee/Block"), m_statsMedianFeeValue, m_statsMedianFeeSpark);
+    addMetric(tr("Avg Fee/Block"), m_statsAvgFeeValue, m_statsAvgFeeSpark);
 
-    AddRow(memGrid, 0, tr("Transactions"), m_mempoolTxCountValue);
-    AddRow(memGrid, 1, tr("Total Bytes"), m_mempoolTotalBytesValue);
-    AddRow(memGrid, 2, tr("P2PKH Count"), m_mempoolP2pkhValue);
-    AddRow(memGrid, 3, tr("P2SH Count"), m_mempoolP2shValue);
-    AddRow(memGrid, 4, tr("Multisig Count"), m_mempoolMultisigValue);
-    AddRow(memGrid, 5, tr("OP_RETURN Count"), m_mempoolOpReturnValue);
-    AddRow(memGrid, 6, tr("Nonstandard Count"), m_mempoolNonstandardValue);
-    AddRow(memGrid, 7, tr("Output Count"), m_mempoolOutputCountValue);
+    addMetric(tr("Uptime"), m_uptimeValue, m_uptimeSpark);
 
-    m_mempoolTxSpark = new SparklineWidget(mempoolBox);
-    m_mempoolTxSpark->setMinimumHeight(38);
-    memGrid->addWidget(m_mempoolTxSpark, 8, 0, 1, 2);
+    for (int i = 0; i < cols; ++i) {
+        grid->setColumnStretch(i, 1);
+    }
 
-    m_mempoolBytesSpark = new SparklineWidget(mempoolBox);
-    m_mempoolBytesSpark->setMinimumHeight(38);
-    memGrid->addWidget(m_mempoolBytesSpark, 9, 0, 1, 2);
-
-    topGrid->addWidget(mempoolBox, 0, 1);
-
-    // Rolling Statistics Section
-    QGroupBox* statsBox = new QGroupBox(tr("Rolling Statistics (Last 100 Blocks)"));
-    StyleSectionTitle(statsBox);
-    QGridLayout* statsGrid = new QGridLayout(statsBox);
-    statsGrid->setColumnStretch(0, 1);
-    statsGrid->setColumnStretch(1, 0);
-
-    AddRow(statsGrid, 0, tr("Blocks Analyzed"), m_statsBlocksValue);
-    AddRow(statsGrid, 1, tr("Total Transactions"), m_statsTransactionsValue);
-    AddRow(statsGrid, 2, tr("TPS"), m_statsTpsValue);
-    AddRow(statsGrid, 3, tr("Volume (DOGE)"), m_statsVolumeValue);
-    AddRow(statsGrid, 4, tr("Outputs"), m_statsOutputsValue);
-    AddRow(statsGrid, 5, tr("Bytes"), m_statsBytesValue);
-    AddRow(statsGrid, 6, tr("Median Fee/Block"), m_statsMedianFeeValue);
-    AddRow(statsGrid, 7, tr("Avg Fee/Block"), m_statsAvgFeeValue);
-
-    m_statsTpsSpark = new SparklineWidget(statsBox);
-    m_statsTpsSpark->setMinimumHeight(38);
-    statsGrid->addWidget(m_statsTpsSpark, 8, 0, 1, 2);
-
-    topGrid->addWidget(statsBox, 1, 0);
-
-    // Network & Uptime Section
-    QGroupBox* networkBox = new QGroupBox(tr("Network & Uptime"));
-    StyleSectionTitle(networkBox);
-    QGridLayout* netGrid = new QGridLayout(networkBox);
-    netGrid->setColumnStretch(0, 1);
-    netGrid->setColumnStretch(1, 0);
-
-    AddRow(netGrid, 0, tr("Connections"), m_connectionsValue);
-    AddRow(netGrid, 1, tr("Network Active"), m_networkActiveValue);
-    AddRow(netGrid, 2, tr("Uptime"), m_uptimeValue);
-
-    m_connectionsSpark = new SparklineWidget(networkBox);
-    m_connectionsSpark->setMinimumHeight(38);
-    netGrid->addWidget(m_connectionsSpark, 3, 0, 1, 2);
-
-    topGrid->addWidget(networkBox, 1, 1);
-
-    topGrid->setColumnStretch(0, 1);
-    topGrid->setColumnStretch(1, 1);
+    outer->addLayout(grid);
+    outer->addStretch();
 
     scrollArea->setWidget(scrollContent);
-    
+
     QVBoxLayout* mainLayout = new QVBoxLayout(this);
     mainLayout->setContentsMargins(0, 0, 0, 0);
     mainLayout->addWidget(scrollArea);
@@ -232,8 +209,39 @@ void Dashb0rdPage::setClientModel(ClientModel* model)
 void Dashb0rdPage::setWalletModel(WalletModel* model)
 {
     m_walletModel = model;
-    (void)m_walletModel; // silence unused for now
+    (void)m_walletModel;
     pollStats();
+}
+
+QWidget* Dashb0rdPage::createMetricBox(const QString& label, QLabel*& valueLabel, SparklineWidget*& spark)
+{
+    QFrame* box = new QFrame(this);
+    box->setFrameStyle(QFrame::StyledPanel | QFrame::Raised);
+
+    QPalette pal = box->palette();
+    pal.setColor(QPalette::Window, palette().color(QPalette::AlternateBase));
+    box->setAutoFillBackground(true);
+    box->setPalette(pal);
+
+    QVBoxLayout* layout = new QVBoxLayout(box);
+    layout->setContentsMargins(8, 8, 8, 8);
+    layout->setSpacing(6);
+
+    QLabel* title = new QLabel(label, box);
+    QFont titleFont = title->font();
+    titleFont.setBold(true);
+    title->setFont(titleFont);
+    title->setAlignment(Qt::AlignCenter);
+
+    valueLabel = MakeValueLabel();
+    spark = new SparklineWidget(box);
+    spark->setMinimumHeight(40);
+
+    layout->addWidget(title);
+    layout->addWidget(valueLabel);
+    layout->addWidget(spark);
+
+    return box;
 }
 
 void Dashb0rdPage::pushSample(QVector<double>& series, SparklineWidget* spark, double value)
@@ -254,75 +262,105 @@ void Dashb0rdPage::pollStats()
     m_lastUpdated->setText(tr("Last updated: %1").arg(now.toString(Qt::ISODate)));
 
     if (!m_clientModel) {
-        // Set all to n/a
-        if (m_chainTipHeightValue) m_chainTipHeightValue->setText(tr("n/a"));
-        if (m_chainTipDifficultyValue) m_chainTipDifficultyValue->setText(tr("n/a"));
-        if (m_chainTipTimeValue) m_chainTipTimeValue->setText(tr("n/a"));
-        if (m_chainTipBitsValue) m_chainTipBitsValue->setText(tr("n/a"));
-        if (m_mempoolTxCountValue) m_mempoolTxCountValue->setText(tr("n/a"));
-        if (m_mempoolTotalBytesValue) m_mempoolTotalBytesValue->setText(tr("n/a"));
-        if (m_connectionsValue) m_connectionsValue->setText(tr("n/a"));
-        if (m_networkActiveValue) m_networkActiveValue->setText(tr("n/a"));
-        if (m_uptimeValue) m_uptimeValue->setText(tr("n/a"));
         return;
     }
 
-    // Get metrics directly from ClientModel
-    // In a production implementation, you could call the getdashboardmetrics RPC
     try {
-        // Using ClientModel methods for now instead of RPC
-        
-        // Network stats (available from ClientModel)
-        const int conns = m_clientModel->getNumConnections();
-        const bool netActive = m_clientModel->getNetworkActive();
-        
-        m_connectionsValue->setText(QString::number(conns));
-        m_networkActiveValue->setText(netActive ? tr("yes") : tr("no"));
-        pushSample(m_connectionsSeries, m_connectionsSpark, static_cast<double>(conns));
-        
-        // Chain tip from ClientModel
-        const int blocks = m_clientModel->getNumBlocks();
-        m_chainTipHeightValue->setText(QString::number(blocks));
-        pushSample(m_chainTipHeightSeries, m_chainTipHeightSpark, static_cast<double>(blocks));
-        
-        // Get difficulty, etc. - would need to call RPC
-        // For now, show basic info
-        m_chainTipDifficultyValue->setText(tr("RPC call required"));
-        m_chainTipTimeValue->setText(m_clientModel->getLastBlockDate().toString(Qt::ISODate));
-        m_chainTipBitsValue->setText(tr("RPC call required"));
-        
-        // Mempool from ClientModel
-        const int64_t mempoolTx = m_clientModel->getMempoolSize();
-        const qint64 mempoolBytes = static_cast<qint64>(m_clientModel->getMempoolDynamicUsage());
-        
-        m_mempoolTxCountValue->setText(QString::number(mempoolTx));
-        m_mempoolTotalBytesValue->setText(GUIUtil::formatBytes(mempoolBytes));
-        pushSample(m_mempoolTxSeries, m_mempoolTxSpark, static_cast<double>(mempoolTx));
-        pushSample(m_mempoolBytesSeries, m_mempoolBytesSpark, static_cast<double>(mempoolBytes));
-        
-        // Mempool output types - would need RPC call
-        m_mempoolP2pkhValue->setText(tr("RPC call required"));
-        m_mempoolP2shValue->setText(tr("RPC call required"));
-        m_mempoolMultisigValue->setText(tr("RPC call required"));
-        m_mempoolOpReturnValue->setText(tr("RPC call required"));
-        m_mempoolNonstandardValue->setText(tr("RPC call required"));
-        m_mempoolOutputCountValue->setText(tr("RPC call required"));
-        
-        // Rolling stats - would need RPC call
-        m_statsBlocksValue->setText(tr("RPC call required"));
-        m_statsTransactionsValue->setText(tr("RPC call required"));
-        m_statsTpsValue->setText(tr("RPC call required"));
-        m_statsVolumeValue->setText(tr("RPC call required"));
-        m_statsOutputsValue->setText(tr("RPC call required"));
-        m_statsBytesValue->setText(tr("RPC call required"));
-        m_statsMedianFeeValue->setText(tr("RPC call required"));
-        m_statsAvgFeeValue->setText(tr("RPC call required"));
-        
-        // Uptime - would need RPC call  
-        m_uptimeValue->setText(tr("RPC call required"));
-        
+        JSONRPCRequest req;
+        req.strMethod = "getdashboardmetrics";
+        req.params = UniValue(UniValue::VARR);
+        const UniValue result = tableRPC.execute(req);
+
+        const int64_t chainTipHeight = GetInt64(result, "chain_tip_height");
+        m_chainTipHeightValue->setText(QString::number(chainTipHeight));
+        pushSample(m_chainTipHeightSeries, m_chainTipHeightSpark, static_cast<double>(chainTipHeight));
+
+        const double chainTipDifficulty = GetDouble(result, "chain_tip_difficulty");
+        m_chainTipDifficultyValue->setText(QString::number(chainTipDifficulty, 'f', 2));
+        pushSample(m_chainTipDifficultySeries, m_chainTipDifficultySpark, chainTipDifficulty);
+
+        const QString chainTipTime = GetString(result, "chain_tip_time");
+        m_chainTipTimeValue->setText(chainTipTime);
+        const qint64 chainTipTimeEpoch = QDateTime::fromString(chainTipTime, Qt::ISODate).toSecsSinceEpoch();
+        pushSample(m_chainTipTimeSeries, m_chainTipTimeSpark, static_cast<double>(chainTipTimeEpoch));
+
+        const QString chainTipBits = GetString(result, "chain_tip_bits_hex");
+        m_chainTipBitsValue->setText(chainTipBits);
+        bool bitsOk = false;
+        const quint64 bitsValue = chainTipBits.toULongLong(&bitsOk, 0);
+        pushSample(m_chainTipBitsSeries, m_chainTipBitsSpark, bitsOk ? static_cast<double>(bitsValue) : 0.0);
+
+        const int64_t mempoolTxCount = GetInt64(result, "mempool_tx_count");
+        m_mempoolTxCountValue->setText(QString::number(mempoolTxCount));
+        pushSample(m_mempoolTxCountSeries, m_mempoolTxCountSpark, static_cast<double>(mempoolTxCount));
+
+        const int64_t mempoolTotalBytes = GetInt64(result, "mempool_total_bytes");
+        m_mempoolTotalBytesValue->setText(GUIUtil::formatBytes(mempoolTotalBytes));
+        pushSample(m_mempoolTotalBytesSeries, m_mempoolTotalBytesSpark, static_cast<double>(mempoolTotalBytes));
+
+        const int64_t mempoolP2pkhCount = GetInt64(result, "mempool_p2pkh_count");
+        m_mempoolP2pkhValue->setText(QString::number(mempoolP2pkhCount));
+        pushSample(m_mempoolP2pkhSeries, m_mempoolP2pkhSpark, static_cast<double>(mempoolP2pkhCount));
+
+        const int64_t mempoolP2shCount = GetInt64(result, "mempool_p2sh_count");
+        m_mempoolP2shValue->setText(QString::number(mempoolP2shCount));
+        pushSample(m_mempoolP2shSeries, m_mempoolP2shSpark, static_cast<double>(mempoolP2shCount));
+
+        const int64_t mempoolMultisigCount = GetInt64(result, "mempool_multisig_count");
+        m_mempoolMultisigValue->setText(QString::number(mempoolMultisigCount));
+        pushSample(m_mempoolMultisigSeries, m_mempoolMultisigSpark, static_cast<double>(mempoolMultisigCount));
+
+        const int64_t mempoolOpReturnCount = GetInt64(result, "mempool_op_return_count");
+        m_mempoolOpReturnValue->setText(QString::number(mempoolOpReturnCount));
+        pushSample(m_mempoolOpReturnSeries, m_mempoolOpReturnSpark, static_cast<double>(mempoolOpReturnCount));
+
+        const int64_t mempoolNonstandardCount = GetInt64(result, "mempool_nonstandard_count");
+        m_mempoolNonstandardValue->setText(QString::number(mempoolNonstandardCount));
+        pushSample(m_mempoolNonstandardSeries, m_mempoolNonstandardSpark, static_cast<double>(mempoolNonstandardCount));
+
+        const int64_t mempoolOutputCount = GetInt64(result, "mempool_output_count");
+        m_mempoolOutputCountValue->setText(QString::number(mempoolOutputCount));
+        pushSample(m_mempoolOutputCountSeries, m_mempoolOutputCountSpark, static_cast<double>(mempoolOutputCount));
+
+        const int64_t statsBlocks = GetInt64(result, "stats_blocks");
+        m_statsBlocksValue->setText(QString::number(statsBlocks));
+        pushSample(m_statsBlocksSeries, m_statsBlocksSpark, static_cast<double>(statsBlocks));
+
+        const int64_t statsTransactions = GetInt64(result, "stats_transactions");
+        m_statsTransactionsValue->setText(QString::number(statsTransactions));
+        pushSample(m_statsTransactionsSeries, m_statsTransactionsSpark, static_cast<double>(statsTransactions));
+
+        const double statsTps = GetDouble(result, "stats_tps");
+        m_statsTpsValue->setText(QString::number(statsTps, 'f', 3));
+        pushSample(m_statsTpsSeries, m_statsTpsSpark, statsTps);
+
+        const double statsVolume = GetDouble(result, "stats_volume");
+        m_statsVolumeValue->setText(QString::number(statsVolume, 'f', 2));
+        pushSample(m_statsVolumeSeries, m_statsVolumeSpark, statsVolume);
+
+        const int64_t statsOutputs = GetInt64(result, "stats_outputs");
+        m_statsOutputsValue->setText(QString::number(statsOutputs));
+        pushSample(m_statsOutputsSeries, m_statsOutputsSpark, static_cast<double>(statsOutputs));
+
+        const int64_t statsBytes = GetInt64(result, "stats_bytes");
+        m_statsBytesValue->setText(GUIUtil::formatBytes(statsBytes));
+        pushSample(m_statsBytesSeries, m_statsBytesSpark, static_cast<double>(statsBytes));
+
+        const double statsMedianFeePerBlock = GetDouble(result, "stats_median_fee_per_block");
+        m_statsMedianFeeValue->setText(QString::number(statsMedianFeePerBlock, 'f', 8));
+        pushSample(m_statsMedianFeeSeries, m_statsMedianFeeSpark, statsMedianFeePerBlock);
+
+        const double statsAvgFeePerBlock = GetDouble(result, "stats_avg_fee_per_block");
+        m_statsAvgFeeValue->setText(QString::number(statsAvgFeePerBlock, 'f', 8));
+        pushSample(m_statsAvgFeeSeries, m_statsAvgFeeSpark, statsAvgFeePerBlock);
+
+        const int64_t uptimeSec = GetInt64(result, "uptime_sec");
+        const int uptime = static_cast<int>(std::min<int64_t>(uptimeSec, std::numeric_limits<int>::max()));
+        m_uptimeValue->setText(GUIUtil::formatDurationStr(uptime));
+        pushSample(m_uptimeSeries, m_uptimeSpark, static_cast<double>(uptimeSec));
+    } catch (const UniValue& objError) {
+        LogPrintf("Dashboard RPC error: %s\n", objError.write().c_str());
     } catch (const std::exception& e) {
-        // Error handling
         LogPrintf("Dashboard metrics error: %s\n", e.what());
     }
 }

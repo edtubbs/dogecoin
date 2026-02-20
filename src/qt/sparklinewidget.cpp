@@ -74,8 +74,9 @@ void SparklineWidget::paintEvent(QPaintEvent* /*event*/)
         poly << QPointF(x, y);
     }
 
-    // Draw line
-    QPen pen(palette().color(QPalette::Text));
+    // Draw line with accent color for better visibility on dashboard
+    const QColor lineColor = palette().color(QPalette::Highlight);
+    QPen pen(lineColor);
     pen.setWidthF(1.2);
     p.setPen(pen);
     p.drawPolyline(poly);
