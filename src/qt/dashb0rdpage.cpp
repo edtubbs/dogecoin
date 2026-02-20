@@ -355,8 +355,11 @@ void Dashb0rdPage::pollStats()
         pushSample(m_statsAvgFeeSeries, m_statsAvgFeeSpark, statsAvgFeePerBlock);
 
         const int64_t uptimeSec = GetInt64(result, "uptime_sec");
-        const int uptime = static_cast<int>(std::min<int64_t>(uptimeSec, std::numeric_limits<int>::max()));
-        m_uptimeValue->setText(GUIUtil::formatDurationStr(uptime));
+        if (uptimeSec > std::numeric_limits<int>::max()) {
+            m_uptimeValue->setText(QString::number(uptimeSec) + tr(" s"));
+        } else {
+            m_uptimeValue->setText(GUIUtil::formatDurationStr(static_cast<int>(uptimeSec)));
+        }
         pushSample(m_uptimeSeries, m_uptimeSpark, static_cast<double>(uptimeSec));
     } catch (const UniValue& objError) {
         LogPrintf("Dashboard RPC error: %s\n", objError.write().c_str());

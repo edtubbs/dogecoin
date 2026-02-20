@@ -14,7 +14,6 @@ class QLabel;
 class QTimer;
 class SparklineWidget;
 class WalletModel;
-class QString;
 
 class Dashb0rdPage : public QWidget
 {
