@@ -1,0 +1,115 @@
+// Copyright (c) 2026
+// Distributed under the MIT software license, see the accompanying
+// file COPYING or http://www.opensource.org/licenses/mit-license.php.
+
+#ifndef BITCOIN_QT_DASHB0RDPAGE_H
+#define BITCOIN_QT_DASHB0RDPAGE_H
+
+#include <QVector>
+#include <QWidget>
+
+class ClientModel;
+class PlatformStyle;
+class QLabel;
+class QTimer;
+class SparklineWidget;
+class WalletModel;
+
+class Dashb0rdPage : public QWidget
+{
+    Q_OBJECT
+
+public:
+    explicit Dashb0rdPage(const PlatformStyle* platformStyle, QWidget* parent = nullptr);
+    ~Dashb0rdPage() override;
+
+    void setClientModel(ClientModel* model);
+    void setWalletModel(WalletModel* model);
+
+private Q_SLOTS:
+    void pollStats();
+
+private:
+    void pushSample(QVector<double>& series, SparklineWidget* spark, double value);
+    QWidget* createMetricBox(const QString& label, QLabel*& valueLabel, SparklineWidget*& spark, QVector<double>& series);
+
+    ClientModel* m_clientModel;
+    WalletModel* m_walletModel;
+    const PlatformStyle* m_platformStyle;
+
+    QTimer* m_pollTimer;
+    QLabel* m_lastUpdated;
+
+    // Chain Tip Metrics (4)
+    QLabel* m_chainTipHeightValue;
+    QLabel* m_chainTipDifficultyValue;
+    QLabel* m_chainTipTimeValue;
+    QLabel* m_chainTipBitsValue;
+    SparklineWidget* m_chainTipHeightSpark;
+    SparklineWidget* m_chainTipDifficultySpark;
+    SparklineWidget* m_chainTipTimeSpark;
+    SparklineWidget* m_chainTipBitsSpark;
+    QVector<double> m_chainTipHeightSeries;
+    QVector<double> m_chainTipDifficultySeries;
+    QVector<double> m_chainTipTimeSeries;
+    QVector<double> m_chainTipBitsSeries;
+
+    // Mempool Metrics (8)
+    QLabel* m_mempoolTxCountValue;
+    QLabel* m_mempoolTotalBytesValue;
+    QLabel* m_mempoolP2pkhValue;
+    QLabel* m_mempoolP2shValue;
+    QLabel* m_mempoolMultisigValue;
+    QLabel* m_mempoolOpReturnValue;
+    QLabel* m_mempoolNonstandardValue;
+    QLabel* m_mempoolOutputCountValue;
+    SparklineWidget* m_mempoolTxCountSpark;
+    SparklineWidget* m_mempoolTotalBytesSpark;
+    SparklineWidget* m_mempoolP2pkhSpark;
+    SparklineWidget* m_mempoolP2shSpark;
+    SparklineWidget* m_mempoolMultisigSpark;
+    SparklineWidget* m_mempoolOpReturnSpark;
+    SparklineWidget* m_mempoolNonstandardSpark;
+    SparklineWidget* m_mempoolOutputCountSpark;
+    QVector<double> m_mempoolTxCountSeries;
+    QVector<double> m_mempoolTotalBytesSeries;
+    QVector<double> m_mempoolP2pkhSeries;
+    QVector<double> m_mempoolP2shSeries;
+    QVector<double> m_mempoolMultisigSeries;
+    QVector<double> m_mempoolOpReturnSeries;
+    QVector<double> m_mempoolNonstandardSeries;
+    QVector<double> m_mempoolOutputCountSeries;
+
+    // Rolling Stats Metrics (8)
+    QLabel* m_statsBlocksValue;
+    QLabel* m_statsTransactionsValue;
+    QLabel* m_statsTpsValue;
+    QLabel* m_statsVolumeValue;
+    QLabel* m_statsOutputsValue;
+    QLabel* m_statsBytesValue;
+    QLabel* m_statsMedianFeeValue;
+    QLabel* m_statsAvgFeeValue;
+    SparklineWidget* m_statsBlocksSpark;
+    SparklineWidget* m_statsTransactionsSpark;
+    SparklineWidget* m_statsTpsSpark;
+    SparklineWidget* m_statsVolumeSpark;
+    SparklineWidget* m_statsOutputsSpark;
+    SparklineWidget* m_statsBytesSpark;
+    SparklineWidget* m_statsMedianFeeSpark;
+    SparklineWidget* m_statsAvgFeeSpark;
+    QVector<double> m_statsBlocksSeries;
+    QVector<double> m_statsTransactionsSeries;
+    QVector<double> m_statsTpsSeries;
+    QVector<double> m_statsVolumeSeries;
+    QVector<double> m_statsOutputsSeries;
+    QVector<double> m_statsBytesSeries;
+    QVector<double> m_statsMedianFeeSeries;
+    QVector<double> m_statsAvgFeeSeries;
+
+    // Uptime (1)
+    QLabel* m_uptimeValue;
+    SparklineWidget* m_uptimeSpark;
+    QVector<double> m_uptimeSeries;
+};
+
+#endif // BITCOIN_QT_DASHB0RDPAGE_H
