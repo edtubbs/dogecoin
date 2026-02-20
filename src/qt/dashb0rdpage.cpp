@@ -313,7 +313,8 @@ bool Dashb0rdPage::eventFilter(QObject* watched, QEvent* event)
             if (selectedAction) {
                 const int boxIndex = selectedAction->data().toInt();
                 if (boxIndex >= 0 && boxIndex < m_metricBoxes.size()) {
-                    m_metricBoxes[boxIndex]->setVisible(selectedAction->isChecked());
+                    QWidget* box = m_metricBoxes[boxIndex];
+                    box->setVisible(!box->isVisible());
                 }
                 relayoutMetricBoxes();
             }
