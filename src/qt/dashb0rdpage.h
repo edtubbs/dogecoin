@@ -5,6 +5,8 @@
 #ifndef BITCOIN_QT_DASHB0RDPAGE_H
 #define BITCOIN_QT_DASHB0RDPAGE_H
 
+#include <cstdint>
+
 #include <QPoint>
 #include <QVector>
 #include <QWidget>
@@ -50,6 +52,7 @@ private:
     QVector<QWidget*> m_metricBoxes;
     QPoint m_dragStartPos;
     QWidget* m_dragSourceBox;
+    int64_t m_prevMempoolTxCount;
 
     // Chain Tip Metrics
     QLabel* m_chainTipHeightValue;

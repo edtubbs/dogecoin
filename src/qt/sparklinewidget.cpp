@@ -4,21 +4,41 @@
 
 #include "sparklinewidget.h"
 
+#include <QDateTime>
+#include <QEvent>
+#include <QMouseEvent>
 #include <QPainter>
 #include <QPaintEvent>
+#include <QToolTip>
 #include <QtMath>
+
+#include <algorithm>
 
 SparklineWidget::SparklineWidget(QWidget* parent)
     : QWidget(parent)
 {
     setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
     setMinimumHeight(34);
+    setMouseTracking(true);
 }
 
 SparklineWidget::~SparklineWidget() = default;
 
 void SparklineWidget::setData(const QVector<double>& data)
 {
+    const qint64 now = static_cast<qint64>(QDateTime::currentDateTime().toTime_t());
+    if (data.isEmpty()) {
+        m_timestamps.clear();
+    } else if (m_timestamps.isEmpty() || data.size() < m_timestamps.size()) {
+        m_timestamps = QVector<qint64>(data.size(), now);
+    } else if (data.size() > m_timestamps.size()) {
+        while (m_timestamps.size() < data.size()) {
+            m_timestamps.push_back(now);
+        }
+    } else if (!m_timestamps.isEmpty()) {
+        m_timestamps.pop_front();
+        m_timestamps.push_back(now);
+    }
     m_data = data;
     update();
 }
@@ -26,6 +46,7 @@ void SparklineWidget::setData(const QVector<double>& data)
 void SparklineWidget::clear()
 {
     m_data.clear();
+    m_timestamps.clear();
     update();
 }
 
@@ -88,4 +109,43 @@ void SparklineWidget::paintEvent(QPaintEvent* /*event*/)
         p.setPen(mid);
         p.drawLine(QPointF(r.left(), r.center().y()), QPointF(r.right(), r.center().y()));
     }
+}
+
+void SparklineWidget::mouseMoveEvent(QMouseEvent* event)
+{
+    if (m_data.isEmpty() || m_timestamps.size() != m_data.size()) {
+        QWidget::mouseMoveEvent(event);
+        return;
+    }
+
+    const int pad = 2;
+    const QRectF r(pad, pad, width() - 2.0 * pad, height() - 2.0 * pad);
+    const int n = m_data.size();
+    if (n <= 0 || r.width() <= 0) {
+        QWidget::mouseMoveEvent(event);
+        return;
+    }
+
+    int index = 0;
+    if (n > 1) {
+        const double x = std::max(r.left(), std::min<double>(event->pos().x(), r.right()));
+        const double ratio = (x - r.left()) / r.width();
+        index = qRound(ratio * (n - 1));
+        index = std::max(0, std::min(index, n - 1));
+    }
+
+    const qint64 ts = m_timestamps[index];
+    const QString tsStr = QDateTime::fromTime_t(static_cast<uint>(ts)).toString(Qt::ISODate);
+    const QString tooltip = tr("Time: %1\nValue: %2")
+        .arg(tsStr)
+        .arg(QString::number(m_data[index], 'g', 12));
+    QToolTip::showText(event->globalPos(), tooltip, this);
+
+    QWidget::mouseMoveEvent(event);
+}
+
+void SparklineWidget::leaveEvent(QEvent* event)
+{
+    QToolTip::hideText();
+    QWidget::leaveEvent(event);
 }

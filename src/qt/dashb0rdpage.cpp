@@ -45,6 +45,7 @@ namespace {
 static const int kPollIntervalMs = 1000;
 static const int kMaxSparkPoints = 120;
 static const int kMetricGridColumns = 4;
+static const int kStatsWindowBlocks = 100;
 static const char* kMetricMimeType = "application/x-dashb0rd-metric-index";
 
 static QLabel* MakeValueLabel()
@@ -88,6 +89,7 @@ Dashb0rdPage::Dashb0rdPage(const PlatformStyle* platformStyle, QWidget* parent)
     , m_metricsContainer(nullptr)
     , m_metricGrid(nullptr)
     , m_dragSourceBox(nullptr)
+    , m_prevMempoolTxCount(-1)
     , m_chainTipHeightValue(nullptr)
     , m_chainTipDifficultyValue(nullptr)
     , m_chainTipTimeValue(nullptr)
@@ -452,7 +454,17 @@ void Dashb0rdPage::pollStats()
         pushSample(m_chainTipBitsSeries, m_chainTipBitsSpark, bitsOk ? static_cast<double>(bitsValue) : 0.0);
 
         const int64_t mempoolTxCount = GetInt64(result, "mempool_tx_count");
-        m_mempoolTxCountValue->setText(QString::number(mempoolTxCount));
+        if (m_prevMempoolTxCount >= 0) {
+            const int64_t mempoolDelta = mempoolTxCount - m_prevMempoolTxCount;
+            QString deltaText = QString::number(mempoolDelta);
+            if (mempoolDelta > 0) {
+                deltaText.prepend("+");
+            }
+            m_mempoolTxCountValue->setText(QString("%1 (%2)").arg(mempoolTxCount).arg(deltaText));
+        } else {
+            m_mempoolTxCountValue->setText(QString::number(mempoolTxCount));
+        }
+        m_prevMempoolTxCount = mempoolTxCount;
         pushSample(m_mempoolTxCountSeries, m_mempoolTxCountSpark, static_cast<double>(mempoolTxCount));
 
         const int64_t mempoolTotalBytes = GetInt64(result, "mempool_total_bytes");
@@ -484,7 +496,7 @@ void Dashb0rdPage::pollStats()
         pushSample(m_mempoolOutputCountSeries, m_mempoolOutputCountSpark, static_cast<double>(mempoolOutputCount));
 
         const int64_t statsBlocks = GetInt64(result, "stats_blocks");
-        m_statsBlocksValue->setText(QString::number(statsBlocks));
+        m_statsBlocksValue->setText(QString("%1 / %2").arg(statsBlocks).arg(kStatsWindowBlocks));
         pushSample(m_statsBlocksSeries, m_statsBlocksSpark, static_cast<double>(statsBlocks));
 
         const int64_t statsTransactions = GetInt64(result, "stats_transactions");
@@ -504,7 +516,7 @@ void Dashb0rdPage::pollStats()
         pushSample(m_statsOutputsSeries, m_statsOutputsSpark, static_cast<double>(statsOutputs));
 
         const int64_t statsBytes = GetInt64(result, "stats_bytes");
-        m_statsBytesValue->setText(GUIUtil::formatBytes(statsBytes));
+        m_statsBytesValue->setText(QString("%1 (%2 B)").arg(GUIUtil::formatBytes(statsBytes)).arg(QString::number(statsBytes)));
         pushSample(m_statsBytesSeries, m_statsBytesSpark, static_cast<double>(statsBytes));
 
         const double statsMedianFeePerBlock = GetDouble(result, "stats_median_fee_per_block");

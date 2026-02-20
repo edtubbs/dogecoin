@@ -5,8 +5,13 @@
 #ifndef BITCOIN_QT_SPARKLINEWIDGET_H
 #define BITCOIN_QT_SPARKLINEWIDGET_H
 
+#include <cstdint>
+
 #include <QVector>
 #include <QWidget>
+
+class QEvent;
+class QMouseEvent;
 
 class SparklineWidget : public QWidget
 {
@@ -19,9 +24,12 @@ public:
 
 protected:
     void paintEvent(QPaintEvent* event) override;
+    void mouseMoveEvent(QMouseEvent* event) override;
+    void leaveEvent(QEvent* event) override;
 
 private:
     QVector<double> m_data;
+    QVector<qint64> m_timestamps;
 };
 
 #endif // BITCOIN_QT_SPARKLINEWIDGET_H
