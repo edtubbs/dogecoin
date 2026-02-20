@@ -20,11 +20,18 @@
 #include <univalue.h>
 
 #include <QDateTime>
+#include <QDrag>
+#include <QDragEnterEvent>
+#include <QDropEvent>
 #include <QFont>
 #include <QFrame>
 #include <QGridLayout>
 #include <QLabel>
+#include <QMenu>
+#include <QMimeData>
+#include <QMouseEvent>
 #include <QPalette>
+#include <QApplication>
 #include <QScrollArea>
 #include <QTimer>
 #include <QVBoxLayout>
@@ -35,6 +42,8 @@
 namespace {
 static const int kPollIntervalMs = 1000;
 static const int kMaxSparkPoints = 120;
+static const int kMetricGridColumns = 4;
+static const char* kMetricMimeType = "application/x-dashb0rd-metric-index";
 
 static QLabel* MakeValueLabel()
 {
@@ -74,6 +83,9 @@ Dashb0rdPage::Dashb0rdPage(const PlatformStyle* platformStyle, QWidget* parent)
     , m_platformStyle(platformStyle)
     , m_pollTimer(new QTimer(this))
     , m_lastUpdated(nullptr)
+    , m_metricsContainer(nullptr)
+    , m_metricGrid(nullptr)
+    , m_dragSourceBox(nullptr)
     , m_chainTipHeightValue(nullptr)
     , m_chainTipDifficultyValue(nullptr)
     , m_chainTipTimeValue(nullptr)
@@ -137,17 +149,26 @@ Dashb0rdPage::Dashb0rdPage(const PlatformStyle* platformStyle, QWidget* parent)
     m_lastUpdated->setTextInteractionFlags(Qt::TextSelectableByMouse);
     outer->addWidget(m_lastUpdated);
 
-    QGridLayout* grid = new QGridLayout();
-    grid->setHorizontalSpacing(10);
-    grid->setVerticalSpacing(10);
+    m_metricsContainer = scrollContent;
+    m_metricsContainer->setAcceptDrops(true);
+    m_metricsContainer->installEventFilter(this);
+
+    m_metricGrid = new QGridLayout();
+    m_metricGrid->setHorizontalSpacing(10);
+    m_metricGrid->setVerticalSpacing(10);
 
     int row = 0;
     int col = 0;
-    const int cols = 4;
 
     auto addMetric = [&](const QString& label, QLabel*& value, SparklineWidget*& spark) {
-        grid->addWidget(createMetricBox(label, value, spark), row, col);
-        if (++col >= cols) {
+        QWidget* box = createMetricBox(label, value, spark);
+        box->setProperty("metricLabel", label);
+        box->setAcceptDrops(true);
+        box->installEventFilter(this);
+        box->setCursor(Qt::OpenHandCursor);
+        m_metricBoxes.push_back(box);
+        m_metricGrid->addWidget(box, row, col);
+        if (++col >= kMetricGridColumns) {
             col = 0;
             ++row;
         }
@@ -178,11 +199,11 @@ Dashb0rdPage::Dashb0rdPage(const PlatformStyle* platformStyle, QWidget* parent)
 
     addMetric(tr("Uptime"), m_uptimeValue, m_uptimeSpark);
 
-    for (int i = 0; i < cols; ++i) {
-        grid->setColumnStretch(i, 1);
+    for (int i = 0; i < kMetricGridColumns; ++i) {
+        m_metricGrid->setColumnStretch(i, 1);
     }
 
-    outer->addLayout(grid);
+    outer->addLayout(m_metricGrid);
     outer->addStretch();
 
     scrollArea->setWidget(scrollContent);
@@ -242,6 +263,133 @@ QWidget* Dashb0rdPage::createMetricBox(const QString& label, QLabel*& valueLabel
     layout->addWidget(spark);
 
     return box;
+}
+
+void Dashb0rdPage::relayoutMetricBoxes()
+{
+    while (QLayoutItem* item = m_metricGrid->takeAt(0)) {
+        delete item;
+    }
+
+    int visibleIndex = 0;
+    for (QWidget* box : m_metricBoxes) {
+        if (!box || !box->isVisible()) {
+            continue;
+        }
+        const int row = visibleIndex / kMetricGridColumns;
+        const int col = visibleIndex % kMetricGridColumns;
+        m_metricGrid->addWidget(box, row, col);
+        ++visibleIndex;
+    }
+
+    for (int i = 0; i < kMetricGridColumns; ++i) {
+        m_metricGrid->setColumnStretch(i, 1);
+    }
+}
+
+bool Dashb0rdPage::eventFilter(QObject* watched, QEvent* event)
+{
+    QWidget* watchedWidget = qobject_cast<QWidget*>(watched);
+    const bool isMetricBox = watchedWidget && m_metricBoxes.contains(watchedWidget);
+    const bool isMetricsContainer = (watched == m_metricsContainer);
+
+    if ((isMetricBox || isMetricsContainer) && event->type() == QEvent::MouseButtonPress) {
+        QMouseEvent* mouseEvent = static_cast<QMouseEvent*>(event);
+        if (mouseEvent->button() == Qt::LeftButton) {
+            if (isMetricBox) {
+                m_dragStartPos = mouseEvent->pos();
+                m_dragSourceBox = watchedWidget;
+            }
+        } else if (mouseEvent->button() == Qt::RightButton) {
+            QMenu menu(this);
+            for (int i = 0; i < m_metricBoxes.size(); ++i) {
+                QWidget* box = m_metricBoxes[i];
+                QAction* action = menu.addAction(box->property("metricLabel").toString());
+                action->setCheckable(true);
+                action->setChecked(box->isVisible());
+                action->setData(i);
+            }
+            const QAction* selectedAction = menu.exec(mouseEvent->globalPos());
+            if (selectedAction) {
+                const int boxIndex = selectedAction->data().toInt();
+                if (boxIndex >= 0 && boxIndex < m_metricBoxes.size()) {
+                    m_metricBoxes[boxIndex]->setVisible(selectedAction->isChecked());
+                }
+                relayoutMetricBoxes();
+            }
+            return true;
+        }
+    }
+
+    if (isMetricBox && event->type() == QEvent::MouseMove) {
+        QMouseEvent* mouseEvent = static_cast<QMouseEvent*>(event);
+        if (!(mouseEvent->buttons() & Qt::LeftButton) || m_dragSourceBox != watchedWidget) {
+            return QWidget::eventFilter(watched, event);
+        }
+        if ((mouseEvent->pos() - m_dragStartPos).manhattanLength() < QApplication::startDragDistance()) {
+            return QWidget::eventFilter(watched, event);
+        }
+
+        const int sourceIndex = m_metricBoxes.indexOf(m_dragSourceBox);
+        if (sourceIndex < 0) {
+            return QWidget::eventFilter(watched, event);
+        }
+
+        QDrag* drag = new QDrag(watchedWidget);
+        QMimeData* mimeData = new QMimeData();
+        mimeData->setData(kMetricMimeType, QByteArray::number(sourceIndex));
+        drag->setMimeData(mimeData);
+        drag->exec(Qt::MoveAction);
+        return true;
+    }
+
+    if ((isMetricBox || isMetricsContainer) && event->type() == QEvent::DragEnter) {
+        QDragEnterEvent* dragEvent = static_cast<QDragEnterEvent*>(event);
+        if (dragEvent->mimeData()->hasFormat(kMetricMimeType)) {
+            dragEvent->acceptProposedAction();
+            return true;
+        }
+    }
+
+    if ((isMetricBox || isMetricsContainer) && event->type() == QEvent::Drop) {
+        QDropEvent* dropEvent = static_cast<QDropEvent*>(event);
+        if (!dropEvent->mimeData()->hasFormat(kMetricMimeType)) {
+            return QWidget::eventFilter(watched, event);
+        }
+
+        const int sourceIndex = QString::fromLatin1(dropEvent->mimeData()->data(kMetricMimeType)).toInt();
+        if (sourceIndex < 0 || sourceIndex >= m_metricBoxes.size()) {
+            return QWidget::eventFilter(watched, event);
+        }
+
+        QWidget* targetBox = isMetricBox ? watchedWidget : nullptr;
+        if (!targetBox && isMetricsContainer) {
+            targetBox = m_metricsContainer->childAt(dropEvent->pos());
+            while (targetBox && !m_metricBoxes.contains(targetBox)) {
+                targetBox = targetBox->parentWidget();
+            }
+        }
+
+        int targetIndex = targetBox ? m_metricBoxes.indexOf(targetBox) : (m_metricBoxes.size() - 1);
+        if (targetIndex < 0) {
+            targetIndex = m_metricBoxes.size() - 1;
+        }
+
+        if (sourceIndex != targetIndex) {
+            QWidget* box = m_metricBoxes.takeAt(sourceIndex);
+            if (sourceIndex < targetIndex) {
+                --targetIndex;
+            }
+            m_metricBoxes.insert(targetIndex, box);
+            relayoutMetricBoxes();
+        }
+
+        dropEvent->setDropAction(Qt::MoveAction);
+        dropEvent->accept();
+        return true;
+    }
+
+    return QWidget::eventFilter(watched, event);
 }
 
 void Dashb0rdPage::pushSample(QVector<double>& series, SparklineWidget* spark, double value)

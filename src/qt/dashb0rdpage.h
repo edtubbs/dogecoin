@@ -5,11 +5,13 @@
 #ifndef BITCOIN_QT_DASHB0RDPAGE_H
 #define BITCOIN_QT_DASHB0RDPAGE_H
 
+#include <QPoint>
 #include <QVector>
 #include <QWidget>
 
 class ClientModel;
 class PlatformStyle;
+class QGridLayout;
 class QLabel;
 class QTimer;
 class SparklineWidget;
@@ -26,12 +28,16 @@ public:
     void setClientModel(ClientModel* model);
     void setWalletModel(WalletModel* model);
 
+protected:
+    bool eventFilter(QObject* watched, QEvent* event) override;
+
 private Q_SLOTS:
     void pollStats();
 
 private:
     void pushSample(QVector<double>& series, SparklineWidget* spark, double value);
     QWidget* createMetricBox(const QString& label, QLabel*& valueLabel, SparklineWidget*& spark);
+    void relayoutMetricBoxes();
 
     ClientModel* m_clientModel;
     WalletModel* m_walletModel;
@@ -39,6 +45,11 @@ private:
 
     QTimer* m_pollTimer;
     QLabel* m_lastUpdated;
+    QWidget* m_metricsContainer;
+    QGridLayout* m_metricGrid;
+    QVector<QWidget*> m_metricBoxes;
+    QPoint m_dragStartPos;
+    QWidget* m_dragSourceBox;
 
     // Chain Tip Metrics
     QLabel* m_chainTipHeightValue;
