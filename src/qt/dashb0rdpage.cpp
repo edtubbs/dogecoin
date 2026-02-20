@@ -31,6 +31,8 @@
 #include <QMimeData>
 #include <QMouseEvent>
 #include <QPalette>
+#include <QPainter>
+#include <QPixmap>
 #include <QApplication>
 #include <QScrollArea>
 #include <QTimer>
@@ -340,6 +342,19 @@ bool Dashb0rdPage::eventFilter(QObject* watched, QEvent* event)
         QMimeData* mimeData = new QMimeData();
         mimeData->setData(kMetricMimeType, QByteArray::number(sourceIndex));
         drag->setMimeData(mimeData);
+
+        QPixmap dragPixmap = watchedWidget->grab();
+        if (!dragPixmap.isNull()) {
+            QPixmap ghost(dragPixmap.size());
+            ghost.fill(Qt::transparent);
+            QPainter painter(&ghost);
+            painter.setOpacity(0.65);
+            painter.drawPixmap(0, 0, dragPixmap);
+            painter.end();
+            drag->setPixmap(ghost);
+            drag->setHotSpot(mouseEvent->pos());
+        }
+
         drag->exec(Qt::MoveAction);
         return true;
     }
@@ -378,9 +393,6 @@ bool Dashb0rdPage::eventFilter(QObject* watched, QEvent* event)
 
         if (sourceIndex != targetIndex) {
             QWidget* box = m_metricBoxes.takeAt(sourceIndex);
-            if (sourceIndex < targetIndex) {
-                --targetIndex;
-            }
             m_metricBoxes.insert(targetIndex, box);
             relayoutMetricBoxes();
         }
