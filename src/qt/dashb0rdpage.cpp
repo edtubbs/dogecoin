@@ -281,7 +281,7 @@ void Dashb0rdPage::pollStats()
 
         const QString chainTipTime = GetString(result, "chain_tip_time");
         m_chainTipTimeValue->setText(chainTipTime);
-        const qint64 chainTipTimeEpoch = QDateTime::fromString(chainTipTime, Qt::ISODate).toSecsSinceEpoch();
+        const qint64 chainTipTimeEpoch = static_cast<qint64>(QDateTime::fromString(chainTipTime, Qt::ISODate).toTime_t());
         pushSample(m_chainTipTimeSeries, m_chainTipTimeSpark, static_cast<double>(chainTipTimeEpoch));
 
         const QString chainTipBits = GetString(result, "chain_tip_bits_hex");
