@@ -17,6 +17,7 @@ class PlatformStyle;
 class QGridLayout;
 class QLabel;
 class QResizeEvent;
+class QShowEvent;
 class QSpinBox;
 class QTimer;
 class SparklineWidget;
@@ -36,6 +37,7 @@ public:
 protected:
     bool eventFilter(QObject* watched, QEvent* event) override;
     void resizeEvent(QResizeEvent* event) override;
+    void showEvent(QShowEvent* event) override;
 
 private Q_SLOTS:
     void pollStats();

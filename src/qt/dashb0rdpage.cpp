@@ -38,6 +38,7 @@
 #include <QApplication>
 #include <QResizeEvent>
 #include <QScrollArea>
+#include <QShowEvent>
 #include <QSpinBox>
 #include <QTimer>
 #include <QVBoxLayout>
@@ -228,6 +229,7 @@ Dashb0rdPage::Dashb0rdPage(const PlatformStyle* platformStyle, QWidget* parent)
     m_metricGrid = new QGridLayout();
     m_metricGrid->setHorizontalSpacing(kMetricGridSpacing);
     m_metricGrid->setVerticalSpacing(kMetricGridSpacing);
+    m_metricGrid->setAlignment(Qt::AlignTop | Qt::AlignLeft);
 
     int row = 0;
     int col = 0;
@@ -361,10 +363,13 @@ void Dashb0rdPage::relayoutMetricBoxes()
         }
     }
     const int availableWidth = m_metricsContainer ? m_metricsContainer->width() : 0;
-    const int metricBoxMaxWidth = MetricBoxMaxWidthPx(m_metricsContainer);
+    int metricBoxWidth = MetricBoxMaxWidthPx(m_metricsContainer);
+    if (!m_metricBoxes.isEmpty() && m_metricBoxes[0]) {
+        metricBoxWidth = std::max(kMetricBoxMinWidth, m_metricBoxes[0]->maximumWidth());
+    }
     int dynamicColumns = 1;
     if (availableWidth > 0) {
-        int columnsByWidth = (availableWidth + kMetricGridSpacing) / (metricBoxMaxWidth + kMetricGridSpacing);
+        int columnsByWidth = (availableWidth + kMetricGridSpacing) / (metricBoxWidth + kMetricGridSpacing);
         dynamicColumns = std::max(1, columnsByWidth);
     }
     dynamicColumns = std::min(dynamicColumns, kMetricGridMaxColumns);
@@ -385,6 +390,12 @@ void Dashb0rdPage::relayoutMetricBoxes()
 void Dashb0rdPage::resizeEvent(QResizeEvent* event)
 {
     QWidget::resizeEvent(event);
+    relayoutMetricBoxes();
+}
+
+void Dashb0rdPage::showEvent(QShowEvent* event)
+{
+    QWidget::showEvent(event);
     relayoutMetricBoxes();
 }
 
