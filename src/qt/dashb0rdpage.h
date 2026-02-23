@@ -104,7 +104,6 @@ private:
     QVector<double> m_mempoolOutputCountSeries;
 
     // Rolling Stats Metrics
-    QLabel* m_statsBlocksValue;
     QLabel* m_statsTransactionsValue;
     QLabel* m_statsTpsValue;
     QLabel* m_statsVolumeValue;
@@ -112,7 +111,6 @@ private:
     QLabel* m_statsBytesValue;
     QLabel* m_statsMedianFeeValue;
     QLabel* m_statsAvgFeeValue;
-    SparklineWidget* m_statsBlocksSpark;
     SparklineWidget* m_statsTransactionsSpark;
     SparklineWidget* m_statsTpsSpark;
     SparklineWidget* m_statsVolumeSpark;
@@ -120,7 +118,6 @@ private:
     SparklineWidget* m_statsBytesSpark;
     SparklineWidget* m_statsMedianFeeSpark;
     SparklineWidget* m_statsAvgFeeSpark;
-    QVector<double> m_statsBlocksSeries;
     QVector<double> m_statsTransactionsSeries;
     QVector<double> m_statsTpsSeries;
     QVector<double> m_statsVolumeSeries;

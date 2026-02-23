@@ -114,7 +114,6 @@ static QString MetricDefinitionForLabel(const QString& label)
     if (label == QObject::tr("OP_RETURN Count")) return QObject::tr("Count of OP_RETURN outputs in mempool.");
     if (label == QObject::tr("Nonstandard Count")) return QObject::tr("Count of nonstandard outputs in mempool.");
     if (label == QObject::tr("Total Outputs")) return QObject::tr("Total outputs across all mempool transactions.");
-    if (label == QObject::tr("Analyzed Blocks")) return QObject::tr("Number of blocks analyzed in the user-configurable rolling window.");
     if (label == QObject::tr("Transactions")) return QObject::tr("Total transactions across analyzed blocks.");
     if (label == QObject::tr("TPS")) return QObject::tr("Estimated transactions per second over analyzed blocks.");
     if (label == QObject::tr("Volume (DOGE)")) return QObject::tr("Sum of output values in analyzed blocks.");
@@ -172,7 +171,6 @@ Dashb0rdPage::Dashb0rdPage(const PlatformStyle* platformStyle, QWidget* parent)
     , m_mempoolOpReturnSpark(nullptr)
     , m_mempoolNonstandardSpark(nullptr)
     , m_mempoolOutputCountSpark(nullptr)
-    , m_statsBlocksValue(nullptr)
     , m_statsTransactionsValue(nullptr)
     , m_statsTpsValue(nullptr)
     , m_statsVolumeValue(nullptr)
@@ -180,7 +178,6 @@ Dashb0rdPage::Dashb0rdPage(const PlatformStyle* platformStyle, QWidget* parent)
     , m_statsBytesValue(nullptr)
     , m_statsMedianFeeValue(nullptr)
     , m_statsAvgFeeValue(nullptr)
-    , m_statsBlocksSpark(nullptr)
     , m_statsTransactionsSpark(nullptr)
     , m_statsTpsSpark(nullptr)
     , m_statsVolumeSpark(nullptr)
@@ -262,7 +259,6 @@ Dashb0rdPage::Dashb0rdPage(const PlatformStyle* platformStyle, QWidget* parent)
     addMetric(tr("Nonstandard Count"), m_mempoolNonstandardValue, m_mempoolNonstandardSpark);
     addMetric(tr("Total Outputs"), m_mempoolOutputCountValue, m_mempoolOutputCountSpark);
 
-    addMetric(tr("Analyzed Blocks"), m_statsBlocksValue, m_statsBlocksSpark);
     addMetric(tr("Transactions"), m_statsTransactionsValue, m_statsTransactionsSpark);
     addMetric(tr("TPS"), m_statsTpsValue, m_statsTpsSpark);
     addMetric(tr("Volume (DOGE)"), m_statsVolumeValue, m_statsVolumeSpark);
@@ -623,11 +619,6 @@ void Dashb0rdPage::pollStats()
         const int64_t mempoolOutputCount = GetInt64(result, "mempool_output_count");
         m_mempoolOutputCountValue->setText(QString::number(mempoolOutputCount));
         pushSample(m_mempoolOutputCountSeries, m_mempoolOutputCountSpark, static_cast<double>(mempoolOutputCount));
-
-        const int64_t statsBlocks = GetInt64(result, "stats_blocks");
-        // This metric is a rolling window occupancy indicator, not chain height.
-        m_statsBlocksValue->setText(QString("%1 / %2").arg(statsBlocks).arg(m_statsWindowBlocks));
-        pushSample(m_statsBlocksSeries, m_statsBlocksSpark, static_cast<double>(statsBlocks));
 
         const int64_t statsTransactions = GetInt64(result, "stats_transactions");
         m_statsTransactionsValue->setText(QString::number(statsTransactions));
