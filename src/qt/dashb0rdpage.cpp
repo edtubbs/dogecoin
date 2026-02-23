@@ -50,7 +50,6 @@ namespace {
 static const int kPollIntervalMs = 1000;
 static const int kMaxSparkPoints = 120;
 static const int kMetricGridColumns = 4;
-static const int kMetricGridMaxColumns = 8;
 static const int kMetricGridSpacing = 10;
 static const int kDefaultStatsWindowBlocks = 100;
 static const char* kMetricMimeType = "application/x-dashb0rd-metric-index";
@@ -362,7 +361,19 @@ void Dashb0rdPage::relayoutMetricBoxes()
             ++visibleCount;
         }
     }
-    const int availableWidth = m_metricsContainer ? m_metricsContainer->width() : 0;
+    int availableWidth = 0;
+    if (m_metricsContainer) {
+        QWidget* parentWidget = m_metricsContainer->parentWidget();
+        // Prefer parent width (scroll viewport/container), fallback to content width.
+        availableWidth = parentWidget ? parentWidget->width() : m_metricsContainer->width();
+        if (m_metricsContainer->layout()) {
+            const QMargins margins = m_metricsContainer->layout()->contentsMargins();
+            availableWidth -= (margins.left() + margins.right());
+        }
+    }
+    if (availableWidth <= 0) {
+        availableWidth = this->width();
+    }
     int metricBoxWidth = MetricBoxMaxWidthPx(m_metricsContainer);
     if (!m_metricBoxes.isEmpty() && m_metricBoxes[0]) {
         metricBoxWidth = std::max(kMetricBoxMinWidth, m_metricBoxes[0]->maximumWidth());
@@ -372,7 +383,6 @@ void Dashb0rdPage::relayoutMetricBoxes()
         int columnsByWidth = (availableWidth + kMetricGridSpacing) / (metricBoxWidth + kMetricGridSpacing);
         dynamicColumns = std::max(1, columnsByWidth);
     }
-    dynamicColumns = std::min(dynamicColumns, kMetricGridMaxColumns);
     const int columns = std::max(1, std::min(dynamicColumns, visibleCount));
 
     int visibleIndex = 0;
