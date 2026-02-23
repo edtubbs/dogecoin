@@ -240,7 +240,7 @@ Dashb0rdPage::Dashb0rdPage(const PlatformStyle* platformStyle, QWidget* parent)
         box->setCursor(Qt::OpenHandCursor);
         spark->setProperty("tooltipValueKind", TooltipValueKindForLabel(label));
         m_metricBoxes.push_back(box);
-        m_metricGrid->addWidget(box, row, col);
+        m_metricGrid->addWidget(box, row, col, Qt::AlignLeft);
         if (++col >= kMetricGridColumns) {
             col = 0;
             ++row;
@@ -271,10 +271,6 @@ Dashb0rdPage::Dashb0rdPage(const PlatformStyle* platformStyle, QWidget* parent)
     addMetric(tr("Avg Fee/Block"), m_statsAvgFeeValue, m_statsAvgFeeSpark);
 
     addMetric(tr("Uptime"), m_uptimeValue, m_uptimeSpark);
-
-    for (int i = 0; i < kMetricGridColumns; ++i) {
-        m_metricGrid->setColumnStretch(i, 1);
-    }
 
     outer->addLayout(m_metricGrid);
     outer->addStretch();
@@ -319,8 +315,10 @@ QWidget* Dashb0rdPage::createMetricBox(const QString& label, QLabel*& valueLabel
 {
     QFrame* box = new QFrame(this);
     box->setFrameStyle(QFrame::StyledPanel | QFrame::Raised);
-    box->setMaximumWidth(MetricBoxMaxWidthPx(this));
-    box->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+    const int boxWidth = MetricBoxMaxWidthPx(this);
+    box->setMinimumWidth(boxWidth);
+    box->setMaximumWidth(boxWidth);
+    box->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Preferred);
 
     QPalette pal = box->palette();
     pal.setColor(QPalette::Window, palette().color(QPalette::AlternateBase));
@@ -358,37 +356,29 @@ void Dashb0rdPage::relayoutMetricBoxes()
 
     int visibleCount = 0;
     for (QWidget* box : m_metricBoxes) {
-        if (box && box->isVisible()) {
+        if (box && !box->isHidden()) {
             ++visibleCount;
         }
     }
     const int availableWidth = m_metricsContainer ? m_metricsContainer->width() : 0;
     const int metricBoxMaxWidth = MetricBoxMaxWidthPx(m_metricsContainer);
-    int dynamicColumns = kMetricGridColumns;
+    int dynamicColumns = 1;
     if (availableWidth > 0) {
-        int columnsByWidth = 1;
-        if (availableWidth >= (metricBoxMaxWidth + kMetricGridSpacing)) {
-            columnsByWidth = availableWidth / (metricBoxMaxWidth + kMetricGridSpacing);
-        }
-        columnsByWidth = std::max(1, columnsByWidth);
-        dynamicColumns = std::max(kMetricGridColumns, columnsByWidth);
-        dynamicColumns = std::min(dynamicColumns, kMetricGridMaxColumns);
+        int columnsByWidth = (availableWidth + kMetricGridSpacing) / (metricBoxMaxWidth + kMetricGridSpacing);
+        dynamicColumns = std::max(1, columnsByWidth);
     }
+    dynamicColumns = std::min(dynamicColumns, kMetricGridMaxColumns);
     const int columns = std::max(1, std::min(dynamicColumns, visibleCount));
 
     int visibleIndex = 0;
     for (QWidget* box : m_metricBoxes) {
-        if (!box || !box->isVisible()) {
+        if (!box || box->isHidden()) {
             continue;
         }
         const int row = visibleIndex / columns;
         const int col = visibleIndex % columns;
-        m_metricGrid->addWidget(box, row, col);
+        m_metricGrid->addWidget(box, row, col, Qt::AlignLeft);
         ++visibleIndex;
-    }
-
-    for (int i = 0; i < columns; ++i) {
-        m_metricGrid->setColumnStretch(i, 1);
     }
 }
 
@@ -419,7 +409,7 @@ bool Dashb0rdPage::eventFilter(QObject* watched, QEvent* event)
                 QWidget* box = m_metricBoxes[i];
                 QAction* action = menu.addAction(box->property("metricLabel").toString());
                 action->setCheckable(true);
-                action->setChecked(box->isVisible());
+                action->setChecked(!box->isHidden());
                 action->setData(i);
             }
             const QAction* selectedAction = menu.exec(mouseEvent->globalPos());
@@ -427,7 +417,7 @@ bool Dashb0rdPage::eventFilter(QObject* watched, QEvent* event)
                 const int boxIndex = selectedAction->data().toInt();
                 if (boxIndex >= 0 && boxIndex < m_metricBoxes.size()) {
                     QWidget* box = m_metricBoxes[boxIndex];
-                    box->setVisible(!box->isVisible());
+                    box->setHidden(!box->isHidden());
                 }
                 relayoutMetricBoxes();
             }
