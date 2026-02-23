@@ -325,6 +325,7 @@ QWidget* Dashb0rdPage::createMetricBox(const QString& label, QLabel*& valueLabel
     pal.setColor(QPalette::Window, palette().color(QPalette::AlternateBase));
     box->setAutoFillBackground(true);
     box->setPalette(pal);
+    box->setToolTip(MetricDefinitionForLabel(label));
 
     QVBoxLayout* layout = new QVBoxLayout(box);
     layout->setContentsMargins(8, 8, 8, 8);
@@ -336,6 +337,8 @@ QWidget* Dashb0rdPage::createMetricBox(const QString& label, QLabel*& valueLabel
     title->setFont(titleFont);
     title->setAlignment(Qt::AlignCenter);
     title->setToolTip(MetricDefinitionForLabel(label));
+    title->setMouseTracking(true);
+    title->setAttribute(Qt::WA_Hover, true);
 
     valueLabel = MakeValueLabel();
     spark = new SparklineWidget(box);
