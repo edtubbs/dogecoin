@@ -16,6 +16,8 @@ class ClientModel;
 class PlatformStyle;
 class QGridLayout;
 class QLabel;
+class QResizeEvent;
+class QSpinBox;
 class QTimer;
 class SparklineWidget;
 class WalletModel;
@@ -33,9 +35,11 @@ public:
 
 protected:
     bool eventFilter(QObject* watched, QEvent* event) override;
+    void resizeEvent(QResizeEvent* event) override;
 
 private Q_SLOTS:
     void pollStats();
+    void setStatsWindow(int blocks);
 
 private:
     void pushSample(QVector<double>& series, SparklineWidget* spark, double value);
@@ -54,6 +58,8 @@ private:
     QPoint m_dragStartPos;
     QWidget* m_dragSourceBox;
     int64_t m_prevMempoolTxCount;
+    int m_statsWindowBlocks;
+    QSpinBox* m_statsWindowSpinBox;
 
     // Chain Tip Metrics
     QLabel* m_chainTipHeightValue;

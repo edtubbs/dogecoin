@@ -27,6 +27,7 @@
 #include <QFont>
 #include <QFrame>
 #include <QGridLayout>
+#include <QHBoxLayout>
 #include <QLabel>
 #include <QMenu>
 #include <QMimeData>
@@ -35,7 +36,9 @@
 #include <QPainter>
 #include <QPixmap>
 #include <QApplication>
+#include <QResizeEvent>
 #include <QScrollArea>
+#include <QSpinBox>
 #include <QTimer>
 #include <QVBoxLayout>
 
@@ -46,8 +49,12 @@ namespace {
 static const int kPollIntervalMs = 1000;
 static const int kMaxSparkPoints = 120;
 static const int kMetricGridColumns = 4;
-static const int kStatsWindowBlocks = 100;
+static const int kMetricGridMaxColumns = 8;
+static const int kMetricGridSpacing = 10;
+static const int kDefaultStatsWindowBlocks = 100;
 static const char* kMetricMimeType = "application/x-dashb0rd-metric-index";
+static const int kMetricBoxMinWidth = 280;
+static const int kMetricBoxWidthChars = 38;
 
 static QLabel* MakeValueLabel()
 {
@@ -81,6 +88,51 @@ static QString GetString(const UniValue& obj, const char* key)
     return v.isStr() ? QString::fromStdString(v.get_str()) : QString();
 }
 
+static QString TooltipValueKindForLabel(const QString& label)
+{
+    if (label == QObject::tr("Chain Tip Time")) return "epoch_time";
+    if (label == QObject::tr("Bits (hex)")) return "bits_hex";
+    if (label == QObject::tr("Mempool Bytes") || label == QObject::tr("Bytes")) return "bytes";
+    if (label == QObject::tr("Volume (DOGE)") || label == QObject::tr("Median Fee/Block") || label == QObject::tr("Avg Fee/Block")) return "doge";
+    if (label == QObject::tr("TPS")) return "tps";
+    if (label == QObject::tr("Uptime")) return "duration_sec";
+    if (label == QObject::tr("Difficulty")) return "difficulty";
+    return "count";
+}
+
+static QString MetricDefinitionForLabel(const QString& label)
+{
+    if (label == QObject::tr("Block Height")) return QObject::tr("Current blockchain height.");
+    if (label == QObject::tr("Difficulty")) return QObject::tr("Network mining difficulty.");
+    if (label == QObject::tr("Chain Tip Time")) return QObject::tr("Timestamp of the most recent block (ISO-8601).");
+    if (label == QObject::tr("Bits (hex)")) return QObject::tr("Compact difficulty target in hexadecimal format.");
+    if (label == QObject::tr("Mempool TX")) return QObject::tr("Number of transactions in the mempool.");
+    if (label == QObject::tr("Mempool Bytes")) return QObject::tr("Total mempool memory usage in bytes.");
+    if (label == QObject::tr("P2PKH Count")) return QObject::tr("Count of Pay-to-PubKey-Hash outputs in mempool.");
+    if (label == QObject::tr("P2SH Count")) return QObject::tr("Count of Pay-to-Script-Hash outputs in mempool.");
+    if (label == QObject::tr("Multisig Count")) return QObject::tr("Count of multisig outputs in mempool.");
+    if (label == QObject::tr("OP_RETURN Count")) return QObject::tr("Count of OP_RETURN outputs in mempool.");
+    if (label == QObject::tr("Nonstandard Count")) return QObject::tr("Count of nonstandard outputs in mempool.");
+    if (label == QObject::tr("Total Outputs")) return QObject::tr("Total outputs across all mempool transactions.");
+    if (label == QObject::tr("Analyzed Blocks")) return QObject::tr("Number of blocks analyzed in the user-configurable rolling window.");
+    if (label == QObject::tr("Transactions")) return QObject::tr("Total transactions across analyzed blocks.");
+    if (label == QObject::tr("TPS")) return QObject::tr("Estimated transactions per second over analyzed blocks.");
+    if (label == QObject::tr("Volume (DOGE)")) return QObject::tr("Sum of output values in analyzed blocks.");
+    if (label == QObject::tr("Outputs")) return QObject::tr("Total transaction outputs in analyzed blocks.");
+    if (label == QObject::tr("Bytes")) return QObject::tr("Total serialized block bytes in analyzed window.");
+    if (label == QObject::tr("Median Fee/Block")) return QObject::tr("Median miner fee per block in analyzed window.");
+    if (label == QObject::tr("Avg Fee/Block")) return QObject::tr("Average miner fee per block in analyzed window.");
+    if (label == QObject::tr("Uptime")) return QObject::tr("Node uptime in seconds since startup.");
+    return QString();
+}
+
+static int MetricBoxMaxWidthPx(const QWidget* widget)
+{
+    if (!widget) return kMetricBoxMinWidth;
+    const int scaledWidth = widget->fontMetrics().averageCharWidth() * kMetricBoxWidthChars;
+    return std::max(kMetricBoxMinWidth, scaledWidth);
+}
+
 } // namespace
 
 Dashb0rdPage::Dashb0rdPage(const PlatformStyle* platformStyle, QWidget* parent)
@@ -94,6 +146,8 @@ Dashb0rdPage::Dashb0rdPage(const PlatformStyle* platformStyle, QWidget* parent)
     , m_metricGrid(nullptr)
     , m_dragSourceBox(nullptr)
     , m_prevMempoolTxCount(-1)
+    , m_statsWindowBlocks(kDefaultStatsWindowBlocks)
+    , m_statsWindowSpinBox(nullptr)
     , m_chainTipHeightValue(nullptr)
     , m_chainTipDifficultyValue(nullptr)
     , m_chainTipTimeValue(nullptr)
@@ -153,6 +207,16 @@ Dashb0rdPage::Dashb0rdPage(const PlatformStyle* platformStyle, QWidget* parent)
     title->setFont(tf);
     outer->addWidget(title);
 
+    QHBoxLayout* windowLayout = new QHBoxLayout();
+    QLabel* windowLabel = new QLabel(tr("Rolling Window Blocks:"), this);
+    m_statsWindowSpinBox = new QSpinBox(this);
+    m_statsWindowSpinBox->setRange(1, 5000);
+    m_statsWindowSpinBox->setValue(m_statsWindowBlocks);
+    windowLayout->addWidget(windowLabel);
+    windowLayout->addWidget(m_statsWindowSpinBox);
+    windowLayout->addStretch();
+    outer->addLayout(windowLayout);
+
     m_lastUpdated = new QLabel(tr("Last updated: n/a"));
     m_lastUpdated->setTextInteractionFlags(Qt::TextSelectableByMouse);
     outer->addWidget(m_lastUpdated);
@@ -162,8 +226,8 @@ Dashb0rdPage::Dashb0rdPage(const PlatformStyle* platformStyle, QWidget* parent)
     m_metricsContainer->installEventFilter(this);
 
     m_metricGrid = new QGridLayout();
-    m_metricGrid->setHorizontalSpacing(10);
-    m_metricGrid->setVerticalSpacing(10);
+    m_metricGrid->setHorizontalSpacing(kMetricGridSpacing);
+    m_metricGrid->setVerticalSpacing(kMetricGridSpacing);
 
     int row = 0;
     int col = 0;
@@ -174,6 +238,7 @@ Dashb0rdPage::Dashb0rdPage(const PlatformStyle* platformStyle, QWidget* parent)
         box->setAcceptDrops(true);
         box->installEventFilter(this);
         box->setCursor(Qt::OpenHandCursor);
+        spark->setProperty("tooltipValueKind", TooltipValueKindForLabel(label));
         m_metricBoxes.push_back(box);
         m_metricGrid->addWidget(box, row, col);
         if (++col >= kMetricGridColumns) {
@@ -196,7 +261,7 @@ Dashb0rdPage::Dashb0rdPage(const PlatformStyle* platformStyle, QWidget* parent)
     addMetric(tr("Nonstandard Count"), m_mempoolNonstandardValue, m_mempoolNonstandardSpark);
     addMetric(tr("Total Outputs"), m_mempoolOutputCountValue, m_mempoolOutputCountSpark);
 
-    addMetric(tr("Blocks (100)"), m_statsBlocksValue, m_statsBlocksSpark);
+    addMetric(tr("Analyzed Blocks"), m_statsBlocksValue, m_statsBlocksSpark);
     addMetric(tr("Transactions"), m_statsTransactionsValue, m_statsTransactionsSpark);
     addMetric(tr("TPS"), m_statsTpsValue, m_statsTpsSpark);
     addMetric(tr("Volume (DOGE)"), m_statsVolumeValue, m_statsVolumeSpark);
@@ -213,6 +278,7 @@ Dashb0rdPage::Dashb0rdPage(const PlatformStyle* platformStyle, QWidget* parent)
 
     outer->addLayout(m_metricGrid);
     outer->addStretch();
+    relayoutMetricBoxes();
 
     scrollArea->setWidget(scrollContent);
 
@@ -221,6 +287,7 @@ Dashb0rdPage::Dashb0rdPage(const PlatformStyle* platformStyle, QWidget* parent)
     mainLayout->addWidget(scrollArea);
 
     connect(m_pollTimer, SIGNAL(timeout()), this, SLOT(pollStats()));
+    connect(m_statsWindowSpinBox, SIGNAL(valueChanged(int)), this, SLOT(setStatsWindow(int)));
     m_pollTimer->setInterval(kPollIntervalMs);
     m_pollTimer->start();
 
@@ -242,10 +309,18 @@ void Dashb0rdPage::setWalletModel(WalletModel* model)
     pollStats();
 }
 
+void Dashb0rdPage::setStatsWindow(int blocks)
+{
+    m_statsWindowBlocks = std::max(1, blocks);
+    pollStats();
+}
+
 QWidget* Dashb0rdPage::createMetricBox(const QString& label, QLabel*& valueLabel, SparklineWidget*& spark)
 {
     QFrame* box = new QFrame(this);
     box->setFrameStyle(QFrame::StyledPanel | QFrame::Raised);
+    box->setMaximumWidth(MetricBoxMaxWidthPx(this));
+    box->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
 
     QPalette pal = box->palette();
     pal.setColor(QPalette::Window, palette().color(QPalette::AlternateBase));
@@ -261,6 +336,7 @@ QWidget* Dashb0rdPage::createMetricBox(const QString& label, QLabel*& valueLabel
     titleFont.setBold(true);
     title->setFont(titleFont);
     title->setAlignment(Qt::AlignCenter);
+    title->setToolTip(MetricDefinitionForLabel(label));
 
     valueLabel = MakeValueLabel();
     spark = new SparklineWidget(box);
@@ -280,20 +356,46 @@ void Dashb0rdPage::relayoutMetricBoxes()
         delete item;
     }
 
+    int visibleCount = 0;
+    for (QWidget* box : m_metricBoxes) {
+        if (box && box->isVisible()) {
+            ++visibleCount;
+        }
+    }
+    const int availableWidth = m_metricsContainer ? m_metricsContainer->width() : 0;
+    const int metricBoxMaxWidth = MetricBoxMaxWidthPx(m_metricsContainer);
+    int dynamicColumns = kMetricGridColumns;
+    if (availableWidth > 0) {
+        int columnsByWidth = 1;
+        if (availableWidth >= (metricBoxMaxWidth + kMetricGridSpacing)) {
+            columnsByWidth = availableWidth / (metricBoxMaxWidth + kMetricGridSpacing);
+        }
+        columnsByWidth = std::max(1, columnsByWidth);
+        dynamicColumns = std::max(kMetricGridColumns, columnsByWidth);
+        dynamicColumns = std::min(dynamicColumns, kMetricGridMaxColumns);
+    }
+    const int columns = std::max(1, std::min(dynamicColumns, visibleCount));
+
     int visibleIndex = 0;
     for (QWidget* box : m_metricBoxes) {
         if (!box || !box->isVisible()) {
             continue;
         }
-        const int row = visibleIndex / kMetricGridColumns;
-        const int col = visibleIndex % kMetricGridColumns;
+        const int row = visibleIndex / columns;
+        const int col = visibleIndex % columns;
         m_metricGrid->addWidget(box, row, col);
         ++visibleIndex;
     }
 
-    for (int i = 0; i < kMetricGridColumns; ++i) {
+    for (int i = 0; i < columns; ++i) {
         m_metricGrid->setColumnStretch(i, 1);
     }
+}
+
+void Dashb0rdPage::resizeEvent(QResizeEvent* event)
+{
+    QWidget::resizeEvent(event);
+    relayoutMetricBoxes();
 }
 
 bool Dashb0rdPage::eventFilter(QObject* watched, QEvent* event)
@@ -443,6 +545,7 @@ void Dashb0rdPage::pollStats()
         JSONRPCRequest req;
         req.strMethod = "getdashboardmetrics";
         req.params = UniValue(UniValue::VARR);
+        req.params.push_back(m_statsWindowBlocks);
         const UniValue result = tableRPC.execute(req);
 
         const int64_t chainTipHeight = GetInt64(result, "chain_tip_height");
@@ -509,7 +612,7 @@ void Dashb0rdPage::pollStats()
 
         const int64_t statsBlocks = GetInt64(result, "stats_blocks");
         // This metric is a rolling window occupancy indicator, not chain height.
-        m_statsBlocksValue->setText(QString("%1 / %2").arg(statsBlocks).arg(kStatsWindowBlocks));
+        m_statsBlocksValue->setText(QString("%1 / %2").arg(statsBlocks).arg(m_statsWindowBlocks));
         pushSample(m_statsBlocksSeries, m_statsBlocksSpark, static_cast<double>(statsBlocks));
 
         const int64_t statsTransactions = GetInt64(result, "stats_transactions");

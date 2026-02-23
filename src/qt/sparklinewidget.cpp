@@ -15,6 +15,38 @@
 
 #include <algorithm>
 
+namespace {
+static QString FormatValueForKind(const QString& kind, double value)
+{
+    if (kind == "count") {
+        return QString::number(static_cast<qint64>(value));
+    }
+    if (kind == "bytes") {
+        return QString("%1 B").arg(QString::number(static_cast<qint64>(value)));
+    }
+    if (kind == "doge") {
+        return QString("%1 DOGE").arg(QString::number(value, 'f', 8));
+    }
+    if (kind == "tps") {
+        return QString("%1 tx/s").arg(QString::number(value, 'f', 3));
+    }
+    if (kind == "epoch_time") {
+        const qint64 epoch = value < 0 ? 0 : static_cast<qint64>(value);
+        return QDateTime::fromTime_t(static_cast<uint>(epoch)).toString(Qt::ISODate);
+    }
+    if (kind == "bits_hex") {
+        return QString("0x%1").arg(static_cast<qulonglong>(value), 0, 16);
+    }
+    if (kind == "duration_sec") {
+        return QString("%1 s").arg(QString::number(static_cast<qint64>(value)));
+    }
+    if (kind == "difficulty") {
+        return QString::number(value, 'f', 2);
+    }
+    return QString::number(value, 'g', 12);
+}
+} // namespace
+
 SparklineWidget::SparklineWidget(QWidget* parent)
     : QWidget(parent)
 {
@@ -145,9 +177,11 @@ void SparklineWidget::mouseMoveEvent(QMouseEvent* event)
     // Show timestamp and sample value for the hovered point.
     const qint64 ts = m_timestamps[index];
     const QString tsStr = QDateTime::fromTime_t(static_cast<uint>(ts)).toString(Qt::ISODate);
+    const QString valueKind = property("tooltipValueKind").toString();
+    const QString valueStr = FormatValueForKind(valueKind, m_data[index]);
     const QString tooltip = tr("Time: %1\nValue: %2")
         .arg(tsStr)
-        .arg(QString::number(m_data[index], 'g', 12));
+        .arg(valueStr);
     QToolTip::showText(event->globalPos(), tooltip, this);
 
     QWidget::mouseMoveEvent(event);

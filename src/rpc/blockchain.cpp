@@ -1272,10 +1272,12 @@ UniValue getblockchaininfo(const JSONRPCRequest& request)
 
 UniValue getdashboardmetrics(const JSONRPCRequest& request)
 {
-    if (request.fHelp || request.params.size() != 0)
+    if (request.fHelp || request.params.size() > 1)
         throw runtime_error(
-            "getdashboardmetrics\n"
+            "getdashboardmetrics ( window_blocks )\n"
             "Returns metrics formatted for libdogecoin dashboard integration.\n"
+            "\nArguments:\n"
+            "1. window_blocks    (numeric, optional, default=100) Number of recent blocks for rolling stats (1-5000)\n"
             "\nResult:\n"
             "{\n"
             "  \"chain_tip_height\": x,                (numeric) current chain height\n"
@@ -1302,8 +1304,17 @@ UniValue getdashboardmetrics(const JSONRPCRequest& request)
             "}\n"
             "\nExamples:\n"
             + HelpExampleCli("getdashboardmetrics", "")
-            + HelpExampleRpc("getdashboardmetrics", "")
+            + HelpExampleCli("getdashboardmetrics", "250")
+            + HelpExampleRpc("getdashboardmetrics", "250")
         );
+
+    int stats_window = 100;
+    if (request.params.size() == 1) {
+        stats_window = request.params[0].get_int();
+        if (stats_window < 1 || stats_window > 5000) {
+            throw JSONRPCError(RPC_INVALID_PARAMETER, "window_blocks must be between 1 and 5000");
+        }
+    }
 
     LOCK(cs_main);
 
@@ -1379,8 +1390,8 @@ UniValue getdashboardmetrics(const JSONRPCRequest& request)
         result.pushKV("mempool_output_count", (int64_t)total_vouts);
     }
     
-    // Rolling statistics (last 100 blocks)
-    const int STATS_WINDOW = 100;
+    // Rolling statistics (last N blocks)
+    const int STATS_WINDOW = stats_window;
     int blocks_analyzed = 0;
     int64_t total_transactions = 0;
     int64_t total_outputs = 0;
@@ -2073,7 +2084,7 @@ static const CRPCCommand commands[] =
 { //  category              name                      actor (function)         okSafe argNames
   //  --------------------- ------------------------  -----------------------  ------ ----------
     { "blockchain",         "getblockchaininfo",      &getblockchaininfo,      true,  {} },
-    { "blockchain",         "getdashboardmetrics",    &getdashboardmetrics,    true,  {} },
+    { "blockchain",         "getdashboardmetrics",    &getdashboardmetrics,    true,  {"window_blocks"} },
     { "blockchain",         "getblockstats",          &getblockstats,          true,  {"hash", "stats"} },
     { "blockchain",         "getbestblockhash",       &getbestblockhash,       true,  {} },
     { "blockchain",         "getblockcount",          &getblockcount,          true,  {} },
