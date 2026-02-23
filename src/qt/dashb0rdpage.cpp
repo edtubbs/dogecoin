@@ -1,4 +1,5 @@
-// Copyright (c) 2026
+// Copyright (c) 2011-2016 The Bitcoin Core developers
+// Copyright (c) 2021-2026 The Dogecoin Core developers
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
@@ -61,18 +62,21 @@ static QLabel* MakeValueLabel()
 
 static int64_t GetInt64(const UniValue& obj, const char* key)
 {
+    // Missing/non-numeric fields are treated as 0 to keep UI refresh resilient.
     const UniValue& v = find_value(obj, key);
     return v.isNum() ? v.get_int64() : 0;
 }
 
 static double GetDouble(const UniValue& obj, const char* key)
 {
+    // Missing/non-numeric fields are treated as 0.0 to avoid UI exceptions.
     const UniValue& v = find_value(obj, key);
     return v.isNum() ? v.get_real() : 0.0;
 }
 
 static QString GetString(const UniValue& obj, const char* key)
 {
+    // Missing/non-string fields become empty text in the UI.
     const UniValue& v = find_value(obj, key);
     return v.isStr() ? QString::fromStdString(v.get_str()) : QString();
 }
@@ -271,6 +275,7 @@ QWidget* Dashb0rdPage::createMetricBox(const QString& label, QLabel*& valueLabel
 
 void Dashb0rdPage::relayoutMetricBoxes()
 {
+    // Rebuild grid positions from the current ordering/visibility state.
     while (QLayoutItem* item = m_metricGrid->takeAt(0)) {
         delete item;
     }
@@ -301,10 +306,12 @@ bool Dashb0rdPage::eventFilter(QObject* watched, QEvent* event)
         QMouseEvent* mouseEvent = static_cast<QMouseEvent*>(event);
         if (mouseEvent->button() == Qt::LeftButton) {
             if (isMetricBox) {
+                // Record drag origin for drag threshold + source index lookup.
                 m_dragStartPos = mouseEvent->pos();
                 m_dragSourceBox = watchedWidget;
             }
         } else if (mouseEvent->button() == Qt::RightButton) {
+            // Right-click opens metric visibility toggles.
             QMenu menu(this);
             for (int i = 0; i < m_metricBoxes.size(); ++i) {
                 QWidget* box = m_metricBoxes[i];
@@ -331,6 +338,7 @@ bool Dashb0rdPage::eventFilter(QObject* watched, QEvent* event)
         if (!(mouseEvent->buttons() & Qt::LeftButton) || m_dragSourceBox != watchedWidget) {
             return QWidget::eventFilter(watched, event);
         }
+        // Ignore tiny mouse movement so normal clicks do not trigger drag mode.
         if ((mouseEvent->pos() - m_dragStartPos).manhattanLength() < QApplication::startDragDistance()) {
             return QWidget::eventFilter(watched, event);
         }
@@ -345,6 +353,7 @@ bool Dashb0rdPage::eventFilter(QObject* watched, QEvent* event)
         mimeData->setData(kMetricMimeType, QByteArray::number(sourceIndex));
         drag->setMimeData(mimeData);
 
+        // Show a translucent preview of the metric tile while dragging.
         QPixmap dragPixmap = watchedWidget->grab();
         if (!dragPixmap.isNull()) {
             QPixmap ghost(dragPixmap.size());
@@ -394,6 +403,7 @@ bool Dashb0rdPage::eventFilter(QObject* watched, QEvent* event)
         }
 
         if (sourceIndex != targetIndex) {
+            // Reorder metric list and reflow visible tiles back into grid form.
             QWidget* box = m_metricBoxes.takeAt(sourceIndex);
             m_metricBoxes.insert(targetIndex, box);
             relayoutMetricBoxes();
@@ -429,6 +439,7 @@ void Dashb0rdPage::pollStats()
     }
 
     try {
+        // Pull all dashboard values in one core RPC call.
         JSONRPCRequest req;
         req.strMethod = "getdashboardmetrics";
         req.params = UniValue(UniValue::VARR);
@@ -455,6 +466,7 @@ void Dashb0rdPage::pollStats()
 
         const int64_t mempoolTxCount = GetInt64(result, "mempool_tx_count");
         if (m_prevMempoolTxCount >= 0) {
+            // Show per-poll direction so users can quickly see churn (+/-).
             const int64_t mempoolDelta = mempoolTxCount - m_prevMempoolTxCount;
             QString deltaText = QString::number(mempoolDelta);
             if (mempoolDelta > 0) {
@@ -496,6 +508,7 @@ void Dashb0rdPage::pollStats()
         pushSample(m_mempoolOutputCountSeries, m_mempoolOutputCountSpark, static_cast<double>(mempoolOutputCount));
 
         const int64_t statsBlocks = GetInt64(result, "stats_blocks");
+        // This metric is a rolling window occupancy indicator, not chain height.
         m_statsBlocksValue->setText(QString("%1 / %2").arg(statsBlocks).arg(kStatsWindowBlocks));
         pushSample(m_statsBlocksSeries, m_statsBlocksSpark, static_cast<double>(statsBlocks));
 
@@ -516,6 +529,7 @@ void Dashb0rdPage::pollStats()
         pushSample(m_statsOutputsSeries, m_statsOutputsSpark, static_cast<double>(statsOutputs));
 
         const int64_t statsBytes = GetInt64(result, "stats_bytes");
+        // Show formatted and exact byte totals to make small changes obvious.
         m_statsBytesValue->setText(QString("%1 (%2 B)").arg(GUIUtil::formatBytes(statsBytes)).arg(QString::number(statsBytes)));
         pushSample(m_statsBytesSeries, m_statsBytesSpark, static_cast<double>(statsBytes));
 

@@ -1,4 +1,5 @@
-// Copyright (c) 2026
+// Copyright (c) 2011-2016 The Bitcoin Core developers
+// Copyright (c) 2021-2026 The Dogecoin Core developers
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
@@ -26,16 +27,21 @@ SparklineWidget::~SparklineWidget() = default;
 
 void SparklineWidget::setData(const QVector<double>& data)
 {
+    // Keep one timestamp per sample so hover tooltips can show point-in-time data.
     const qint64 now = static_cast<qint64>(QDateTime::currentDateTime().toTime_t());
     if (data.isEmpty()) {
+        // No data means no tooltip timeline.
         m_timestamps.clear();
     } else if (m_timestamps.isEmpty() || data.size() < m_timestamps.size()) {
+        // Initialize (or reset) timestamps when series length changes unexpectedly.
         m_timestamps = QVector<qint64>(data.size(), now);
     } else if (data.size() > m_timestamps.size()) {
+        // Append timestamps for newly added trailing samples.
         while (m_timestamps.size() < data.size()) {
             m_timestamps.push_back(now);
         }
     } else if (!m_timestamps.isEmpty()) {
+        // Sliding window update: drop oldest timestamp and append current sample time.
         m_timestamps.pop_front();
         m_timestamps.push_back(now);
     }
@@ -113,6 +119,7 @@ void SparklineWidget::paintEvent(QPaintEvent* /*event*/)
 
 void SparklineWidget::mouseMoveEvent(QMouseEvent* event)
 {
+    // Tooltips require aligned value/time series data.
     if (m_data.isEmpty() || m_timestamps.size() != m_data.size()) {
         QWidget::mouseMoveEvent(event);
         return;
@@ -128,12 +135,14 @@ void SparklineWidget::mouseMoveEvent(QMouseEvent* event)
 
     int index = 0;
     if (n > 1) {
+        // Map cursor x-position to nearest sample index.
         const double x = std::max(r.left(), std::min<double>(event->pos().x(), r.right()));
         const double ratio = (x - r.left()) / r.width();
         index = qRound(ratio * (n - 1));
         index = std::max(0, std::min(index, n - 1));
     }
 
+    // Show timestamp and sample value for the hovered point.
     const qint64 ts = m_timestamps[index];
     const QString tsStr = QDateTime::fromTime_t(static_cast<uint>(ts)).toString(Qt::ISODate);
     const QString tooltip = tr("Time: %1\nValue: %2")
