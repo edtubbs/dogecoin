@@ -123,40 +123,32 @@ void WalletFrame::showOutOfSyncWarning(bool fShow)
 
 void WalletFrame::gotoOverviewPage()
 {
-    // Switch to current wallet view first
     WalletView *walletView = currentWalletView();
     if (walletView) {
-        walletStack->setCurrentWidget(walletView);
         walletView->gotoOverviewPage();
     }
 }
 
 void WalletFrame::gotoHistoryPage()
 {
-    // Switch to current wallet view first
     WalletView *walletView = currentWalletView();
     if (walletView) {
-        walletStack->setCurrentWidget(walletView);
         walletView->gotoHistoryPage();
     }
 }
 
 void WalletFrame::gotoReceiveCoinsPage()
 {
-    // Switch to current wallet view first
     WalletView *walletView = currentWalletView();
     if (walletView) {
-        walletStack->setCurrentWidget(walletView);
         walletView->gotoReceiveCoinsPage();
     }
 }
 
 void WalletFrame::gotoSendCoinsPage(QString addr)
 {
-    // Switch to current wallet view first
     WalletView *walletView = currentWalletView();
     if (walletView) {
-        walletStack->setCurrentWidget(walletView);
         walletView->gotoSendCoinsPage(addr);
     }
 }
