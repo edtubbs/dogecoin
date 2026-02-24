@@ -150,7 +150,7 @@ static void AddUniValueNode(QTreeWidgetItem* parent, const QString& key, const U
 SparklineWidget::SparklineWidget(QWidget* parent)
     : QWidget(parent)
 {
-    setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+    setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
     setMinimumHeight(34);
     setMouseTracking(true);
 }

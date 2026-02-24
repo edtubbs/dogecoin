@@ -55,9 +55,7 @@ static const int kDefaultStatsWindowBlocks = 100;
 static const char* kMetricMimeType = "application/x-dashb0rd-metric-index";
 static const int kMetricBoxMinWidth = 280;
 static const int kMetricBoxWidthChars = 38;
-static const int kSparklineMinHeight = 56;
-static const int kMetricBoxHeightMultiplier = 4;
-static const int kMetricBoxMinHeight = kSparklineMinHeight * kMetricBoxHeightMultiplier;
+static const int kSparklineMinHeight = 40;
 
 static QLabel* MakeValueLabel()
 {
@@ -272,8 +270,7 @@ Dashb0rdPage::Dashb0rdPage(const PlatformStyle* platformStyle, QWidget* parent)
 
     addMetric(tr("Uptime"), m_uptimeValue, m_uptimeSpark);
 
-    outer->addLayout(m_metricGrid);
-    outer->addStretch();
+    outer->addLayout(m_metricGrid, 1);
     relayoutMetricBoxes();
 
     scrollArea->setWidget(scrollContent);
@@ -318,8 +315,7 @@ QWidget* Dashb0rdPage::createMetricBox(const QString& label, QLabel*& valueLabel
     const int boxWidth = MetricBoxMaxWidthPx(this);
     box->setMinimumWidth(boxWidth);
     box->setMaximumWidth(boxWidth);
-    box->setMinimumHeight(kMetricBoxMinHeight);
-    box->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Preferred);
+    box->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Expanding);
 
     QPalette pal = box->palette();
     pal.setColor(QPalette::Window, palette().color(QPalette::AlternateBase));
@@ -346,6 +342,7 @@ QWidget* Dashb0rdPage::createMetricBox(const QString& label, QLabel*& valueLabel
     layout->addWidget(title);
     layout->addWidget(valueLabel);
     layout->addWidget(spark);
+    layout->setStretch(2, 1);
 
     return box;
 }
