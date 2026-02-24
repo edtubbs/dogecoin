@@ -26,6 +26,7 @@
 #include <univalue.h>
 
 #include <algorithm>
+#include <cctype>
 #include <limits>
 
 namespace {
@@ -144,6 +145,44 @@ static void AddUniValueNode(QTreeWidgetItem* parent, const QString& key, const U
     }
 
     item->setText(1, QString::fromStdString(value.write()));
+}
+
+static void PopulateDecodedTree(QTreeWidget* tree, const bool decodedOk, const UniValue& decoded, const QString& decodeError)
+{
+    tree->clear();
+    if (decodedOk) {
+        if (decoded.isObject()) {
+            const std::vector<std::string>& keys = decoded.getKeys();
+            const std::vector<UniValue>& values = decoded.getValues();
+            for (size_t i = 0; i < keys.size() && i < values.size(); ++i) {
+                AddUniValueNode(tree->invisibleRootItem(), QString::fromStdString(keys[i]), values[i]);
+            }
+        } else {
+            AddUniValueNode(tree->invisibleRootItem(), QObject::tr("context"), decoded);
+        }
+    } else {
+        QTreeWidgetItem* err = new QTreeWidgetItem(tree->invisibleRootItem());
+        err->setText(0, QObject::tr("error"));
+        err->setText(1, decodeError);
+    }
+    tree->expandToDepth(kDecodedTreeInitialDepth);
+}
+
+static bool IsLikelyTxid(QString value)
+{
+    value = value.trimmed();
+    if (value.size() >= 2 && value.startsWith('"') && value.endsWith('"')) {
+        value = value.mid(1, value.size() - 2);
+    }
+    if (value.size() != 64) {
+        return false;
+    }
+    for (int i = 0; i < value.size(); ++i) {
+        if (!std::isxdigit(static_cast<unsigned char>(value.at(i).toLatin1()))) {
+            return false;
+        }
+    }
+    return true;
 }
 } // namespace
 
@@ -345,22 +384,41 @@ void SparklineWidget::mouseDoubleClickEvent(QMouseEvent* event)
     tree->setHeaderLabels(QStringList() << tr("Field") << tr("Value"));
     tree->header()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
     tree->header()->setSectionResizeMode(1, QHeaderView::Stretch);
-    if (decodedOk) {
-        if (decodedTx.isObject()) {
-            const std::vector<std::string>& keys = decodedTx.getKeys();
-            const std::vector<UniValue>& values = decodedTx.getValues();
-            for (size_t i = 0; i < keys.size() && i < values.size(); ++i) {
-                AddUniValueNode(tree->invisibleRootItem(), QString::fromStdString(keys[i]), values[i]);
-            }
-        } else {
-            AddUniValueNode(tree->invisibleRootItem(), tr("context"), decodedTx);
+    PopulateDecodedTree(tree, decodedOk, decodedTx, decodeError);
+
+    QObject::connect(tree, &QTreeWidget::itemDoubleClicked, &details, [this, blockHash](QTreeWidgetItem* item, int /*column*/) {
+        if (!item) {
+            return;
         }
-    } else {
-        QTreeWidgetItem* err = new QTreeWidgetItem(tree->invisibleRootItem());
-        err->setText(0, tr("error"));
-        err->setText(1, decodeError);
-    }
-    tree->expandToDepth(kDecodedTreeInitialDepth);
+        QString txid = item->text(1).trimmed();
+        if (!IsLikelyTxid(txid)) {
+            return;
+        }
+        if (txid.size() >= 2 && txid.startsWith('"') && txid.endsWith('"')) {
+            txid = txid.mid(1, txid.size() - 2);
+        }
+
+        UniValue nestedDecoded;
+        QString nestedError;
+        const bool nestedOk = DecodeContextToUniValue(txid, blockHash, nestedDecoded, nestedError);
+
+        QDialog nested(this);
+        nested.setWindowTitle(tr("Decoded Transaction"));
+        QVBoxLayout* nestedLayout = new QVBoxLayout(&nested);
+        nestedLayout->addWidget(new QLabel(tr("TxID: %1").arg(txid), &nested));
+        QTreeWidget* nestedTree = new QTreeWidget(&nested);
+        nestedTree->setColumnCount(2);
+        nestedTree->setHeaderLabels(QStringList() << tr("Field") << tr("Value"));
+        nestedTree->header()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
+        nestedTree->header()->setSectionResizeMode(1, QHeaderView::Stretch);
+        PopulateDecodedTree(nestedTree, nestedOk, nestedDecoded, nestedError);
+        nestedLayout->addWidget(nestedTree);
+        QDialogButtonBox* closeNested = new QDialogButtonBox(QDialogButtonBox::Close, &nested);
+        QObject::connect(closeNested, &QDialogButtonBox::rejected, &nested, &QDialog::reject);
+        nestedLayout->addWidget(closeNested);
+        nested.resize(760, 500);
+        nested.exec();
+    });
     detailsLayout->addWidget(tree);
     QDialogButtonBox* closeBox = new QDialogButtonBox(QDialogButtonBox::Close, &details);
     QObject::connect(closeBox, &QDialogButtonBox::rejected, &details, &QDialog::reject);

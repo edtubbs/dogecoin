@@ -32,6 +32,7 @@
 #include <QMenu>
 #include <QMimeData>
 #include <QMouseEvent>
+#include <QHelpEvent>
 #include <QPalette>
 #include <QPainter>
 #include <QPixmap>
@@ -41,6 +42,7 @@
 #include <QShowEvent>
 #include <QSpinBox>
 #include <QTimer>
+#include <QToolTip>
 #include <QVBoxLayout>
 
 #include <algorithm>
@@ -50,9 +52,11 @@ namespace {
 static const int kPollIntervalMs = 1000;
 static const int kMaxSparkPoints = 120;
 static const int kMetricGridColumns = 4;
-static const int kMetricGridSpacing = 10;
+// Slightly wider visual separation between metric tiles.
+static const int kMetricGridSpacing = 20;
 static const int kDefaultStatsWindowBlocks = 100;
 static const char* kMetricMimeType = "application/x-dashb0rd-metric-index";
+static const char* kMetricDefinitionProperty = "metricDefinition";
 static const int kMetricBoxMinWidth = 280;
 static const int kMetricBoxWidthChars = 38;
 static const int kSparklineMinHeight = 40;
@@ -332,8 +336,10 @@ QWidget* Dashb0rdPage::createMetricBox(const QString& label, QLabel*& valueLabel
     title->setFont(titleFont);
     title->setAlignment(Qt::AlignCenter);
     title->setToolTip(MetricDefinitionForLabel(label));
+    title->setProperty(kMetricDefinitionProperty, MetricDefinitionForLabel(label));
     title->setMouseTracking(true);
     title->setAttribute(Qt::WA_Hover, true);
+    title->installEventFilter(this);
 
     valueLabel = MakeValueLabel();
     spark = new SparklineWidget(box);
@@ -413,6 +419,13 @@ bool Dashb0rdPage::eventFilter(QObject* watched, QEvent* event)
     QWidget* watchedWidget = qobject_cast<QWidget*>(watched);
     const bool isMetricBox = watchedWidget && m_metricBoxes.contains(watchedWidget);
     const bool isMetricsContainer = (watched == m_metricsContainer);
+    const bool isMetricTitle = watchedWidget && watchedWidget->property(kMetricDefinitionProperty).isValid();
+
+    if (isMetricTitle && event->type() == QEvent::ToolTip) {
+        QHelpEvent* helpEvent = static_cast<QHelpEvent*>(event);
+        QToolTip::showText(helpEvent->globalPos(), watchedWidget->property(kMetricDefinitionProperty).toString(), watchedWidget);
+        return true;
+    }
 
     if ((isMetricBox || isMetricsContainer) && event->type() == QEvent::MouseButtonPress) {
         QMouseEvent* mouseEvent = static_cast<QMouseEvent*>(event);
