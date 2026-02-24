@@ -95,13 +95,32 @@ static bool DecodeContextToUniValue(const QString& txid, const QString& blockHas
         req.fHelp = false;
         req.params = UniValue(UniValue::VARR);
 
-        if (!txid.isEmpty()) {
+        if (!txid.isEmpty() && !blockHash.isEmpty()) {
+            req.strMethod = "getblock";
+            req.params.push_back(UniValue(blockHash.toStdString()));
+            req.params.push_back(UniValue(2));
+            const UniValue blockResult = tableRPC.execute(req);
+            const UniValue& txList = find_value(blockResult, "tx");
+            if (!txList.isNull() && txList.isArray()) {
+                const std::vector<UniValue>& txValues = txList.getValues();
+                const std::string wantedTxid = txid.toStdString();
+                for (const UniValue& txObj : txValues) {
+                    if (!txObj.isObject()) {
+                        continue;
+                    }
+                    const UniValue& txidValue = find_value(txObj, "txid");
+                    if (txidValue.isStr() && txidValue.get_str() == wantedTxid) {
+                        out = txObj;
+                        return true;
+                    }
+                }
+            }
+            errorMessage = QObject::tr("Transaction %1 not found in block %2.").arg(txid).arg(blockHash);
+            return false;
+        } else if (!txid.isEmpty()) {
             req.strMethod = "getrawtransaction";
             req.params.push_back(UniValue(txid.toStdString()));
             req.params.push_back(UniValue(true));
-            if (!blockHash.isEmpty()) {
-                req.params.push_back(UniValue(blockHash.toStdString()));
-            }
         } else if (!blockHash.isEmpty()) {
             req.strMethod = "getblock";
             req.params.push_back(UniValue(blockHash.toStdString()));
