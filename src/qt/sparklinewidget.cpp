@@ -11,10 +11,8 @@
 #include <QEvent>
 #include <QLabel>
 #include <QMouseEvent>
-#include <QPointer>
 #include <QPainter>
 #include <QPaintEvent>
-#include <QPushButton>
 #include <QTextEdit>
 #include <QToolTip>
 #include <QVBoxLayout>
@@ -279,39 +277,23 @@ void SparklineWidget::mouseDoubleClickEvent(QMouseEvent* event)
     const QString blockHash = index < m_blockHashes.size() ? m_blockHashes[index] : QString();
     const QString tsStr = DateTimeFromEpochCompat(m_timestamps[index]).toString(Qt::ISODate);
     const QString valueStr = FormatValueForKind(property("tooltipValueKind").toString(), m_data[index]);
+    const QString decodedTx = DecodeTxToJson(txid, blockHash);
 
-    QDialog chooser(this);
-    chooser.setWindowTitle(tr("Metric Point Transaction"));
-    QVBoxLayout* chooserLayout = new QVBoxLayout(&chooser);
-    chooserLayout->addWidget(new QLabel(tr("Time: %1").arg(tsStr), &chooser));
-    chooserLayout->addWidget(new QLabel(tr("Value: %1").arg(valueStr), &chooser));
-    chooserLayout->addWidget(new QLabel(tr("TxID:"), &chooser));
-    QPushButton* txidButton = new QPushButton(txid, &chooser);
-    chooserLayout->addWidget(txidButton);
-    QDialogButtonBox* closeBox = new QDialogButtonBox(QDialogButtonBox::Close, &chooser);
-    chooserLayout->addWidget(closeBox);
-
-    QObject::connect(closeBox, &QDialogButtonBox::rejected, &chooser, &QDialog::reject);
-    QPointer<SparklineWidget> self(this);
-    QObject::connect(txidButton, &QPushButton::clicked, [self, txid, blockHash]() {
-        if (!self) {
-            return;
-        }
-        QDialog decodedDialog(self.data());
-        decodedDialog.setWindowTitle(QObject::tr("Decoded Transaction"));
-        QVBoxLayout* decodedLayout = new QVBoxLayout(&decodedDialog);
-        QTextEdit* decodedText = new QTextEdit(&decodedDialog);
-        decodedText->setReadOnly(true);
-        decodedText->setPlainText(DecodeTxToJson(txid, blockHash));
-        decodedLayout->addWidget(decodedText);
-        QDialogButtonBox* doneBox = new QDialogButtonBox(QDialogButtonBox::Close, &decodedDialog);
-        QObject::connect(doneBox, &QDialogButtonBox::rejected, &decodedDialog, &QDialog::reject);
-        decodedLayout->addWidget(doneBox);
-        decodedDialog.resize(760, 500);
-        decodedDialog.exec();
-    });
-
-    chooser.exec();
+    QDialog details(this);
+    details.setWindowTitle(tr("Metric Point Transaction"));
+    QVBoxLayout* detailsLayout = new QVBoxLayout(&details);
+    detailsLayout->addWidget(new QLabel(tr("Time: %1").arg(tsStr), &details));
+    detailsLayout->addWidget(new QLabel(tr("Value: %1").arg(valueStr), &details));
+    detailsLayout->addWidget(new QLabel(tr("TxID: %1").arg(txid), &details));
+    QTextEdit* decodedText = new QTextEdit(&details);
+    decodedText->setReadOnly(true);
+    decodedText->setPlainText(decodedTx);
+    detailsLayout->addWidget(decodedText);
+    QDialogButtonBox* closeBox = new QDialogButtonBox(QDialogButtonBox::Close, &details);
+    QObject::connect(closeBox, &QDialogButtonBox::rejected, &details, &QDialog::reject);
+    detailsLayout->addWidget(closeBox);
+    details.resize(760, 500);
+    details.exec();
     QWidget::mouseDoubleClickEvent(event);
 }
 

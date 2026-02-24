@@ -55,6 +55,7 @@ static const int kDefaultStatsWindowBlocks = 100;
 static const char* kMetricMimeType = "application/x-dashb0rd-metric-index";
 static const int kMetricBoxMinWidth = 280;
 static const int kMetricBoxWidthChars = 38;
+static const int kSparklineMinHeight = 56;
 
 static QLabel* MakeValueLabel()
 {
@@ -321,7 +322,6 @@ QWidget* Dashb0rdPage::createMetricBox(const QString& label, QLabel*& valueLabel
     pal.setColor(QPalette::Window, palette().color(QPalette::AlternateBase));
     box->setAutoFillBackground(true);
     box->setPalette(pal);
-    box->setToolTip(MetricDefinitionForLabel(label));
 
     QVBoxLayout* layout = new QVBoxLayout(box);
     layout->setContentsMargins(8, 8, 8, 8);
@@ -338,7 +338,7 @@ QWidget* Dashb0rdPage::createMetricBox(const QString& label, QLabel*& valueLabel
 
     valueLabel = MakeValueLabel();
     spark = new SparklineWidget(box);
-    spark->setMinimumHeight(40);
+    spark->setMinimumHeight(kSparklineMinHeight);
 
     layout->addWidget(title);
     layout->addWidget(valueLabel);
