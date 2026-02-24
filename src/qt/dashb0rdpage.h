@@ -8,6 +8,7 @@
 
 #include <cstdint>
 
+#include <QString>
 #include <QPoint>
 #include <QVector>
 #include <QWidget>
@@ -44,7 +45,7 @@ private Q_SLOTS:
     void setStatsWindow(int blocks);
 
 private:
-    void pushSample(QVector<double>& series, SparklineWidget* spark, double value);
+    void pushSample(QVector<double>& series, SparklineWidget* spark, double value, const QString& txid = QString(), const QString& blockHash = QString());
     QWidget* createMetricBox(const QString& label, QLabel*& valueLabel, SparklineWidget*& spark);
     void relayoutMetricBoxes();
 

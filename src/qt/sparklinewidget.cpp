@@ -6,14 +6,27 @@
 #include "sparklinewidget.h"
 
 #include <QDateTime>
+#include <QDialog>
+#include <QDialogButtonBox>
 #include <QEvent>
+#include <QLabel>
 #include <QMouseEvent>
+#include <QPointer>
 #include <QPainter>
 #include <QPaintEvent>
+#include <QPushButton>
+#include <QTextEdit>
 #include <QToolTip>
+#include <QVBoxLayout>
 #include <QtMath>
 
+#include "rpc/client.h"
+#include "rpc/server.h"
+
+#include <univalue.h>
+
 #include <algorithm>
+#include <limits>
 
 namespace {
 static QString FormatValueForKind(const QString& kind, double value)
@@ -45,6 +58,54 @@ static QString FormatValueForKind(const QString& kind, double value)
     }
     return QString::number(value, 'g', 12);
 }
+
+static int SampleIndexForPos(const QPoint& pos, int width, int count)
+{
+    static const int kMinSampleWidth = 4;
+    static const int kSamplePad = 2;
+    if (count <= 1 || width <= kMinSampleWidth) {
+        return 0;
+    }
+    const double left = kSamplePad;
+    const double right = width - kSamplePad;
+    const double clampedX = std::max(left, std::min<double>(pos.x(), right));
+    const double ratio = (clampedX - left) / std::max(1.0, right - left);
+    int index = qRound(ratio * (count - 1));
+    index = std::max(0, std::min(index, count - 1));
+    return index;
+}
+
+static QString DecodeTxToJson(const QString& txid, const QString& blockHash)
+{
+    try {
+        JSONRPCRequest req;
+        req.fHelp = false;
+        req.strMethod = "getrawtransaction";
+        req.params = UniValue(UniValue::VARR);
+        req.params.push_back(UniValue(txid.toStdString()));
+        req.params.push_back(UniValue(true));
+        if (!blockHash.isEmpty()) {
+            req.params.push_back(UniValue(blockHash.toStdString()));
+        }
+        const UniValue result = tableRPC.execute(req);
+        return QString::fromStdString(result.write(2));
+    } catch (const std::exception& e) {
+        return QObject::tr("Unable to decode transaction: %1").arg(QString::fromStdString(e.what()));
+    } catch (...) {
+        return QObject::tr("Unable to decode transaction.");
+    }
+}
+
+static QDateTime DateTimeFromEpochCompat(qint64 secs)
+{
+    if (secs < 0) {
+        secs = 0;
+    }
+    if (secs > std::numeric_limits<uint>::max()) {
+        secs = std::numeric_limits<uint>::max();
+    }
+    return QDateTime::fromTime_t(static_cast<uint>(secs));
+}
 } // namespace
 
 SparklineWidget::SparklineWidget(QWidget* parent)
@@ -64,27 +125,47 @@ void SparklineWidget::setData(const QVector<double>& data)
     if (data.isEmpty()) {
         // No data means no tooltip timeline.
         m_timestamps.clear();
+        m_txids.clear();
+        m_blockHashes.clear();
     } else if (m_timestamps.isEmpty() || data.size() < m_timestamps.size()) {
         // Initialize (or reset) timestamps when series length changes unexpectedly.
         m_timestamps = QVector<qint64>(data.size(), now);
+        m_txids = QVector<QString>(data.size(), m_pointTxid);
+        m_blockHashes = QVector<QString>(data.size(), m_pointBlockHash);
     } else if (data.size() > m_timestamps.size()) {
         // Append timestamps for newly added trailing samples.
         while (m_timestamps.size() < data.size()) {
             m_timestamps.push_back(now);
+            m_txids.push_back(m_pointTxid);
+            m_blockHashes.push_back(m_pointBlockHash);
         }
     } else if (!m_timestamps.isEmpty()) {
         // Sliding window update: drop oldest timestamp and append current sample time.
         m_timestamps.pop_front();
         m_timestamps.push_back(now);
+        m_txids.pop_front();
+        m_blockHashes.pop_front();
+        m_txids.push_back(m_pointTxid);
+        m_blockHashes.push_back(m_pointBlockHash);
     }
     m_data = data;
     update();
+}
+
+void SparklineWidget::setPointContext(const QString& txid, const QString& blockHash)
+{
+    m_pointTxid = txid;
+    m_pointBlockHash = blockHash;
 }
 
 void SparklineWidget::clear()
 {
     m_data.clear();
     m_timestamps.clear();
+    m_txids.clear();
+    m_blockHashes.clear();
+    m_pointTxid.clear();
+    m_pointBlockHash.clear();
     update();
 }
 
@@ -152,7 +233,7 @@ void SparklineWidget::paintEvent(QPaintEvent* /*event*/)
 void SparklineWidget::mouseMoveEvent(QMouseEvent* event)
 {
     // Tooltips require aligned value/time series data.
-    if (m_data.isEmpty() || m_timestamps.size() != m_data.size()) {
+    if (m_data.isEmpty() || m_timestamps.size() != m_data.size() || m_txids.size() != m_data.size()) {
         QWidget::mouseMoveEvent(event);
         return;
     }
@@ -165,26 +246,73 @@ void SparklineWidget::mouseMoveEvent(QMouseEvent* event)
         return;
     }
 
-    int index = 0;
-    if (n > 1) {
-        // Map cursor x-position to nearest sample index.
-        const double x = std::max(r.left(), std::min<double>(event->pos().x(), r.right()));
-        const double ratio = (x - r.left()) / r.width();
-        index = qRound(ratio * (n - 1));
-        index = std::max(0, std::min(index, n - 1));
-    }
+    const int index = SampleIndexForPos(event->pos(), width(), n);
 
     // Show timestamp and sample value for the hovered point.
     const qint64 ts = m_timestamps[index];
-    const QString tsStr = QDateTime::fromTime_t(static_cast<uint>(ts)).toString(Qt::ISODate);
+    const QString tsStr = DateTimeFromEpochCompat(ts).toString(Qt::ISODate);
     const QString valueKind = property("tooltipValueKind").toString();
     const QString valueStr = FormatValueForKind(valueKind, m_data[index]);
-    const QString tooltip = tr("Time: %1\nValue: %2")
+    const QString txid = !m_txids[index].isEmpty() ? m_txids[index] : tr("n/a");
+    const QString tooltip = tr("Time: %1\nValue: %2\nTxID: %3")
         .arg(tsStr)
-        .arg(valueStr);
+        .arg(valueStr)
+        .arg(txid);
     QToolTip::showText(event->globalPos(), tooltip, this);
 
     QWidget::mouseMoveEvent(event);
+}
+
+void SparklineWidget::mouseDoubleClickEvent(QMouseEvent* event)
+{
+    if (m_data.isEmpty() || m_txids.size() != m_data.size() || m_blockHashes.size() != m_data.size()) {
+        QWidget::mouseDoubleClickEvent(event);
+        return;
+    }
+    const int index = SampleIndexForPos(event->pos(), width(), m_data.size());
+    if (index < 0 || index >= m_txids.size() || m_txids[index].isEmpty()) {
+        QWidget::mouseDoubleClickEvent(event);
+        return;
+    }
+
+    const QString txid = m_txids[index];
+    const QString blockHash = index < m_blockHashes.size() ? m_blockHashes[index] : QString();
+    const QString tsStr = DateTimeFromEpochCompat(m_timestamps[index]).toString(Qt::ISODate);
+    const QString valueStr = FormatValueForKind(property("tooltipValueKind").toString(), m_data[index]);
+
+    QDialog chooser(this);
+    chooser.setWindowTitle(tr("Metric Point Transaction"));
+    QVBoxLayout* chooserLayout = new QVBoxLayout(&chooser);
+    chooserLayout->addWidget(new QLabel(tr("Time: %1").arg(tsStr), &chooser));
+    chooserLayout->addWidget(new QLabel(tr("Value: %1").arg(valueStr), &chooser));
+    chooserLayout->addWidget(new QLabel(tr("TxID:"), &chooser));
+    QPushButton* txidButton = new QPushButton(txid, &chooser);
+    chooserLayout->addWidget(txidButton);
+    QDialogButtonBox* closeBox = new QDialogButtonBox(QDialogButtonBox::Close, &chooser);
+    chooserLayout->addWidget(closeBox);
+
+    QObject::connect(closeBox, &QDialogButtonBox::rejected, &chooser, &QDialog::reject);
+    QPointer<SparklineWidget> self(this);
+    QObject::connect(txidButton, &QPushButton::clicked, [self, txid, blockHash]() {
+        if (!self) {
+            return;
+        }
+        QDialog decodedDialog(self.data());
+        decodedDialog.setWindowTitle(QObject::tr("Decoded Transaction"));
+        QVBoxLayout* decodedLayout = new QVBoxLayout(&decodedDialog);
+        QTextEdit* decodedText = new QTextEdit(&decodedDialog);
+        decodedText->setReadOnly(true);
+        decodedText->setPlainText(DecodeTxToJson(txid, blockHash));
+        decodedLayout->addWidget(decodedText);
+        QDialogButtonBox* doneBox = new QDialogButtonBox(QDialogButtonBox::Close, &decodedDialog);
+        QObject::connect(doneBox, &QDialogButtonBox::rejected, &decodedDialog, &QDialog::reject);
+        decodedLayout->addWidget(doneBox);
+        decodedDialog.resize(760, 500);
+        decodedDialog.exec();
+    });
+
+    chooser.exec();
+    QWidget::mouseDoubleClickEvent(event);
 }
 
 void SparklineWidget::leaveEvent(QEvent* event)

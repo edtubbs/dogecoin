@@ -8,6 +8,7 @@
 
 #include <cstdint>
 
+#include <QString>
 #include <QVector>
 #include <QWidget>
 
@@ -21,16 +22,22 @@ public:
     ~SparklineWidget() override;
 
     void setData(const QVector<double>& data);
+    void setPointContext(const QString& txid, const QString& blockHash = QString());
     void clear();
 
 protected:
     void paintEvent(QPaintEvent* event) override;
     void mouseMoveEvent(QMouseEvent* event) override;
+    void mouseDoubleClickEvent(QMouseEvent* event) override;
     void leaveEvent(QEvent* event) override;
 
 private:
     QVector<double> m_data;
     QVector<qint64> m_timestamps;
+    QVector<QString> m_txids;
+    QVector<QString> m_blockHashes;
+    QString m_pointTxid;
+    QString m_pointBlockHash;
 };
 
 #endif // BITCOIN_QT_SPARKLINEWIDGET_H

@@ -1328,6 +1328,15 @@ UniValue getdashboardmetrics(const JSONRPCRequest& request)
     result.pushKV("chain_tip_height", (int64_t)chainActive.Height());
     result.pushKV("chain_tip_difficulty", GetDifficulty());
     result.pushKV("chain_tip_time", DateTimeStrFormat("%Y-%m-%dT%H:%M:%S", tip->GetBlockTime()));
+    result.pushKV("chain_tip_blockhash", tip->GetBlockHash().GetHex());
+    std::string chain_tip_coinbase_txid;
+    {
+        CBlock tip_block;
+        if (ReadBlockFromDisk(tip_block, tip, Params().GetConsensus(tip->nHeight)) && !tip_block.vtx.empty()) {
+            chain_tip_coinbase_txid = tip_block.vtx[0]->GetHash().GetHex();
+        }
+    }
+    result.pushKV("chain_tip_coinbase_txid", chain_tip_coinbase_txid);
     
     std::ostringstream bitsHex;
     bitsHex << "0x" << std::hex << tip->nBits;
@@ -1347,9 +1356,15 @@ UniValue getdashboardmetrics(const JSONRPCRequest& request)
         int64_t op_return_count = 0;
         int64_t nonstandard_count = 0;
         int64_t total_vouts = 0;
+        int64_t latest_mempool_time = 0;
+        std::string latest_mempool_txid;
         
         for (const CTxMemPoolEntry& e : mempool.mapTx) {
             const CTransaction& tx = e.GetTx();
+            if (e.GetTime() > latest_mempool_time) {
+                latest_mempool_time = e.GetTime();
+                latest_mempool_txid = tx.GetHash().GetHex();
+            }
             for (const CTxOut& txout : tx.vout) {
                 total_vouts++;
                 
@@ -1388,6 +1403,7 @@ UniValue getdashboardmetrics(const JSONRPCRequest& request)
         result.pushKV("mempool_op_return_count", (int64_t)op_return_count);
         result.pushKV("mempool_nonstandard_count", (int64_t)nonstandard_count);
         result.pushKV("mempool_output_count", (int64_t)total_vouts);
+        result.pushKV("mempool_latest_txid", latest_mempool_txid);
     }
     
     // Rolling statistics (last N blocks)
@@ -1484,6 +1500,8 @@ UniValue getdashboardmetrics(const JSONRPCRequest& request)
     
     result.pushKV("stats_median_fee_per_block", median_fee);
     result.pushKV("stats_avg_fee_per_block", avg_fee);
+    result.pushKV("stats_reference_txid", chain_tip_coinbase_txid);
+    result.pushKV("stats_reference_blockhash", tip->GetBlockHash().GetHex());
     
     // Uptime
     result.pushKV("uptime_sec", (int64_t)(GetTime() - GetStartupTime()));

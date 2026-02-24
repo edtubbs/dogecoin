@@ -529,7 +529,7 @@ bool Dashb0rdPage::eventFilter(QObject* watched, QEvent* event)
     return QWidget::eventFilter(watched, event);
 }
 
-void Dashb0rdPage::pushSample(QVector<double>& series, SparklineWidget* spark, double value)
+void Dashb0rdPage::pushSample(QVector<double>& series, SparklineWidget* spark, double value, const QString& txid, const QString& blockHash)
 {
     series.push_back(value);
     if (series.size() > kMaxSparkPoints) {
@@ -537,6 +537,7 @@ void Dashb0rdPage::pushSample(QVector<double>& series, SparklineWidget* spark, d
         series.erase(series.begin(), series.begin() + extra);
     }
     if (spark) {
+        spark->setPointContext(txid, blockHash);
         spark->setData(series);
     }
 }
@@ -557,27 +558,30 @@ void Dashb0rdPage::pollStats()
         req.params = UniValue(UniValue::VARR);
         req.params.push_back(m_statsWindowBlocks);
         const UniValue result = tableRPC.execute(req);
+        const QString chainTxid = GetString(result, "chain_tip_coinbase_txid");
+        const QString chainBlockHash = GetString(result, "chain_tip_blockhash");
 
         const int64_t chainTipHeight = GetInt64(result, "chain_tip_height");
         m_chainTipHeightValue->setText(QString::number(chainTipHeight));
-        pushSample(m_chainTipHeightSeries, m_chainTipHeightSpark, static_cast<double>(chainTipHeight));
+        pushSample(m_chainTipHeightSeries, m_chainTipHeightSpark, static_cast<double>(chainTipHeight), chainTxid, chainBlockHash);
 
         const double chainTipDifficulty = GetDouble(result, "chain_tip_difficulty");
         m_chainTipDifficultyValue->setText(QString::number(chainTipDifficulty, 'f', 2));
-        pushSample(m_chainTipDifficultySeries, m_chainTipDifficultySpark, chainTipDifficulty);
+        pushSample(m_chainTipDifficultySeries, m_chainTipDifficultySpark, chainTipDifficulty, chainTxid, chainBlockHash);
 
         const QString chainTipTime = GetString(result, "chain_tip_time");
         m_chainTipTimeValue->setText(chainTipTime);
         const qint64 chainTipTimeEpoch = static_cast<qint64>(QDateTime::fromString(chainTipTime, Qt::ISODate).toTime_t());
-        pushSample(m_chainTipTimeSeries, m_chainTipTimeSpark, static_cast<double>(chainTipTimeEpoch));
+        pushSample(m_chainTipTimeSeries, m_chainTipTimeSpark, static_cast<double>(chainTipTimeEpoch), chainTxid, chainBlockHash);
 
         const QString chainTipBits = GetString(result, "chain_tip_bits_hex");
         m_chainTipBitsValue->setText(chainTipBits);
         bool bitsOk = false;
         const quint64 bitsValue = chainTipBits.toULongLong(&bitsOk, 0);
-        pushSample(m_chainTipBitsSeries, m_chainTipBitsSpark, bitsOk ? static_cast<double>(bitsValue) : 0.0);
+        pushSample(m_chainTipBitsSeries, m_chainTipBitsSpark, bitsOk ? static_cast<double>(bitsValue) : 0.0, chainTxid, chainBlockHash);
 
         const int64_t mempoolTxCount = GetInt64(result, "mempool_tx_count");
+        const QString mempoolTxid = GetString(result, "mempool_latest_txid");
         if (m_prevMempoolTxCount >= 0) {
             // Show per-poll direction so users can quickly see churn (+/-).
             const int64_t mempoolDelta = mempoolTxCount - m_prevMempoolTxCount;
@@ -590,64 +594,66 @@ void Dashb0rdPage::pollStats()
             m_mempoolTxCountValue->setText(QString::number(mempoolTxCount));
         }
         m_prevMempoolTxCount = mempoolTxCount;
-        pushSample(m_mempoolTxCountSeries, m_mempoolTxCountSpark, static_cast<double>(mempoolTxCount));
+        pushSample(m_mempoolTxCountSeries, m_mempoolTxCountSpark, static_cast<double>(mempoolTxCount), mempoolTxid);
 
         const int64_t mempoolTotalBytes = GetInt64(result, "mempool_total_bytes");
         m_mempoolTotalBytesValue->setText(GUIUtil::formatBytes(mempoolTotalBytes));
-        pushSample(m_mempoolTotalBytesSeries, m_mempoolTotalBytesSpark, static_cast<double>(mempoolTotalBytes));
+        pushSample(m_mempoolTotalBytesSeries, m_mempoolTotalBytesSpark, static_cast<double>(mempoolTotalBytes), mempoolTxid);
 
         const int64_t mempoolP2pkhCount = GetInt64(result, "mempool_p2pkh_count");
         m_mempoolP2pkhValue->setText(QString::number(mempoolP2pkhCount));
-        pushSample(m_mempoolP2pkhSeries, m_mempoolP2pkhSpark, static_cast<double>(mempoolP2pkhCount));
+        pushSample(m_mempoolP2pkhSeries, m_mempoolP2pkhSpark, static_cast<double>(mempoolP2pkhCount), mempoolTxid);
 
         const int64_t mempoolP2shCount = GetInt64(result, "mempool_p2sh_count");
         m_mempoolP2shValue->setText(QString::number(mempoolP2shCount));
-        pushSample(m_mempoolP2shSeries, m_mempoolP2shSpark, static_cast<double>(mempoolP2shCount));
+        pushSample(m_mempoolP2shSeries, m_mempoolP2shSpark, static_cast<double>(mempoolP2shCount), mempoolTxid);
 
         const int64_t mempoolMultisigCount = GetInt64(result, "mempool_multisig_count");
         m_mempoolMultisigValue->setText(QString::number(mempoolMultisigCount));
-        pushSample(m_mempoolMultisigSeries, m_mempoolMultisigSpark, static_cast<double>(mempoolMultisigCount));
+        pushSample(m_mempoolMultisigSeries, m_mempoolMultisigSpark, static_cast<double>(mempoolMultisigCount), mempoolTxid);
 
         const int64_t mempoolOpReturnCount = GetInt64(result, "mempool_op_return_count");
         m_mempoolOpReturnValue->setText(QString::number(mempoolOpReturnCount));
-        pushSample(m_mempoolOpReturnSeries, m_mempoolOpReturnSpark, static_cast<double>(mempoolOpReturnCount));
+        pushSample(m_mempoolOpReturnSeries, m_mempoolOpReturnSpark, static_cast<double>(mempoolOpReturnCount), mempoolTxid);
 
         const int64_t mempoolNonstandardCount = GetInt64(result, "mempool_nonstandard_count");
         m_mempoolNonstandardValue->setText(QString::number(mempoolNonstandardCount));
-        pushSample(m_mempoolNonstandardSeries, m_mempoolNonstandardSpark, static_cast<double>(mempoolNonstandardCount));
+        pushSample(m_mempoolNonstandardSeries, m_mempoolNonstandardSpark, static_cast<double>(mempoolNonstandardCount), mempoolTxid);
 
         const int64_t mempoolOutputCount = GetInt64(result, "mempool_output_count");
         m_mempoolOutputCountValue->setText(QString::number(mempoolOutputCount));
-        pushSample(m_mempoolOutputCountSeries, m_mempoolOutputCountSpark, static_cast<double>(mempoolOutputCount));
+        pushSample(m_mempoolOutputCountSeries, m_mempoolOutputCountSpark, static_cast<double>(mempoolOutputCount), mempoolTxid);
 
         const int64_t statsTransactions = GetInt64(result, "stats_transactions");
+        const QString statsTxid = GetString(result, "stats_reference_txid");
+        const QString statsBlockHash = GetString(result, "stats_reference_blockhash");
         m_statsTransactionsValue->setText(QString::number(statsTransactions));
-        pushSample(m_statsTransactionsSeries, m_statsTransactionsSpark, static_cast<double>(statsTransactions));
+        pushSample(m_statsTransactionsSeries, m_statsTransactionsSpark, static_cast<double>(statsTransactions), statsTxid, statsBlockHash);
 
         const double statsTps = GetDouble(result, "stats_tps");
         m_statsTpsValue->setText(QString::number(statsTps, 'f', 3));
-        pushSample(m_statsTpsSeries, m_statsTpsSpark, statsTps);
+        pushSample(m_statsTpsSeries, m_statsTpsSpark, statsTps, statsTxid, statsBlockHash);
 
         const double statsVolume = GetDouble(result, "stats_volume");
         m_statsVolumeValue->setText(QString::number(statsVolume, 'f', 2));
-        pushSample(m_statsVolumeSeries, m_statsVolumeSpark, statsVolume);
+        pushSample(m_statsVolumeSeries, m_statsVolumeSpark, statsVolume, statsTxid, statsBlockHash);
 
         const int64_t statsOutputs = GetInt64(result, "stats_outputs");
         m_statsOutputsValue->setText(QString::number(statsOutputs));
-        pushSample(m_statsOutputsSeries, m_statsOutputsSpark, static_cast<double>(statsOutputs));
+        pushSample(m_statsOutputsSeries, m_statsOutputsSpark, static_cast<double>(statsOutputs), statsTxid, statsBlockHash);
 
         const int64_t statsBytes = GetInt64(result, "stats_bytes");
         // Show formatted and exact byte totals to make small changes obvious.
         m_statsBytesValue->setText(QString("%1 (%2 B)").arg(GUIUtil::formatBytes(statsBytes)).arg(QString::number(statsBytes)));
-        pushSample(m_statsBytesSeries, m_statsBytesSpark, static_cast<double>(statsBytes));
+        pushSample(m_statsBytesSeries, m_statsBytesSpark, static_cast<double>(statsBytes), statsTxid, statsBlockHash);
 
         const double statsMedianFeePerBlock = GetDouble(result, "stats_median_fee_per_block");
         m_statsMedianFeeValue->setText(QString::number(statsMedianFeePerBlock, 'f', 8));
-        pushSample(m_statsMedianFeeSeries, m_statsMedianFeeSpark, statsMedianFeePerBlock);
+        pushSample(m_statsMedianFeeSeries, m_statsMedianFeeSpark, statsMedianFeePerBlock, statsTxid, statsBlockHash);
 
         const double statsAvgFeePerBlock = GetDouble(result, "stats_avg_fee_per_block");
         m_statsAvgFeeValue->setText(QString::number(statsAvgFeePerBlock, 'f', 8));
-        pushSample(m_statsAvgFeeSeries, m_statsAvgFeeSpark, statsAvgFeePerBlock);
+        pushSample(m_statsAvgFeeSeries, m_statsAvgFeeSpark, statsAvgFeePerBlock, statsTxid, statsBlockHash);
 
         const int64_t uptimeSec = GetInt64(result, "uptime_sec");
         if (uptimeSec > std::numeric_limits<int>::max()) {
