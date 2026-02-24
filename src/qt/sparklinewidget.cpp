@@ -9,12 +9,14 @@
 #include <QDialog>
 #include <QDialogButtonBox>
 #include <QEvent>
+#include <QHeaderView>
 #include <QLabel>
 #include <QMouseEvent>
 #include <QPainter>
 #include <QPaintEvent>
-#include <QTextEdit>
+#include <QStringList>
 #include <QToolTip>
+#include <QTreeWidget>
 #include <QVBoxLayout>
 #include <QtMath>
 
@@ -27,6 +29,7 @@
 #include <limits>
 
 namespace {
+static const int kDecodedTreeInitialDepth = 1;
 static QString FormatValueForKind(const QString& kind, double value)
 {
     if (kind == "count") {
@@ -73,27 +76,6 @@ static int SampleIndexForPos(const QPoint& pos, int width, int count)
     return index;
 }
 
-static QString DecodeTxToJson(const QString& txid, const QString& blockHash)
-{
-    try {
-        JSONRPCRequest req;
-        req.fHelp = false;
-        req.strMethod = "getrawtransaction";
-        req.params = UniValue(UniValue::VARR);
-        req.params.push_back(UniValue(txid.toStdString()));
-        req.params.push_back(UniValue(true));
-        if (!blockHash.isEmpty()) {
-            req.params.push_back(UniValue(blockHash.toStdString()));
-        }
-        const UniValue result = tableRPC.execute(req);
-        return QString::fromStdString(result.write(2));
-    } catch (const std::exception& e) {
-        return QObject::tr("Unable to decode transaction: %1").arg(QString::fromStdString(e.what()));
-    } catch (...) {
-        return QObject::tr("Unable to decode transaction.");
-    }
-}
-
 static QDateTime DateTimeFromEpochCompat(qint64 secs)
 {
     if (secs < 0) {
@@ -103,6 +85,65 @@ static QDateTime DateTimeFromEpochCompat(qint64 secs)
         secs = std::numeric_limits<uint>::max();
     }
     return QDateTime::fromTime_t(static_cast<uint>(secs));
+}
+
+static bool DecodeContextToUniValue(const QString& txid, const QString& blockHash, UniValue& out, QString& errorMessage)
+{
+    try {
+        JSONRPCRequest req;
+        req.fHelp = false;
+        req.params = UniValue(UniValue::VARR);
+
+        if (!txid.isEmpty()) {
+            req.strMethod = "getrawtransaction";
+            req.params.push_back(UniValue(txid.toStdString()));
+            req.params.push_back(UniValue(true));
+            if (!blockHash.isEmpty()) {
+                req.params.push_back(UniValue(blockHash.toStdString()));
+            }
+        } else if (!blockHash.isEmpty()) {
+            req.strMethod = "getblock";
+            req.params.push_back(UniValue(blockHash.toStdString()));
+            req.params.push_back(UniValue(true));
+        } else {
+            errorMessage = QObject::tr("No transaction or block context available for this point.");
+            return false;
+        }
+        out = tableRPC.execute(req);
+        return true;
+    } catch (const std::exception& e) {
+        errorMessage = QObject::tr("Unable to decode context: %1").arg(QString::fromStdString(e.what()));
+    } catch (...) {
+        errorMessage = QObject::tr("Unable to decode context.");
+    }
+    return false;
+}
+
+static void AddUniValueNode(QTreeWidgetItem* parent, const QString& key, const UniValue& value)
+{
+    QTreeWidgetItem* item = new QTreeWidgetItem(parent);
+    item->setText(0, key);
+
+    if (value.isObject()) {
+        item->setText(1, "{...}");
+        const std::vector<std::string>& keys = value.getKeys();
+        const std::vector<UniValue>& values = value.getValues();
+        for (size_t i = 0; i < keys.size() && i < values.size(); ++i) {
+            AddUniValueNode(item, QString::fromStdString(keys[i]), values[i]);
+        }
+        return;
+    }
+
+    if (value.isArray()) {
+        item->setText(1, QString("[%1]").arg(value.size()));
+        const std::vector<UniValue>& values = value.getValues();
+        for (size_t i = 0; i < values.size(); ++i) {
+            AddUniValueNode(item, QString("[%1]").arg(i), values[i]);
+        }
+        return;
+    }
+
+    item->setText(1, QString::fromStdString(value.write()));
 }
 } // namespace
 
@@ -231,7 +272,7 @@ void SparklineWidget::paintEvent(QPaintEvent* /*event*/)
 void SparklineWidget::mouseMoveEvent(QMouseEvent* event)
 {
     // Tooltips require aligned value/time series data.
-    if (m_data.isEmpty() || m_timestamps.size() != m_data.size() || m_txids.size() != m_data.size()) {
+    if (m_data.isEmpty() || m_timestamps.size() != m_data.size() || m_txids.size() != m_data.size() || m_blockHashes.size() != m_data.size()) {
         QWidget::mouseMoveEvent(event);
         return;
     }
@@ -251,11 +292,18 @@ void SparklineWidget::mouseMoveEvent(QMouseEvent* event)
     const QString tsStr = DateTimeFromEpochCompat(ts).toString(Qt::ISODate);
     const QString valueKind = property("tooltipValueKind").toString();
     const QString valueStr = FormatValueForKind(valueKind, m_data[index]);
-    const QString txid = !m_txids[index].isEmpty() ? m_txids[index] : tr("n/a");
-    const QString tooltip = tr("Time: %1\nValue: %2\nTxID: %3")
-        .arg(tsStr)
-        .arg(valueStr)
-        .arg(txid);
+    const QString txid = m_txids[index];
+    const QString blockHash = m_blockHashes[index];
+    const bool hasTx = !txid.isEmpty();
+    const QString tooltip = hasTx
+        ? tr("Time: %1\nValue: %2\nTxID: %3")
+              .arg(tsStr)
+              .arg(valueStr)
+              .arg(txid)
+        : tr("Time: %1\nValue: %2\nBlock: %3")
+              .arg(tsStr)
+              .arg(valueStr)
+              .arg(!blockHash.isEmpty() ? blockHash : tr("n/a"));
     QToolTip::showText(event->globalPos(), tooltip, this);
 
     QWidget::mouseMoveEvent(event);
@@ -268,7 +316,7 @@ void SparklineWidget::mouseDoubleClickEvent(QMouseEvent* event)
         return;
     }
     const int index = SampleIndexForPos(event->pos(), width(), m_data.size());
-    if (index < 0 || index >= m_txids.size() || m_txids[index].isEmpty()) {
+    if (index < 0 || index >= m_txids.size()) {
         QWidget::mouseDoubleClickEvent(event);
         return;
     }
@@ -277,18 +325,43 @@ void SparklineWidget::mouseDoubleClickEvent(QMouseEvent* event)
     const QString blockHash = index < m_blockHashes.size() ? m_blockHashes[index] : QString();
     const QString tsStr = DateTimeFromEpochCompat(m_timestamps[index]).toString(Qt::ISODate);
     const QString valueStr = FormatValueForKind(property("tooltipValueKind").toString(), m_data[index]);
-    const QString decodedTx = DecodeTxToJson(txid, blockHash);
+    UniValue decodedTx;
+    QString decodeError;
+    const bool decodedOk = DecodeContextToUniValue(txid, blockHash, decodedTx, decodeError);
 
     QDialog details(this);
-    details.setWindowTitle(tr("Metric Point Transaction"));
+    details.setWindowTitle(tr("Metric Point Details"));
     QVBoxLayout* detailsLayout = new QVBoxLayout(&details);
     detailsLayout->addWidget(new QLabel(tr("Time: %1").arg(tsStr), &details));
     detailsLayout->addWidget(new QLabel(tr("Value: %1").arg(valueStr), &details));
-    detailsLayout->addWidget(new QLabel(tr("TxID: %1").arg(txid), &details));
-    QTextEdit* decodedText = new QTextEdit(&details);
-    decodedText->setReadOnly(true);
-    decodedText->setPlainText(decodedTx);
-    detailsLayout->addWidget(decodedText);
+    if (!txid.isEmpty()) {
+        detailsLayout->addWidget(new QLabel(tr("TxID: %1").arg(txid), &details));
+    } else if (!blockHash.isEmpty()) {
+        detailsLayout->addWidget(new QLabel(tr("Block: %1").arg(blockHash), &details));
+    }
+
+    QTreeWidget* tree = new QTreeWidget(&details);
+    tree->setColumnCount(2);
+    tree->setHeaderLabels(QStringList() << tr("Field") << tr("Value"));
+    tree->header()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
+    tree->header()->setSectionResizeMode(1, QHeaderView::Stretch);
+    if (decodedOk) {
+        if (decodedTx.isObject()) {
+            const std::vector<std::string>& keys = decodedTx.getKeys();
+            const std::vector<UniValue>& values = decodedTx.getValues();
+            for (size_t i = 0; i < keys.size() && i < values.size(); ++i) {
+                AddUniValueNode(tree->invisibleRootItem(), QString::fromStdString(keys[i]), values[i]);
+            }
+        } else {
+            AddUniValueNode(tree->invisibleRootItem(), tr("context"), decodedTx);
+        }
+    } else {
+        QTreeWidgetItem* err = new QTreeWidgetItem(tree->invisibleRootItem());
+        err->setText(0, tr("error"));
+        err->setText(1, decodeError);
+    }
+    tree->expandToDepth(kDecodedTreeInitialDepth);
+    detailsLayout->addWidget(tree);
     QDialogButtonBox* closeBox = new QDialogButtonBox(QDialogButtonBox::Close, &details);
     QObject::connect(closeBox, &QDialogButtonBox::rejected, &details, &QDialog::reject);
     detailsLayout->addWidget(closeBox);

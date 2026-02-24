@@ -56,6 +56,8 @@ static const char* kMetricMimeType = "application/x-dashb0rd-metric-index";
 static const int kMetricBoxMinWidth = 280;
 static const int kMetricBoxWidthChars = 38;
 static const int kSparklineMinHeight = 56;
+static const int kMetricBoxHeightMultiplier = 4;
+static const int kMetricBoxMinHeight = kSparklineMinHeight * kMetricBoxHeightMultiplier;
 
 static QLabel* MakeValueLabel()
 {
@@ -316,6 +318,7 @@ QWidget* Dashb0rdPage::createMetricBox(const QString& label, QLabel*& valueLabel
     const int boxWidth = MetricBoxMaxWidthPx(this);
     box->setMinimumWidth(boxWidth);
     box->setMaximumWidth(boxWidth);
+    box->setMinimumHeight(kMetricBoxMinHeight);
     box->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Preferred);
 
     QPalette pal = box->palette();
@@ -558,27 +561,26 @@ void Dashb0rdPage::pollStats()
         req.params = UniValue(UniValue::VARR);
         req.params.push_back(m_statsWindowBlocks);
         const UniValue result = tableRPC.execute(req);
-        const QString chainTxid = GetString(result, "chain_tip_coinbase_txid");
         const QString chainBlockHash = GetString(result, "chain_tip_blockhash");
 
         const int64_t chainTipHeight = GetInt64(result, "chain_tip_height");
         m_chainTipHeightValue->setText(QString::number(chainTipHeight));
-        pushSample(m_chainTipHeightSeries, m_chainTipHeightSpark, static_cast<double>(chainTipHeight), chainTxid, chainBlockHash);
+        pushSample(m_chainTipHeightSeries, m_chainTipHeightSpark, static_cast<double>(chainTipHeight), QString(), chainBlockHash);
 
         const double chainTipDifficulty = GetDouble(result, "chain_tip_difficulty");
         m_chainTipDifficultyValue->setText(QString::number(chainTipDifficulty, 'f', 2));
-        pushSample(m_chainTipDifficultySeries, m_chainTipDifficultySpark, chainTipDifficulty, chainTxid, chainBlockHash);
+        pushSample(m_chainTipDifficultySeries, m_chainTipDifficultySpark, chainTipDifficulty, QString(), chainBlockHash);
 
         const QString chainTipTime = GetString(result, "chain_tip_time");
         m_chainTipTimeValue->setText(chainTipTime);
         const qint64 chainTipTimeEpoch = static_cast<qint64>(QDateTime::fromString(chainTipTime, Qt::ISODate).toTime_t());
-        pushSample(m_chainTipTimeSeries, m_chainTipTimeSpark, static_cast<double>(chainTipTimeEpoch), chainTxid, chainBlockHash);
+        pushSample(m_chainTipTimeSeries, m_chainTipTimeSpark, static_cast<double>(chainTipTimeEpoch), QString(), chainBlockHash);
 
         const QString chainTipBits = GetString(result, "chain_tip_bits_hex");
         m_chainTipBitsValue->setText(chainTipBits);
         bool bitsOk = false;
         const quint64 bitsValue = chainTipBits.toULongLong(&bitsOk, 0);
-        pushSample(m_chainTipBitsSeries, m_chainTipBitsSpark, bitsOk ? static_cast<double>(bitsValue) : 0.0, chainTxid, chainBlockHash);
+        pushSample(m_chainTipBitsSeries, m_chainTipBitsSpark, bitsOk ? static_cast<double>(bitsValue) : 0.0, QString(), chainBlockHash);
 
         const int64_t mempoolTxCount = GetInt64(result, "mempool_tx_count");
         const QString mempoolTxid = GetString(result, "mempool_latest_txid");
@@ -625,35 +627,34 @@ void Dashb0rdPage::pollStats()
         pushSample(m_mempoolOutputCountSeries, m_mempoolOutputCountSpark, static_cast<double>(mempoolOutputCount), mempoolTxid);
 
         const int64_t statsTransactions = GetInt64(result, "stats_transactions");
-        const QString statsTxid = GetString(result, "stats_reference_txid");
         const QString statsBlockHash = GetString(result, "stats_reference_blockhash");
         m_statsTransactionsValue->setText(QString::number(statsTransactions));
-        pushSample(m_statsTransactionsSeries, m_statsTransactionsSpark, static_cast<double>(statsTransactions), statsTxid, statsBlockHash);
+        pushSample(m_statsTransactionsSeries, m_statsTransactionsSpark, static_cast<double>(statsTransactions), QString(), statsBlockHash);
 
         const double statsTps = GetDouble(result, "stats_tps");
         m_statsTpsValue->setText(QString::number(statsTps, 'f', 3));
-        pushSample(m_statsTpsSeries, m_statsTpsSpark, statsTps, statsTxid, statsBlockHash);
+        pushSample(m_statsTpsSeries, m_statsTpsSpark, statsTps, QString(), statsBlockHash);
 
         const double statsVolume = GetDouble(result, "stats_volume");
         m_statsVolumeValue->setText(QString::number(statsVolume, 'f', 2));
-        pushSample(m_statsVolumeSeries, m_statsVolumeSpark, statsVolume, statsTxid, statsBlockHash);
+        pushSample(m_statsVolumeSeries, m_statsVolumeSpark, statsVolume, QString(), statsBlockHash);
 
         const int64_t statsOutputs = GetInt64(result, "stats_outputs");
         m_statsOutputsValue->setText(QString::number(statsOutputs));
-        pushSample(m_statsOutputsSeries, m_statsOutputsSpark, static_cast<double>(statsOutputs), statsTxid, statsBlockHash);
+        pushSample(m_statsOutputsSeries, m_statsOutputsSpark, static_cast<double>(statsOutputs), QString(), statsBlockHash);
 
         const int64_t statsBytes = GetInt64(result, "stats_bytes");
         // Show formatted and exact byte totals to make small changes obvious.
         m_statsBytesValue->setText(QString("%1 (%2 B)").arg(GUIUtil::formatBytes(statsBytes)).arg(QString::number(statsBytes)));
-        pushSample(m_statsBytesSeries, m_statsBytesSpark, static_cast<double>(statsBytes), statsTxid, statsBlockHash);
+        pushSample(m_statsBytesSeries, m_statsBytesSpark, static_cast<double>(statsBytes), QString(), statsBlockHash);
 
         const double statsMedianFeePerBlock = GetDouble(result, "stats_median_fee_per_block");
         m_statsMedianFeeValue->setText(QString::number(statsMedianFeePerBlock, 'f', 8));
-        pushSample(m_statsMedianFeeSeries, m_statsMedianFeeSpark, statsMedianFeePerBlock, statsTxid, statsBlockHash);
+        pushSample(m_statsMedianFeeSeries, m_statsMedianFeeSpark, statsMedianFeePerBlock, QString(), statsBlockHash);
 
         const double statsAvgFeePerBlock = GetDouble(result, "stats_avg_fee_per_block");
         m_statsAvgFeeValue->setText(QString::number(statsAvgFeePerBlock, 'f', 8));
-        pushSample(m_statsAvgFeeSeries, m_statsAvgFeeSpark, statsAvgFeePerBlock, statsTxid, statsBlockHash);
+        pushSample(m_statsAvgFeeSeries, m_statsAvgFeeSpark, statsAvgFeePerBlock, QString(), statsBlockHash);
 
         const int64_t uptimeSec = GetInt64(result, "uptime_sec");
         if (uptimeSec > std::numeric_limits<int>::max()) {
