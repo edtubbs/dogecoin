@@ -21,6 +21,8 @@
 #include <univalue.h>
 
 #include <QDateTime>
+#include <QDialog>
+#include <QDialogButtonBox>
 #include <QDrag>
 #include <QDragEnterEvent>
 #include <QDropEvent>
@@ -33,6 +35,7 @@
 #include <QMimeData>
 #include <QMouseEvent>
 #include <QHelpEvent>
+#include <QHeaderView>
 #include <QPalette>
 #include <QPainter>
 #include <QPixmap>
@@ -41,11 +44,14 @@
 #include <QScrollArea>
 #include <QShowEvent>
 #include <QSpinBox>
+#include <QStringList>
 #include <QTimer>
+#include <QTreeWidget>
 #include <QToolTip>
 #include <QVBoxLayout>
 
 #include <algorithm>
+#include <cctype>
 #include <limits>
 
 namespace {
@@ -135,6 +141,136 @@ static int MetricBoxMaxWidthPx(const QWidget* widget)
     if (!widget) return kMetricBoxMinWidth;
     const int scaledWidth = widget->fontMetrics().averageCharWidth() * kMetricBoxWidthChars;
     return std::max(kMetricBoxMinWidth, scaledWidth);
+}
+
+static QString FormatValueForKind(const QString& kind, double value)
+{
+    if (kind == "count") return QString::number(static_cast<qint64>(value));
+    if (kind == "bytes") return QString("%1 B").arg(QString::number(static_cast<qint64>(value)));
+    if (kind == "doge") return QString("%1 DOGE").arg(QString::number(value, 'f', 8));
+    if (kind == "tps") return QString("%1 tx/s").arg(QString::number(value, 'f', 3));
+    if (kind == "epoch_time") {
+        const qint64 epoch = value < 0 ? 0 : static_cast<qint64>(value);
+        return QDateTime::fromTime_t(static_cast<uint>(epoch)).toString(Qt::ISODate);
+    }
+    if (kind == "bits_hex") return QString("0x%1").arg(static_cast<qulonglong>(value), 0, 16);
+    if (kind == "duration_sec") return QString("%1 s").arg(QString::number(static_cast<qint64>(value)));
+    if (kind == "difficulty") return QString::number(value, 'f', 2);
+    return QString::number(value, 'g', 12);
+}
+
+static QDateTime DateTimeFromEpochCompat(qint64 secs)
+{
+    if (secs < 0) secs = 0;
+    if (secs > std::numeric_limits<uint>::max()) secs = std::numeric_limits<uint>::max();
+    return QDateTime::fromTime_t(static_cast<uint>(secs));
+}
+
+static bool DecodeContextToUniValue(const QString& txid, const QString& blockHash, UniValue& out, QString& errorMessage)
+{
+    try {
+        JSONRPCRequest req;
+        req.fHelp = false;
+        req.params = UniValue(UniValue::VARR);
+
+        if (!txid.isEmpty() && !blockHash.isEmpty()) {
+            req.strMethod = "getblock";
+            req.params.push_back(UniValue(blockHash.toStdString()));
+            req.params.push_back(UniValue(2));
+            const UniValue blockResult = tableRPC.execute(req);
+            const UniValue& txList = find_value(blockResult, "tx");
+            if (!txList.isNull() && txList.isArray()) {
+                const std::vector<UniValue>& txValues = txList.getValues();
+                const std::string wantedTxid = txid.toStdString();
+                for (const UniValue& txObj : txValues) {
+                    if (!txObj.isObject()) continue;
+                    const UniValue& txidValue = find_value(txObj, "txid");
+                    if (txidValue.isStr() && txidValue.get_str() == wantedTxid) {
+                        out = txObj;
+                        return true;
+                    }
+                }
+            }
+            errorMessage = QObject::tr("Transaction %1 not found in block %2.").arg(txid).arg(blockHash);
+            return false;
+        } else if (!txid.isEmpty()) {
+            req.strMethod = "getrawtransaction";
+            req.params.push_back(UniValue(txid.toStdString()));
+            req.params.push_back(UniValue(true));
+        } else if (!blockHash.isEmpty()) {
+            req.strMethod = "getblock";
+            req.params.push_back(UniValue(blockHash.toStdString()));
+            req.params.push_back(UniValue(true));
+        } else {
+            errorMessage = QObject::tr("No transaction or block context available for this point.");
+            return false;
+        }
+        out = tableRPC.execute(req);
+        return true;
+    } catch (const std::exception& e) {
+        errorMessage = QObject::tr("Unable to decode context: %1").arg(QString::fromStdString(e.what()));
+    } catch (...) {
+        errorMessage = QObject::tr("Unable to decode context.");
+    }
+    return false;
+}
+
+static void AddUniValueNode(QTreeWidgetItem* parent, const QString& key, const UniValue& value)
+{
+    QTreeWidgetItem* item = new QTreeWidgetItem(parent);
+    item->setText(0, key);
+    if (value.isObject()) {
+        item->setText(1, "{...}");
+        const std::vector<std::string>& keys = value.getKeys();
+        const std::vector<UniValue>& values = value.getValues();
+        for (size_t i = 0; i < keys.size() && i < values.size(); ++i) {
+            AddUniValueNode(item, QString::fromStdString(keys[i]), values[i]);
+        }
+        return;
+    }
+    if (value.isArray()) {
+        item->setText(1, QString("[%1]").arg(value.size()));
+        const std::vector<UniValue>& values = value.getValues();
+        for (size_t i = 0; i < values.size(); ++i) {
+            AddUniValueNode(item, QString("[%1]").arg(i), values[i]);
+        }
+        return;
+    }
+    item->setText(1, QString::fromStdString(value.write()));
+}
+
+static void PopulateDecodedTree(QTreeWidget* tree, const bool decodedOk, const UniValue& decoded, const QString& decodeError)
+{
+    tree->clear();
+    if (decodedOk) {
+        if (decoded.isObject()) {
+            const std::vector<std::string>& keys = decoded.getKeys();
+            const std::vector<UniValue>& values = decoded.getValues();
+            for (size_t i = 0; i < keys.size() && i < values.size(); ++i) {
+                AddUniValueNode(tree->invisibleRootItem(), QString::fromStdString(keys[i]), values[i]);
+            }
+        } else {
+            AddUniValueNode(tree->invisibleRootItem(), QObject::tr("context"), decoded);
+        }
+    } else {
+        QTreeWidgetItem* err = new QTreeWidgetItem(tree->invisibleRootItem());
+        err->setText(0, QObject::tr("error"));
+        err->setText(1, decodeError);
+    }
+    tree->expandToDepth(1);
+}
+
+static bool IsLikelyTxid(QString value)
+{
+    value = value.trimmed();
+    if (value.size() >= 2 && value.startsWith('"') && value.endsWith('"')) {
+        value = value.mid(1, value.size() - 2);
+    }
+    if (value.size() != 64) return false;
+    for (int i = 0; i < value.size(); ++i) {
+        if (!std::isxdigit(static_cast<unsigned char>(value.at(i).toLatin1()))) return false;
+    }
+    return true;
 }
 
 } // namespace
@@ -242,6 +378,12 @@ Dashb0rdPage::Dashb0rdPage(const PlatformStyle* platformStyle, QWidget* parent)
         box->installEventFilter(this);
         box->setCursor(Qt::OpenHandCursor);
         spark->setProperty("tooltipValueKind", TooltipValueKindForLabel(label));
+        spark->setHoverTextProvider([this, spark](int index, double sampleValue) {
+            return formatSparklineHoverText(spark, index, sampleValue);
+        });
+        spark->setDoubleClickHandler([this, spark](int index, double sampleValue) {
+            showSparklineDetailsDialog(spark, index, sampleValue);
+        });
         m_metricBoxes.push_back(box);
         m_metricGrid->addWidget(box, row, col, Qt::AlignLeft);
         if (++col >= kMetricGridColumns) {
@@ -550,9 +692,109 @@ void Dashb0rdPage::pushSample(QVector<double>& series, SparklineWidget* spark, d
         series.erase(series.begin(), series.begin() + extra);
     }
     if (spark) {
-        spark->setPointContext(txid, blockHash);
+        PointContext pointContext;
+        pointContext.timestamp = static_cast<qint64>(QDateTime::currentDateTime().toTime_t());
+        pointContext.txid = txid;
+        pointContext.blockHash = blockHash;
+        QVector<PointContext>& contexts = m_pointContexts[spark];
+        contexts.push_back(pointContext);
+        if (contexts.size() > kMaxSparkPoints) {
+            const int extra = contexts.size() - kMaxSparkPoints;
+            contexts.erase(contexts.begin(), contexts.begin() + extra);
+        }
         spark->setData(series);
     }
+}
+
+QString Dashb0rdPage::formatSparklineHoverText(SparklineWidget* spark, int index, double value) const
+{
+    if (!spark || !m_pointContexts.contains(spark)) {
+        return QString();
+    }
+    const QVector<PointContext>& contexts = m_pointContexts[spark];
+    if (index < 0 || index >= contexts.size()) {
+        return QString();
+    }
+    const PointContext& ctx = contexts[index];
+    const QString tsStr = DateTimeFromEpochCompat(ctx.timestamp).toString(Qt::ISODate);
+    const QString valueStr = FormatValueForKind(spark->property("tooltipValueKind").toString(), value);
+    if (!ctx.txid.isEmpty()) {
+        return tr("Time: %1\nValue: %2\nTxID: %3").arg(tsStr).arg(valueStr).arg(ctx.txid);
+    }
+    return tr("Time: %1\nValue: %2\nBlock: %3").arg(tsStr).arg(valueStr).arg(!ctx.blockHash.isEmpty() ? ctx.blockHash : tr("n/a"));
+}
+
+void Dashb0rdPage::showSparklineDetailsDialog(SparklineWidget* spark, int index, double value)
+{
+    if (!spark || !m_pointContexts.contains(spark)) {
+        return;
+    }
+    const QVector<PointContext>& contexts = m_pointContexts[spark];
+    if (index < 0 || index >= contexts.size()) {
+        return;
+    }
+    const PointContext& ctx = contexts[index];
+    const QString tsStr = DateTimeFromEpochCompat(ctx.timestamp).toString(Qt::ISODate);
+    const QString valueStr = FormatValueForKind(spark->property("tooltipValueKind").toString(), value);
+
+    UniValue decoded;
+    QString decodeError;
+    const bool decodedOk = DecodeContextToUniValue(ctx.txid, ctx.blockHash, decoded, decodeError);
+
+    QDialog details(this);
+    details.setWindowTitle(tr("Metric Point Details"));
+    QVBoxLayout* detailsLayout = new QVBoxLayout(&details);
+    detailsLayout->addWidget(new QLabel(tr("Time: %1").arg(tsStr), &details));
+    detailsLayout->addWidget(new QLabel(tr("Value: %1").arg(valueStr), &details));
+    if (!ctx.txid.isEmpty()) {
+        detailsLayout->addWidget(new QLabel(tr("TxID: %1").arg(ctx.txid), &details));
+    } else if (!ctx.blockHash.isEmpty()) {
+        detailsLayout->addWidget(new QLabel(tr("Block: %1").arg(ctx.blockHash), &details));
+    }
+
+    QTreeWidget* tree = new QTreeWidget(&details);
+    tree->setColumnCount(2);
+    tree->setHeaderLabels(QStringList() << tr("Field") << tr("Value"));
+    tree->header()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
+    tree->header()->setSectionResizeMode(1, QHeaderView::Stretch);
+    PopulateDecodedTree(tree, decodedOk, decoded, decodeError);
+
+    QObject::connect(tree, &QTreeWidget::itemDoubleClicked, &details, [this, ctx](QTreeWidgetItem* item, int /*column*/) {
+        if (!item) return;
+        QString txid = item->text(1).trimmed();
+        if (!IsLikelyTxid(txid)) return;
+        if (txid.size() >= 2 && txid.startsWith('"') && txid.endsWith('"')) {
+            txid = txid.mid(1, txid.size() - 2);
+        }
+
+        UniValue nestedDecoded;
+        QString nestedError;
+        const bool nestedOk = DecodeContextToUniValue(txid, ctx.blockHash, nestedDecoded, nestedError);
+
+        QDialog nested(this);
+        nested.setWindowTitle(tr("Decoded Transaction"));
+        QVBoxLayout* nestedLayout = new QVBoxLayout(&nested);
+        nestedLayout->addWidget(new QLabel(tr("TxID: %1").arg(txid), &nested));
+        QTreeWidget* nestedTree = new QTreeWidget(&nested);
+        nestedTree->setColumnCount(2);
+        nestedTree->setHeaderLabels(QStringList() << tr("Field") << tr("Value"));
+        nestedTree->header()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
+        nestedTree->header()->setSectionResizeMode(1, QHeaderView::Stretch);
+        PopulateDecodedTree(nestedTree, nestedOk, nestedDecoded, nestedError);
+        nestedLayout->addWidget(nestedTree);
+        QDialogButtonBox* closeNested = new QDialogButtonBox(QDialogButtonBox::Close, &nested);
+        QObject::connect(closeNested, &QDialogButtonBox::rejected, &nested, &QDialog::reject);
+        nestedLayout->addWidget(closeNested);
+        nested.resize(760, 500);
+        nested.exec();
+    });
+
+    detailsLayout->addWidget(tree);
+    QDialogButtonBox* closeBox = new QDialogButtonBox(QDialogButtonBox::Close, &details);
+    QObject::connect(closeBox, &QDialogButtonBox::rejected, &details, &QDialog::reject);
+    detailsLayout->addWidget(closeBox);
+    details.resize(760, 500);
+    details.exec();
 }
 
 void Dashb0rdPage::pollStats()

@@ -8,6 +8,7 @@
 
 #include <cstdint>
 
+#include <QHash>
 #include <QString>
 #include <QPoint>
 #include <QVector>
@@ -48,6 +49,8 @@ private:
     void pushSample(QVector<double>& series, SparklineWidget* spark, double value, const QString& txid = QString(), const QString& blockHash = QString());
     QWidget* createMetricBox(const QString& label, QLabel*& valueLabel, SparklineWidget*& spark);
     void relayoutMetricBoxes();
+    QString formatSparklineHoverText(SparklineWidget* spark, int index, double value) const;
+    void showSparklineDetailsDialog(SparklineWidget* spark, int index, double value);
 
     ClientModel* m_clientModel;
     WalletModel* m_walletModel;
@@ -131,6 +134,14 @@ private:
     QLabel* m_uptimeValue;
     SparklineWidget* m_uptimeSpark;
     QVector<double> m_uptimeSeries;
+
+    struct PointContext
+    {
+        qint64 timestamp;
+        QString txid;
+        QString blockHash;
+    };
+    QHash<SparklineWidget*, QVector<PointContext> > m_pointContexts;
 };
 
 #endif // BITCOIN_QT_DASHB0RDPAGE_H

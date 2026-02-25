@@ -7,6 +7,7 @@
 #define BITCOIN_QT_SPARKLINEWIDGET_H
 
 #include <cstdint>
+#include <functional>
 
 #include <QString>
 #include <QVector>
@@ -22,7 +23,8 @@ public:
     ~SparklineWidget() override;
 
     void setData(const QVector<double>& data);
-    void setPointContext(const QString& txid, const QString& blockHash = QString());
+    void setHoverTextProvider(const std::function<QString(int, double)>& provider);
+    void setDoubleClickHandler(const std::function<void(int, double)>& handler);
     void clear();
 
 protected:
@@ -32,12 +34,11 @@ protected:
     void leaveEvent(QEvent* event) override;
 
 private:
+    int sampleIndexForPos(const QPoint& pos) const;
+
     QVector<double> m_data;
-    QVector<qint64> m_timestamps;
-    QVector<QString> m_txids;
-    QVector<QString> m_blockHashes;
-    QString m_pointTxid;
-    QString m_pointBlockHash;
+    std::function<QString(int, double)> m_hoverTextProvider;
+    std::function<void(int, double)> m_doubleClickHandler;
 };
 
 #endif // BITCOIN_QT_SPARKLINEWIDGET_H
