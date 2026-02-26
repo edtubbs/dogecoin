@@ -11,7 +11,6 @@
 
 class BitcoinGUI;
 class ClientModel;
-class Dashb0rd;
 class PlatformStyle;
 class SendCoinsRecipient;
 class WalletModel;
@@ -56,7 +55,6 @@ private:
     BitcoinGUI *gui;
     ClientModel *clientModel;
     QMap<QString, WalletView*> mapWalletViews;
-    Dashb0rd *dashb0rd;
 
     bool bOutOfSync;
 
