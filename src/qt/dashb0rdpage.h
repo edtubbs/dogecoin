@@ -51,6 +51,7 @@ private:
     void relayoutMetricBoxes();
     QString formatSparklineHoverText(SparklineWidget* spark, int index, double value) const;
     void showSparklineDetailsDialog(SparklineWidget* spark, int index, double value);
+    QString scriptTypeFilterForSpark(SparklineWidget* spark) const;
 
     ClientModel* m_clientModel;
     WalletModel* m_walletModel;

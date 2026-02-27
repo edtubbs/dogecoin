@@ -260,6 +260,61 @@ static void PopulateDecodedTree(QTreeWidget* tree, const bool decodedOk, const U
     tree->expandToDepth(1);
 }
 
+static QString UnquoteJsonString(const QString& valueIn)
+{
+    QString value = valueIn.trimmed();
+    if (value.size() >= 2 && value.startsWith('"') && value.endsWith('"')) {
+        value = value.mid(1, value.size() - 2);
+    }
+    return value;
+}
+
+static QTreeWidgetItem* FindChildByKey(QTreeWidgetItem* parent, const QString& key)
+{
+    if (!parent) return nullptr;
+    for (int i = 0; i < parent->childCount(); ++i) {
+        QTreeWidgetItem* child = parent->child(i);
+        if (child && child->text(0) == key) return child;
+    }
+    return nullptr;
+}
+
+static bool HighlightScriptAsmForType(QTreeWidget* tree, const QString& scriptType)
+{
+    if (!tree || scriptType.isEmpty()) return false;
+
+    QList<QTreeWidgetItem*> nodeStack;
+    for (int i = 0; i < tree->topLevelItemCount(); ++i) {
+        nodeStack.push_back(tree->topLevelItem(i));
+    }
+
+    while (!nodeStack.isEmpty()) {
+        QTreeWidgetItem* scriptPubKeyNode = nodeStack.takeLast();
+        if (!scriptPubKeyNode) continue;
+        for (int i = 0; i < scriptPubKeyNode->childCount(); ++i) {
+            nodeStack.push_back(scriptPubKeyNode->child(i));
+        }
+        if (scriptPubKeyNode->text(0) != "scriptPubKey") continue;
+
+        QTreeWidgetItem* typeNode = FindChildByKey(scriptPubKeyNode, "type");
+        if (!typeNode) continue;
+        const QString typeValue = UnquoteJsonString(typeNode->text(1));
+        if (typeValue != scriptType) continue;
+
+        QTreeWidgetItem* asmNode = FindChildByKey(scriptPubKeyNode, "asm");
+        if (!asmNode) continue;
+
+        for (QTreeWidgetItem* p = asmNode; p; p = p->parent()) {
+            p->setExpanded(true);
+        }
+        tree->setCurrentItem(asmNode);
+        asmNode->setSelected(true);
+        tree->scrollToItem(asmNode);
+        return true;
+    }
+    return false;
+}
+
 static bool IsLikelyTxid(QString value)
 {
     value = value.trimmed();
@@ -758,6 +813,7 @@ void Dashb0rdPage::showSparklineDetailsDialog(SparklineWidget* spark, int index,
     tree->header()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
     tree->header()->setSectionResizeMode(1, QHeaderView::Stretch);
     PopulateDecodedTree(tree, decodedOk, decoded, decodeError);
+    HighlightScriptAsmForType(tree, scriptTypeFilterForSpark(spark));
 
     QObject::connect(tree, &QTreeWidget::itemDoubleClicked, &details, [this, ctx](QTreeWidgetItem* item, int /*column*/) {
         if (!item) return;
@@ -795,6 +851,16 @@ void Dashb0rdPage::showSparklineDetailsDialog(SparklineWidget* spark, int index,
     detailsLayout->addWidget(closeBox);
     details.resize(760, 500);
     details.exec();
+}
+
+QString Dashb0rdPage::scriptTypeFilterForSpark(SparklineWidget* spark) const
+{
+    if (spark == m_mempoolP2pkhSpark) return "pubkeyhash";
+    if (spark == m_mempoolP2shSpark) return "scripthash";
+    if (spark == m_mempoolMultisigSpark) return "multisig";
+    if (spark == m_mempoolOpReturnSpark) return "nulldata";
+    if (spark == m_mempoolNonstandardSpark) return "nonstandard";
+    return QString();
 }
 
 void Dashb0rdPage::pollStats()
