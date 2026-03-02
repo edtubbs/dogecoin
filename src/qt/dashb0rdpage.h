@@ -20,6 +20,7 @@ class QGridLayout;
 class QLabel;
 class QResizeEvent;
 class QShowEvent;
+class QHideEvent;
 class QSpinBox;
 class QTimer;
 class SparklineWidget;
@@ -40,6 +41,7 @@ protected:
     bool eventFilter(QObject* watched, QEvent* event) override;
     void resizeEvent(QResizeEvent* event) override;
     void showEvent(QShowEvent* event) override;
+    void hideEvent(QHideEvent* event) override;
 
 private Q_SLOTS:
     void pollStats();

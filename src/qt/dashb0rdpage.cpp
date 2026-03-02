@@ -36,6 +36,7 @@
 #include <QMouseEvent>
 #include <QHelpEvent>
 #include <QHeaderView>
+#include <QHideEvent>
 #include <QPalette>
 #include <QPainter>
 #include <QPixmap>
@@ -608,7 +609,19 @@ void Dashb0rdPage::resizeEvent(QResizeEvent* event)
 void Dashb0rdPage::showEvent(QShowEvent* event)
 {
     QWidget::showEvent(event);
+    if (m_pollTimer) {
+        m_pollTimer->start();
+    }
     relayoutMetricBoxes();
+    pollStats();
+}
+
+void Dashb0rdPage::hideEvent(QHideEvent* event)
+{
+    QWidget::hideEvent(event);
+    if (m_pollTimer && m_pollTimer->isActive()) {
+        m_pollTimer->stop();
+    }
 }
 
 bool Dashb0rdPage::eventFilter(QObject* watched, QEvent* event)
@@ -865,6 +878,10 @@ QString Dashb0rdPage::scriptTypeFilterForSpark(SparklineWidget* spark) const
 
 void Dashb0rdPage::pollStats()
 {
+    if (!isVisible()) {
+        return;
+    }
+
     const QDateTime now = QDateTime::currentDateTime();
     m_lastUpdated->setText(tr("Last updated: %1").arg(now.toString(Qt::ISODate)));
 
