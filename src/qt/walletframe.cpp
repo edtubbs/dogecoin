@@ -112,34 +112,30 @@ void WalletFrame::showOutOfSyncWarning(bool fShow)
 
 void WalletFrame::gotoOverviewPage()
 {
-    WalletView *walletView = currentWalletView();
-    if (walletView) {
-        walletView->gotoOverviewPage();
-    }
+    QMap<QString, WalletView*>::const_iterator i;
+    for (i = mapWalletViews.constBegin(); i != mapWalletViews.constEnd(); ++i)
+        i.value()->gotoOverviewPage();
 }
 
 void WalletFrame::gotoHistoryPage()
 {
-    WalletView *walletView = currentWalletView();
-    if (walletView) {
-        walletView->gotoHistoryPage();
-    }
+    QMap<QString, WalletView*>::const_iterator i;
+    for (i = mapWalletViews.constBegin(); i != mapWalletViews.constEnd(); ++i)
+        i.value()->gotoHistoryPage();
 }
 
 void WalletFrame::gotoReceiveCoinsPage()
 {
-    WalletView *walletView = currentWalletView();
-    if (walletView) {
-        walletView->gotoReceiveCoinsPage();
-    }
+    QMap<QString, WalletView*>::const_iterator i;
+    for (i = mapWalletViews.constBegin(); i != mapWalletViews.constEnd(); ++i)
+        i.value()->gotoReceiveCoinsPage();
 }
 
 void WalletFrame::gotoSendCoinsPage(QString addr)
 {
-    WalletView *walletView = currentWalletView();
-    if (walletView) {
-        walletView->gotoSendCoinsPage(addr);
-    }
+    QMap<QString, WalletView*>::const_iterator i;
+    for (i = mapWalletViews.constBegin(); i != mapWalletViews.constEnd(); ++i)
+        i.value()->gotoSendCoinsPage(addr);
 }
 
 void WalletFrame::gotoSignMessageTab(QString addr)
@@ -158,9 +154,9 @@ void WalletFrame::gotoVerifyMessageTab(QString addr)
 
 void WalletFrame::gotoDashb0rdPage()
 {
-    WalletView *walletView = currentWalletView();
-    if (walletView)
-        walletView->gotoDashb0rdPage();
+    QMap<QString, WalletView*>::const_iterator i;
+    for (i = mapWalletViews.constBegin(); i != mapWalletViews.constEnd(); ++i)
+        i.value()->gotoDashb0rdPage();
 }
 
 void WalletFrame::encryptWallet(bool status)
