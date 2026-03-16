@@ -352,6 +352,14 @@ BOOST_AUTO_TEST_CASE(rpc_convert_values_generatetoaddress)
     BOOST_CHECK_EQUAL(result[3].get_int(), 1);
 }
 
+BOOST_AUTO_TEST_CASE(rpc_convert_values_getdashboardmetrics)
+{
+    UniValue result;
+
+    BOOST_CHECK_NO_THROW(result = RPCConvertValues("getdashboardmetrics", boost::assign::list_of("250")));
+    BOOST_CHECK_EQUAL(result[0].get_int(), 250);
+}
+
 BOOST_AUTO_TEST_CASE(rpc_getblockstats_calculate_percentiles_by_size)
 {
     int64_t total_size = 200;
