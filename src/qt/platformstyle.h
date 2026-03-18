@@ -23,6 +23,18 @@ public:
     /** Persist dark mode preference and apply it to the running application. */
     static void setDarkModeEnabled(bool enabled);
 
+    /** Return current dark-mode tint index. */
+    static int darkModeTint();
+
+    /** Return display label for a dark-mode tint index. */
+    static QString darkModeTintName(int tint);
+
+    /** Return total number of available dark-mode tints. */
+    static int darkModeTintCount();
+
+    /** Persist dark-mode tint and apply immediately when dark mode is enabled. */
+    static void setDarkModeTint(int tint);
+
     /** Apply either dark or light theme to the running application. */
     static void applyTheme(bool darkModeEnabled);
 

@@ -40,6 +40,7 @@
 #include <iostream>
 
 #include <QAction>
+#include <QActionGroup>
 #include <QApplication>
 #include <QDateTime>
 #include <QDesktopWidget>
@@ -85,6 +86,7 @@ BitcoinGUI::BitcoinGUI(const PlatformStyle *_platformStyle, const NetworkStyle *
     walletFrame(0),
     unitDisplayControl(0),
     themeToggleButton(0),
+    themeTintMenu(0),
     labelWalletEncryptionIcon(0),
     labelWalletHDStatusIcon(0),
     connectionsControl(0),
@@ -217,8 +219,21 @@ BitcoinGUI::BitcoinGUI(const PlatformStyle *_platformStyle, const NetworkStyle *
     themeToggleButton = new QToolButton(frameBlocks);
     themeToggleButton->setAutoRaise(true);
     themeToggleButton->setCursor(Qt::PointingHandCursor);
+    themeToggleButton->setContextMenuPolicy(Qt::CustomContextMenu);
+    themeTintMenu = new QMenu(themeToggleButton);
+    QActionGroup* tintGroup = new QActionGroup(themeTintMenu);
+    tintGroup->setExclusive(true);
+    for (int tint = 0; tint < PlatformStyle::darkModeTintCount(); ++tint) {
+        QAction* tintAction = new QAction(PlatformStyle::darkModeTintName(tint), themeTintMenu);
+        tintAction->setData(tint);
+        tintAction->setCheckable(true);
+        tintGroup->addAction(tintAction);
+        themeTintMenu->addAction(tintAction);
+    }
     updateDarkModeToggleText();
     connect(themeToggleButton, SIGNAL(clicked()), this, SLOT(toggleDarkMode()));
+    connect(themeToggleButton, SIGNAL(customContextMenuRequested(QPoint)), this, SLOT(showDarkTintMenu(QPoint)));
+    connect(themeTintMenu, SIGNAL(triggered(QAction*)), this, SLOT(onDarkTintSelected(QAction*)));
     labelWalletEncryptionIcon = new QLabel();
     labelWalletHDStatusIcon = new QLabel();
     connectionsControl = new GUIUtil::ClickableLabel();
@@ -277,6 +292,7 @@ BitcoinGUI::BitcoinGUI(const PlatformStyle *_platformStyle, const NetworkStyle *
         connect(progressBar, SIGNAL(clicked(QPoint)), this, SLOT(showModalOverlay()));
     }
 #endif
+    PlatformStyle::applyTheme(PlatformStyle::isDarkModeEnabled());
 }
 
 BitcoinGUI::~BitcoinGUI()
@@ -1251,7 +1267,28 @@ void BitcoinGUI::updateDarkModeToggleText()
     }
     const bool darkModeEnabled = PlatformStyle::isDarkModeEnabled();
     themeToggleButton->setText(darkModeEnabled ? tr("Dark") : tr("Light"));
-    themeToggleButton->setToolTip(tr("Toggle dark mode"));
+    themeToggleButton->setToolTip(tr("Toggle dark mode (right-click for green tint options)"));
+}
+
+void BitcoinGUI::showDarkTintMenu(const QPoint& point)
+{
+    if (!themeTintMenu || !themeToggleButton) {
+        return;
+    }
+    const int currentTint = PlatformStyle::darkModeTint();
+    Q_FOREACH (QAction* action, themeTintMenu->actions())
+    {
+        action->setChecked(action->data().toInt() == currentTint);
+    }
+    themeTintMenu->exec(themeToggleButton->mapToGlobal(point));
+}
+
+void BitcoinGUI::onDarkTintSelected(QAction* action)
+{
+    if (!action) {
+        return;
+    }
+    PlatformStyle::setDarkModeTint(action->data().toInt());
 }
 
 UnitDisplayStatusBarControl::UnitDisplayStatusBarControl(const PlatformStyle *platformStyle) :

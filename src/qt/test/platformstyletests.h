@@ -14,6 +14,7 @@ class PlatformStyleTests : public QObject
 
 private Q_SLOTS:
     void darkPaletteLooksLikeDarkMode();
+    void darkTintOptionsStayGreenAndDistinct();
 };
 
 #endif // BITCOIN_QT_TEST_PLATFORMSTYLETESTS_H

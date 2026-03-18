@@ -8,6 +8,7 @@
 
 #include <QColor>
 #include <QPalette>
+#include <QSet>
 
 void PlatformStyleTests::darkPaletteLooksLikeDarkMode()
 {
@@ -25,4 +26,23 @@ void PlatformStyleTests::darkPaletteLooksLikeDarkMode()
     QVERIFY(highlightedText.lightness() < highlight.lightness());
     QVERIFY(darkBorder.lightness() < window.lightness());
     QVERIFY(midBorder.lightness() < text.lightness());
+}
+
+void PlatformStyleTests::darkTintOptionsStayGreenAndDistinct()
+{
+    const int originalTint = PlatformStyle::darkModeTint();
+    QSet<QRgb> seenHighlights;
+
+    for (int tint = 0; tint < PlatformStyle::darkModeTintCount(); ++tint) {
+        PlatformStyle::setDarkModeTint(tint);
+        const QPalette palette = PlatformStyle::createDarkModePalette();
+        const QColor highlight = palette.color(QPalette::Highlight);
+
+        QVERIFY(highlight.green() >= highlight.red());
+        QVERIFY(highlight.green() >= highlight.blue());
+        seenHighlights.insert(highlight.rgb());
+    }
+
+    QVERIFY(seenHighlights.size() >= 3);
+    PlatformStyle::setDarkModeTint(originalTint);
 }

@@ -86,6 +86,7 @@ private:
 
     UnitDisplayStatusBarControl *unitDisplayControl;
     QToolButton *themeToggleButton;
+    QMenu *themeTintMenu;
     QLabel *labelWalletEncryptionIcon;
     QLabel *labelWalletHDStatusIcon;
     QLabel *connectionsControl;
@@ -248,6 +249,8 @@ private Q_SLOTS:
     void toggleNetworkActive();
     void toggleDarkMode();
     void updateDarkModeToggleText();
+    void showDarkTintMenu(const QPoint& point);
+    void onDarkTintSelected(QAction* action);
 
     void showModalOverlay();
 };
