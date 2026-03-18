@@ -241,7 +241,7 @@ QString TransactionDesc::toHTML(CWallet *wallet, CWalletTx &wtx, TransactionReco
     uint256 pqcCommitment;
     uint32_t pqcOutputIndex = 0;
     if (PQCExtractCommitmentFromTx(*wtx.tx, pqcType, pqcCommitment, pqcOutputIndex)) {
-        QString pqcTypeStr = (pqcType == PQCCommitmentType::FALCON512) ? "FALCON512/FLC1" : "DILITHIUM2/DIL2";
+        QString pqcTypeStr = QString::fromLatin1(PQCCommitmentTypeToString(pqcType));
         strHTML += "<b>" + tr("PQC validation") + ":</b> " + tr("valid commitment detected") + " (" + pqcTypeStr + ")<br>";
         strHTML += "<b>" + tr("PQC commitment") + ":</b> " + QString::fromStdString(pqcCommitment.GetHex()) + "<br>";
         strHTML += "<b>" + tr("PQC output index") + ":</b> " + QString::number(pqcOutputIndex) + "<br>";
