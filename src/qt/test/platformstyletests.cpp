@@ -16,9 +16,13 @@ void PlatformStyleTests::darkPaletteLooksLikeDarkMode()
     const QColor text = palette.color(QPalette::WindowText);
     const QColor highlight = palette.color(QPalette::Highlight);
     const QColor highlightedText = palette.color(QPalette::HighlightedText);
+    const QColor darkBorder = palette.color(QPalette::Dark);
+    const QColor midBorder = palette.color(QPalette::Mid);
 
     QVERIFY(window.lightness() < text.lightness());
     QVERIFY(highlight.green() > highlight.red());
     QVERIFY(highlight.green() > highlight.blue());
     QVERIFY(highlightedText.lightness() < highlight.lightness());
+    QVERIFY(darkBorder.lightness() < window.lightness());
+    QVERIFY(midBorder.lightness() < text.lightness());
 }

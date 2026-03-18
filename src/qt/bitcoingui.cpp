@@ -57,6 +57,7 @@
 #include <QStyle>
 #include <QTimer>
 #include <QToolBar>
+#include <QToolButton>
 #include <QVBoxLayout>
 
 #include <QUrlQuery>
@@ -83,6 +84,7 @@ BitcoinGUI::BitcoinGUI(const PlatformStyle *_platformStyle, const NetworkStyle *
     clientModel(0),
     walletFrame(0),
     unitDisplayControl(0),
+    themeToggleButton(0),
     labelWalletEncryptionIcon(0),
     labelWalletHDStatusIcon(0),
     connectionsControl(0),
@@ -212,6 +214,11 @@ BitcoinGUI::BitcoinGUI(const PlatformStyle *_platformStyle, const NetworkStyle *
     frameBlocksLayout->setContentsMargins(3,0,3,0);
     frameBlocksLayout->setSpacing(3);
     unitDisplayControl = new UnitDisplayStatusBarControl(platformStyle);
+    themeToggleButton = new QToolButton(frameBlocks);
+    themeToggleButton->setAutoRaise(true);
+    themeToggleButton->setCursor(Qt::PointingHandCursor);
+    updateDarkModeToggleText();
+    connect(themeToggleButton, SIGNAL(clicked()), this, SLOT(toggleDarkMode()));
     labelWalletEncryptionIcon = new QLabel();
     labelWalletHDStatusIcon = new QLabel();
     connectionsControl = new GUIUtil::ClickableLabel();
@@ -220,6 +227,7 @@ BitcoinGUI::BitcoinGUI(const PlatformStyle *_platformStyle, const NetworkStyle *
     {
         frameBlocksLayout->addStretch();
         frameBlocksLayout->addWidget(unitDisplayControl);
+        frameBlocksLayout->addWidget(themeToggleButton);
         frameBlocksLayout->addStretch();
         frameBlocksLayout->addWidget(labelWalletEncryptionIcon);
         frameBlocksLayout->addWidget(labelWalletHDStatusIcon);
@@ -1228,6 +1236,22 @@ void BitcoinGUI::toggleNetworkActive()
     if (clientModel) {
         clientModel->setNetworkActive(!clientModel->getNetworkActive());
     }
+}
+
+void BitcoinGUI::toggleDarkMode()
+{
+    PlatformStyle::setDarkModeEnabled(!PlatformStyle::isDarkModeEnabled());
+    updateDarkModeToggleText();
+}
+
+void BitcoinGUI::updateDarkModeToggleText()
+{
+    if (!themeToggleButton) {
+        return;
+    }
+    const bool darkModeEnabled = PlatformStyle::isDarkModeEnabled();
+    themeToggleButton->setText(darkModeEnabled ? tr("Dark") : tr("Light"));
+    themeToggleButton->setToolTip(tr("Toggle dark mode"));
 }
 
 UnitDisplayStatusBarControl::UnitDisplayStatusBarControl(const PlatformStyle *platformStyle) :

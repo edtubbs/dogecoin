@@ -17,6 +17,15 @@ public:
     /** Get style associated with provided platform name, or 0 if not known */
     static const PlatformStyle *instantiate(const QString &platformId);
 
+    /** Return whether dark mode is currently enabled in GUI settings. */
+    static bool isDarkModeEnabled();
+
+    /** Persist dark mode preference and apply it to the running application. */
+    static void setDarkModeEnabled(bool enabled);
+
+    /** Apply either dark or light theme to the running application. */
+    static void applyTheme(bool darkModeEnabled);
+
     /** Create the default dark mode palette used by the Qt application. */
     static QPalette createDarkModePalette();
 

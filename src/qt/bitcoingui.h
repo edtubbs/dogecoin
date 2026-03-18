@@ -38,6 +38,7 @@ QT_BEGIN_NAMESPACE
 class QAction;
 class QProgressBar;
 class QProgressDialog;
+class QToolButton;
 QT_END_NAMESPACE
 
 /**
@@ -84,6 +85,7 @@ private:
     WalletFrame *walletFrame;
 
     UnitDisplayStatusBarControl *unitDisplayControl;
+    QToolButton *themeToggleButton;
     QLabel *labelWalletEncryptionIcon;
     QLabel *labelWalletHDStatusIcon;
     QLabel *connectionsControl;
@@ -244,6 +246,8 @@ private Q_SLOTS:
 
     /** Toggle networking */
     void toggleNetworkActive();
+    void toggleDarkMode();
+    void updateDarkModeToggleText();
 
     void showModalOverlay();
 };

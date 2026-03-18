@@ -8,10 +8,14 @@
 
 #include <QApplication>
 #include <QColor>
+#include <QCoreApplication>
 #include <QIcon>
 #include <QImage>
 #include <QPalette>
 #include <QPixmap>
+#include <QSettings>
+#include <QStyle>
+#include <QStyleFactory>
 
 static const struct {
     const char *platformId;
@@ -28,6 +32,7 @@ static const struct {
     {"other", true, true, false}
 };
 static const unsigned platform_styles_count = sizeof(platform_styles)/sizeof(*platform_styles);
+static const char* DARK_MODE_SETTING = "fUseDarkMode";
 
 namespace {
 /* Local functions for colorizing single-color images */
@@ -167,6 +172,10 @@ QPalette PlatformStyle::createDarkModePalette()
     darkPalette.setColor(QPalette::Text, textColor);
     darkPalette.setColor(QPalette::Button, buttonColor);
     darkPalette.setColor(QPalette::ButtonText, textColor);
+    darkPalette.setColor(QPalette::Mid, QColor(46, 58, 51));
+    darkPalette.setColor(QPalette::Dark, QColor(16, 20, 18));
+    darkPalette.setColor(QPalette::Shadow, QColor(8, 10, 9));
+    darkPalette.setColor(QPalette::Light, QColor(45, 56, 49));
     darkPalette.setColor(QPalette::Link, highlightColor);
     darkPalette.setColor(QPalette::Highlight, highlightColor);
     darkPalette.setColor(QPalette::HighlightedText, highlightedTextColor);
@@ -176,4 +185,43 @@ QPalette PlatformStyle::createDarkModePalette()
     darkPalette.setColor(QPalette::Disabled, QPalette::WindowText, mutedTextColor);
 
     return darkPalette;
+}
+
+bool PlatformStyle::isDarkModeEnabled()
+{
+    QSettings settings(QAPP_ORG_NAME, QAPP_APP_NAME_DEFAULT);
+    if (!settings.contains(DARK_MODE_SETTING)) {
+        settings.setValue(DARK_MODE_SETTING, true);
+    }
+    return settings.value(DARK_MODE_SETTING, true).toBool();
+}
+
+void PlatformStyle::applyTheme(bool darkModeEnabled)
+{
+    if (!qobject_cast<QApplication*>(QCoreApplication::instance())) {
+        return;
+    }
+
+    QStyle* fusionStyle = QStyleFactory::create("Fusion");
+    if (fusionStyle) {
+        QApplication::setStyle(fusionStyle);
+    }
+
+    if (darkModeEnabled) {
+        QApplication::setPalette(createDarkModePalette());
+        qApp->setStyleSheet(
+            "QDialog, QMessageBox { border: 1px solid #2e3a33; }"
+            "QMenu { border: 1px solid #2e3a33; }");
+    } else {
+        const QStyle* currentStyle = QApplication::style();
+        QApplication::setPalette(currentStyle ? currentStyle->standardPalette() : QPalette());
+        qApp->setStyleSheet("");
+    }
+}
+
+void PlatformStyle::setDarkModeEnabled(bool enabled)
+{
+    QSettings settings(QAPP_ORG_NAME, QAPP_APP_NAME_DEFAULT);
+    settings.setValue(DARK_MODE_SETTING, enabled);
+    applyTheme(enabled);
 }
