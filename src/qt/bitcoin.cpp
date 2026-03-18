@@ -49,9 +49,11 @@
 #include <QLocale>
 #include <QMessageBox>
 #include <QSettings>
+#include <QStyle>
 #include <QThread>
 #include <QTimer>
 #include <QTranslator>
+#include <QStyleFactory>
 
 #if defined(QT_STATICPLUGIN)
 #include <QtPlugin>
@@ -310,6 +312,11 @@ BitcoinApplication::BitcoinApplication():
     returnValue(0)
 {
     setQuitOnLastWindowClosed(false);
+    QStyle* fusionStyle = QStyleFactory::create("Fusion");
+    if (fusionStyle) {
+        setStyle(fusionStyle);
+    }
+    setPalette(PlatformStyle::createDarkModePalette());
 
     // UI per-platform customization
     // This must be done inside the BitcoinApplication constructor, or after it, because

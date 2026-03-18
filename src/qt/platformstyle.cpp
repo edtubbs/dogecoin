@@ -145,3 +145,35 @@ const PlatformStyle *PlatformStyle::instantiate(const QString &platformId)
     return 0;
 }
 
+QPalette PlatformStyle::createDarkModePalette()
+{
+    QPalette darkPalette;
+
+    const QColor windowColor(26, 32, 28);
+    const QColor baseColor(18, 24, 20);
+    const QColor alternateBaseColor(32, 40, 35);
+    const QColor textColor(214, 232, 220);
+    const QColor mutedTextColor(137, 161, 146);
+    const QColor buttonColor(35, 44, 38);
+    const QColor highlightColor(74, 163, 111);
+    const QColor highlightedTextColor(10, 24, 16);
+
+    darkPalette.setColor(QPalette::Window, windowColor);
+    darkPalette.setColor(QPalette::WindowText, textColor);
+    darkPalette.setColor(QPalette::Base, baseColor);
+    darkPalette.setColor(QPalette::AlternateBase, alternateBaseColor);
+    darkPalette.setColor(QPalette::ToolTipBase, alternateBaseColor);
+    darkPalette.setColor(QPalette::ToolTipText, textColor);
+    darkPalette.setColor(QPalette::Text, textColor);
+    darkPalette.setColor(QPalette::Button, buttonColor);
+    darkPalette.setColor(QPalette::ButtonText, textColor);
+    darkPalette.setColor(QPalette::Link, highlightColor);
+    darkPalette.setColor(QPalette::Highlight, highlightColor);
+    darkPalette.setColor(QPalette::HighlightedText, highlightedTextColor);
+    darkPalette.setColor(QPalette::BrightText, QColor(255, 128, 128));
+    darkPalette.setColor(QPalette::Disabled, QPalette::Text, mutedTextColor);
+    darkPalette.setColor(QPalette::Disabled, QPalette::ButtonText, mutedTextColor);
+    darkPalette.setColor(QPalette::Disabled, QPalette::WindowText, mutedTextColor);
+
+    return darkPalette;
+}
