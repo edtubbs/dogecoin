@@ -20,6 +20,9 @@ sys.path.append(os.path.join(os.path.dirname(__file__), "test_framework"))
 from authproxy import AuthServiceProxy, JSONRPCException  # pylint: disable=import-error
 
 
+DEFAULT_TESTNET_CHECKPOINT_HEIGHT = 5900000
+
+
 def write_log_file(path: str, fields: Dict[str, str]) -> None:
     with open(path, "w", encoding="utf-8") as log_file:
         for key in sorted(fields.keys()):
@@ -149,7 +152,7 @@ def main() -> int:
     parser.add_argument("--signature", help="Alias for --signature-hex")
     parser.add_argument("--wallet-address", help="Optional wallet/testnet address expected in tx outputs")
     parser.add_argument("--dogecoin-testnet-wallet-address", help="Alias for --wallet-address from libdogecoin E2E scripts")
-    parser.add_argument("--checkpoint-height", type=int, default=5900000, help="Checkpoint height to verify")
+    parser.add_argument("--checkpoint-height", type=int, default=DEFAULT_TESTNET_CHECKPOINT_HEIGHT, help="Checkpoint height to verify")
     parser.add_argument("--sync-timeout", type=int, default=900, help="Seconds to wait for node startup/sync")
     parser.add_argument("--network", choices=["testnet", "regtest"], default="testnet")
     parser.add_argument("--datadir", help="Optional datadir for node (created if missing)")
