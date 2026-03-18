@@ -53,8 +53,6 @@ def infer_algo(raw_type: str) -> Optional[str]:
     normalized = raw_type.strip().lower()
     if normalized in ("falcon512", "flc1", "falcon-512"):
         return "falcon512"
-    if normalized in ("dilithium2", "dil2", "dilithium-2"):
-        return "dilithium2"
     return None
 
 
@@ -74,7 +72,7 @@ def compute_pqc_script(algo: str, pubkey_hex: str, signature_hex: str) -> str:
     pubkey = normalize_hex(pubkey_hex)
     signature = normalize_hex(signature_hex)
     commitment = hashlib.sha256(pubkey + signature).digest()
-    tag = b"FLC1" if algo == "falcon512" else b"DIL2"
+    tag = b"FLC1"
     return (bytes([0x6A, 0x24]) + tag + commitment).hex()
 
 
@@ -139,7 +137,7 @@ def main() -> int:
     parser.add_argument("--txid", help="Transaction ID to scan on-chain")
     parser.add_argument("--txis", help="Alias for --txid from libdogecoin E2E scripts")
     parser.add_argument("--height", help="Block height containing txid")
-    parser.add_argument("--commitment-type", help="PQC commitment type/tag (FLC1 or DIL2)")
+    parser.add_argument("--commitment-type", help="PQC commitment type/tag from libdogecoin E2E scripts (FLC1)")
     parser.add_argument("--tag", help="Alias for --commitment-type")
     parser.add_argument("--pubkey-hex", help="PQC public key hex")
     parser.add_argument("--pubkey", help="Alias for --pubkey-hex")
@@ -164,7 +162,7 @@ def main() -> int:
     commitment_type_raw = pick_field(args.commitment_type or args.tag, log_values, "commitment_type", "tag")
     algo = infer_algo(commitment_type_raw or "")
     if algo is None:
-        raise ValueError("missing commitment type/tag (use --commitment-type or provide commitment_type/tag in --log-file)")
+        raise ValueError("missing/invalid commitment type/tag (use FLC1 via --commitment-type/--tag or provide commitment_type/tag in --log-file)")
 
     txid = pick_field(args.txid or args.txis, log_values, "txid", "txis")
     height_raw = pick_field(args.height, log_values, "height")
@@ -278,7 +276,7 @@ def main() -> int:
                         "checkpoint_hash": checkpoint_hash,
                         "checkpoint_height": str(args.checkpoint_height),
                         "commitment_hex": commitment_hex,
-                        "commitment_type": "FLC1" if algo == "falcon512" else "DIL2",
+                        "commitment_type": "FLC1",
                         "date_utc": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
                         "height": str(tx_height),
                         "match": "false",
@@ -304,7 +302,7 @@ def main() -> int:
                     "checkpoint_hash": checkpoint_hash,
                     "checkpoint_height": str(args.checkpoint_height),
                     "commitment_hex": commitment_hex,
-                    "commitment_type": "FLC1" if algo == "falcon512" else "DIL2",
+                    "commitment_type": "FLC1",
                     "date_utc": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
                     "height": str(tx_height),
                     "match": "true",

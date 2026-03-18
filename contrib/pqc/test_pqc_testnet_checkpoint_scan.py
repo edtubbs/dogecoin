@@ -29,9 +29,9 @@ class PqcTestnetCheckpointScanTests(unittest.TestCase):
     def test_parse_log_and_tx_helpers(self) -> None:
         log_content = """txid: 01
 height: 5900001
-commitment_type: DIL2
-pubkey_hex: aa
-signature_hex: bb
+commitment_type: FLC1
+pubkey_hex: aa55
+signature_hex: bb66
 wallet_address: nXBQ8M5xFf7f8sM2jQY5q2f2uvvE4nStQd
 """
         with tempfile.NamedTemporaryFile(mode="w", delete=False) as tmp:
@@ -44,13 +44,13 @@ wallet_address: nXBQ8M5xFf7f8sM2jQY5q2f2uvvE4nStQd
 
         self.assertEqual(parsed["txid"], "01")
         self.assertEqual(parsed["height"], "5900001")
-        self.assertEqual(parsed["commitment_type"], "DIL2")
+        self.assertEqual(parsed["commitment_type"], "FLC1")
 
         tx = {
             "vout": [
                 {
                     "scriptPubKey": {
-                        "hex": "6a2444494c32f57f1487be9770eaf01853fbc3f7ad0181875d8548c197f45e5327488084d39c",
+                        "hex": "6a24464c4331b8811ee16066dbc91557b6fa55f0d31edc575c97673cd678239965dcfb56d9a2",
                         "addresses": ["nXBQ8M5xFf7f8sM2jQY5q2f2uvvE4nStQd"],
                     }
                 }
@@ -58,7 +58,7 @@ wallet_address: nXBQ8M5xFf7f8sM2jQY5q2f2uvvE4nStQd
         }
         self.assertTrue(
             MODULE.tx_contains_script(
-                tx, "6a2444494c32f57f1487be9770eaf01853fbc3f7ad0181875d8548c197f45e5327488084d39c"
+                tx, "6a24464c4331b8811ee16066dbc91557b6fa55f0d31edc575c97673cd678239965dcfb56d9a2"
             )
         )
         self.assertTrue(MODULE.tx_contains_address(tx, "nXBQ8M5xFf7f8sM2jQY5q2f2uvvE4nStQd"))
