@@ -26,6 +26,10 @@ def write_log_file(path: str, fields: Dict[str, str]) -> None:
             log_file.write(f"{key}: {fields[key]}\n")
 
 
+def default_output_log_path(txid: str) -> str:
+    return os.path.abspath(f"core-e2e-validation-{txid}.log")
+
+
 def pick_field(cli_value: Optional[str], log_values: Dict[str, str], *keys: str) -> Optional[str]:
     if cli_value:
         return cli_value
@@ -133,11 +137,16 @@ def main() -> int:
     parser.add_argument("--dogecoind", help="Path to dogecoind binary (defaults to --srcdir/dogecoind)")
     parser.add_argument("--log-file", help="Optional key/value log with tx and PQC fields")
     parser.add_argument("--txid", help="Transaction ID to scan on-chain")
+    parser.add_argument("--txis", help="Alias for --txid from libdogecoin E2E scripts")
     parser.add_argument("--height", help="Block height containing txid")
     parser.add_argument("--commitment-type", help="PQC commitment type/tag (FLC1 or DIL2)")
+    parser.add_argument("--tag", help="Alias for --commitment-type")
     parser.add_argument("--pubkey-hex", help="PQC public key hex")
+    parser.add_argument("--pubkey", help="Alias for --pubkey-hex")
     parser.add_argument("--signature-hex", help="PQC signature hex")
+    parser.add_argument("--signature", help="Alias for --signature-hex")
     parser.add_argument("--wallet-address", help="Optional wallet/testnet address expected in tx outputs")
+    parser.add_argument("--dogecoin-testnet-wallet-address", help="Alias for --wallet-address from libdogecoin E2E scripts")
     parser.add_argument("--checkpoint-height", type=int, default=5900000, help="Checkpoint height to verify")
     parser.add_argument("--sync-timeout", type=int, default=900, help="Seconds to wait for node startup/sync")
     parser.add_argument("--datadir", help="Optional datadir for testnet node (created if missing)")
@@ -152,15 +161,15 @@ def main() -> int:
     if args.log_file:
         log_values = parse_log_file(args.log_file)
 
-    commitment_type_raw = pick_field(args.commitment_type, log_values, "commitment_type", "tag")
+    commitment_type_raw = pick_field(args.commitment_type or args.tag, log_values, "commitment_type", "tag")
     algo = infer_algo(commitment_type_raw or "")
     if algo is None:
         raise ValueError("missing commitment type/tag (use --commitment-type or provide commitment_type/tag in --log-file)")
 
-    txid = pick_field(args.txid, log_values, "txid")
+    txid = pick_field(args.txid or args.txis, log_values, "txid", "txis")
     height_raw = pick_field(args.height, log_values, "height")
-    pubkey_hex = pick_field(args.pubkey_hex, log_values, "pubkey_hex", "pubkey")
-    signature_hex = pick_field(args.signature_hex, log_values, "signature_hex", "signature")
+    pubkey_hex = pick_field(args.pubkey_hex or args.pubkey, log_values, "pubkey_hex", "pubkey")
+    signature_hex = pick_field(args.signature_hex or args.signature, log_values, "signature_hex", "signature")
     if not txid:
         raise ValueError("missing txid (use --txid or provide txid in --log-file)")
     if not height_raw:
@@ -182,7 +191,14 @@ def main() -> int:
     if logged_script_hex and normalize_hex(logged_script_hex).hex() != expected_script_hex:
         raise ValueError("log script_pub_key_hex does not match computed PQC script")
 
-    wallet_address = pick_field(args.wallet_address, log_values, "wallet_address", "dogecoin_testnet_wallet_address", "address")
+    wallet_address = pick_field(
+        args.wallet_address or args.dogecoin_testnet_wallet_address,
+        log_values,
+        "wallet_address",
+        "dogecoin_testnet_wallet_address",
+        "dogecoin_wallet_address",
+        "address",
+    )
 
     datadir_created = False
     datadir = args.datadir
@@ -222,6 +238,7 @@ def main() -> int:
     match_on_chain_script = False
     match_on_chain_address = wallet_address is None
     block_hash = ""
+    output_log_path = args.output_log or default_output_log_path(txid)
     try:
         try:
             rpc = wait_for_rpc(rpc_url, args.sync_timeout)
@@ -254,9 +271,8 @@ def main() -> int:
                     raise RuntimeError(f"wallet address {wallet_address} not present in tx outputs")
                 print("match_on_chain_address: true")
         except Exception as exc:
-            if args.output_log:
-                write_log_file(
-                    args.output_log,
+            write_log_file(
+                output_log_path,
                     {
                         "block_hash": block_hash,
                         "checkpoint_hash": checkpoint_hash,
@@ -268,6 +284,7 @@ def main() -> int:
                         "match": "false",
                         "match_on_chain_address": "true" if match_on_chain_address else "false",
                         "match_on_chain_script": "true" if match_on_chain_script else "false",
+                        "core_tx_validation": "false",
                         "network": "testnet",
                         "notes": str(exc),
                         "pubkey_hex": normalized_pubkey_hex,
@@ -278,10 +295,10 @@ def main() -> int:
                         "txid": txid,
                     },
                 )
+            print(f"output_log: {output_log_path}")
             raise
-        if args.output_log:
-            write_log_file(
-                args.output_log,
+        write_log_file(
+            output_log_path,
                 {
                     "block_hash": block_hash,
                     "checkpoint_hash": checkpoint_hash,
@@ -293,6 +310,7 @@ def main() -> int:
                     "match": "true",
                     "match_on_chain_address": "true" if match_on_chain_address else "false",
                     "match_on_chain_script": "true" if match_on_chain_script else "false",
+                    "core_tx_validation": "true",
                     "network": "testnet",
                     "notes": "core e2e testnet checkpoint scan successful",
                     "pubkey_hex": normalized_pubkey_hex,
@@ -304,6 +322,7 @@ def main() -> int:
                     "wallet_address": wallet_address or "",
                 },
             )
+        print(f"output_log: {output_log_path}")
     finally:
         if rpc is not None:
             try:

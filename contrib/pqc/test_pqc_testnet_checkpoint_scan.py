@@ -83,6 +83,10 @@ wallet_address: nXBQ8M5xFf7f8sM2jQY5q2f2uvvE4nStQd
         self.assertEqual(MODULE.pick_field(None, parsed, "txid"), "from_log")
         self.assertEqual(MODULE.pick_field(None, parsed, "wallet_address", "address"), "from_log_address")
 
+    def test_default_output_log_path_uses_txid_filename(self) -> None:
+        path = MODULE.default_output_log_path("abcd1234")
+        self.assertTrue(path.endswith("core-e2e-validation-abcd1234.log"))
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -33,6 +33,11 @@ python3 qa/rpc-tests/pqc_testnet_checkpoint_scan.py \
 
 `--output-log` writes a template-compatible key/value logfile for the Core-based
 end-to-end run (including `match`, checkpoint data, and on-chain match flags).
+If omitted, the script still writes a logfile to
+`core-e2e-validation-<txid>.log` in the current working directory.
+For libdogecoin E2E interoperability, CLI aliases are supported:
+`--txis` (`--txid`), `--tag` (`--commitment-type`), `--pubkey`,
+`--signature`, and `--dogecoin-testnet-wallet-address`.
 
 ```
 date_utc:
