@@ -63,6 +63,20 @@ wallet_address: nXBQ8M5xFf7f8sM2jQY5q2f2uvvE4nStQd
         )
         self.assertTrue(MODULE.tx_contains_address(tx, "nXBQ8M5xFf7f8sM2jQY5q2f2uvvE4nStQd"))
 
+    def test_compute_commitment_and_write_log_file(self) -> None:
+        commitment_hex = MODULE.compute_commitment_hex("aa55", "bb66")
+        self.assertEqual(commitment_hex, "b8811ee16066dbc91557b6fa55f0d31edc575c97673cd678239965dcfb56d9a2")
+
+        with tempfile.NamedTemporaryFile(mode="w", delete=False) as tmp:
+            output_path = tmp.name
+        try:
+            MODULE.write_log_file(output_path, {"z": "last", "a": "first"})
+            with open(output_path, "r", encoding="utf-8") as log_file:
+                lines = log_file.read().splitlines()
+        finally:
+            os.unlink(output_path)
+        self.assertEqual(lines, ["a: first", "z: last"])
+
 
 if __name__ == "__main__":
     unittest.main()

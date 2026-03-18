@@ -4,6 +4,7 @@
 # file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
 import argparse
+from datetime import datetime, timezone
 import errno
 import hashlib
 import os
@@ -17,6 +18,12 @@ from typing import Dict, Optional
 
 sys.path.append(os.path.join(os.path.dirname(__file__), "test_framework"))
 from authproxy import AuthServiceProxy, JSONRPCException  # pylint: disable=import-error
+
+
+def write_log_file(path: str, fields: Dict[str, str]) -> None:
+    with open(path, "w", encoding="utf-8") as log_file:
+        for key in sorted(fields.keys()):
+            log_file.write(f"{key}: {fields[key]}\n")
 
 
 def normalize_hex(value: str) -> bytes:
@@ -55,6 +62,12 @@ def compute_pqc_script(algo: str, pubkey_hex: str, signature_hex: str) -> str:
     commitment = hashlib.sha256(pubkey + signature).digest()
     tag = b"FLC1" if algo == "falcon512" else b"DIL2"
     return (bytes([0x6A, 0x24]) + tag + commitment).hex()
+
+
+def compute_commitment_hex(pubkey_hex: str, signature_hex: str) -> str:
+    pubkey = normalize_hex(pubkey_hex)
+    signature = normalize_hex(signature_hex)
+    return hashlib.sha256(pubkey + signature).hexdigest()
 
 
 def tx_contains_script(tx: Dict, script_hex: str) -> bool:
@@ -115,6 +128,7 @@ def main() -> int:
     parser.add_argument("--rpc-port", type=int, default=18383)
     parser.add_argument("--p2p-port", type=int, default=22556)
     parser.add_argument("--addnode", action="append", default=[], help="Optional addnode peers (repeatable)")
+    parser.add_argument("--output-log", help="Write end-to-end run log to this file path")
     parser.add_argument("--nocleanup", action="store_true", help="Do not clean temporary datadir on exit")
     args = parser.parse_args()
 
@@ -140,7 +154,10 @@ def main() -> int:
     except ValueError as exc:
         raise ValueError(f"invalid height in log: {height_raw}") from exc
 
-    expected_script_hex = compute_pqc_script(algo, pubkey_hex, signature_hex)
+    normalized_pubkey_hex = normalize_hex(pubkey_hex).hex()
+    normalized_signature_hex = normalize_hex(signature_hex).hex()
+    commitment_hex = compute_commitment_hex(normalized_pubkey_hex, normalized_signature_hex)
+    expected_script_hex = compute_pqc_script(algo, normalized_pubkey_hex, normalized_signature_hex)
     logged_script_hex = log_values.get("script_pub_key_hex") or log_values.get("script_pub_key")
     if logged_script_hex and normalize_hex(logged_script_hex).hex() != expected_script_hex:
         raise ValueError("log script_pub_key_hex does not match computed PQC script")
@@ -184,34 +201,93 @@ def main() -> int:
 
     process = subprocess.Popen(command)
     rpc = None
+    checkpoint_hash = ""
+    current_height = -1
+    match_on_chain_script = False
+    match_on_chain_address = wallet_address is None
+    block_hash = ""
     try:
-        rpc = wait_for_rpc(rpc_url, args.sync_timeout)
-        wait_height = max(tx_height, args.checkpoint_height)
-        current_height = wait_for_sync(rpc, wait_height, args.sync_timeout)
-        print(f"synced_height: {current_height}")
+        try:
+            rpc = wait_for_rpc(rpc_url, args.sync_timeout)
+            wait_height = max(tx_height, args.checkpoint_height)
+            current_height = wait_for_sync(rpc, wait_height, args.sync_timeout)
+            print(f"synced_height: {current_height}")
 
-        checkpoint_hash = rpc.getblockhash(args.checkpoint_height)
-        print(f"checkpoint_height: {args.checkpoint_height}")
-        print(f"checkpoint_hash: {checkpoint_hash}")
+            checkpoint_hash = rpc.getblockhash(args.checkpoint_height)
+            print(f"checkpoint_height: {args.checkpoint_height}")
+            print(f"checkpoint_hash: {checkpoint_hash}")
 
-        block_hash = rpc.getblockhash(tx_height)
-        block = rpc.getblock(block_hash, 2)
-        tx = None
-        for block_tx in block.get("tx", []):
-            if block_tx.get("txid") == txid:
-                tx = block_tx
-                break
-        if tx is None:
-            raise RuntimeError(f"txid {txid} not found in block {block_hash} at height {tx_height}")
+            block_hash = rpc.getblockhash(tx_height)
+            block = rpc.getblock(block_hash, 2)
+            tx = None
+            for block_tx in block.get("tx", []):
+                if block_tx.get("txid") == txid:
+                    tx = block_tx
+                    break
+            if tx is None:
+                raise RuntimeError(f"txid {txid} not found in block {block_hash} at height {tx_height}")
 
-        if not tx_contains_script(tx, expected_script_hex):
-            raise RuntimeError("computed PQC script not found in tx outputs")
-        print("match_on_chain_script: true")
+            match_on_chain_script = tx_contains_script(tx, expected_script_hex)
+            if not match_on_chain_script:
+                raise RuntimeError("computed PQC script not found in tx outputs")
+            print("match_on_chain_script: true")
 
-        if wallet_address:
-            if not tx_contains_address(tx, wallet_address):
-                raise RuntimeError(f"wallet address {wallet_address} not present in tx outputs")
-            print("match_on_chain_address: true")
+            if wallet_address:
+                match_on_chain_address = tx_contains_address(tx, wallet_address)
+                if not match_on_chain_address:
+                    raise RuntimeError(f"wallet address {wallet_address} not present in tx outputs")
+                print("match_on_chain_address: true")
+        except Exception as exc:
+            if args.output_log:
+                write_log_file(
+                    args.output_log,
+                    {
+                        "block_hash": block_hash,
+                        "checkpoint_hash": checkpoint_hash,
+                        "checkpoint_height": str(args.checkpoint_height),
+                        "commitment_hex": commitment_hex,
+                        "commitment_type": "FLC1" if algo == "falcon512" else "DIL2",
+                        "date_utc": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+                        "height": str(tx_height),
+                        "match": "false",
+                        "match_on_chain_address": "true" if match_on_chain_address else "false",
+                        "match_on_chain_script": "true" if match_on_chain_script else "false",
+                        "network": "testnet",
+                        "notes": str(exc),
+                        "pubkey_hex": normalized_pubkey_hex,
+                        "recomputed_commitment_hex": commitment_hex,
+                        "script_pub_key_hex": expected_script_hex,
+                        "signature_hex": normalized_signature_hex,
+                        "synced_height": str(current_height),
+                        "txid": txid,
+                    },
+                )
+            raise
+        if args.output_log:
+            write_log_file(
+                args.output_log,
+                {
+                    "block_hash": block_hash,
+                    "checkpoint_hash": checkpoint_hash,
+                    "checkpoint_height": str(args.checkpoint_height),
+                    "commitment_hex": commitment_hex,
+                    "commitment_type": "FLC1" if algo == "falcon512" else "DIL2",
+                    "date_utc": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+                    "height": str(tx_height),
+                    "match": "true",
+                    "match_on_chain_address": "true" if match_on_chain_address else "false",
+                    "match_on_chain_script": "true" if match_on_chain_script else "false",
+                    "network": "testnet",
+                    "notes": "core e2e testnet checkpoint scan successful",
+                    "pubkey_hex": normalized_pubkey_hex,
+                    "recomputed_commitment_hex": commitment_hex,
+                    "script_pub_key_hex": expected_script_hex,
+                    "signature_hex": normalized_signature_hex,
+                    "synced_height": str(current_height),
+                    "txid": txid,
+                    "wallet_address": wallet_address or "",
+                },
+            )
     finally:
         if rpc is not None:
             try:

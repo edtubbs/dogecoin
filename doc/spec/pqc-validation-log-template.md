@@ -21,8 +21,12 @@ the transaction outputs):
 python3 qa/rpc-tests/pqc_testnet_checkpoint_scan.py \
   --srcdir /path/to/dogecoin/src \
   --log-file /path/to/log.txt \
+  --output-log /path/to/core-e2e-log.txt \
   --datadir /path/to/testnet-datadir
 ```
+
+`--output-log` writes a template-compatible key/value logfile for the Core-based
+end-to-end run (including `match`, checkpoint data, and on-chain match flags).
 
 ```
 date_utc:
