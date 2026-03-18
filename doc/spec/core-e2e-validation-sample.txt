@@ -4,7 +4,7 @@ checkpoint_height: 5900000
 commitment_hex: b8811ee16066dbc91557b6fa55f0d31edc575c97673cd678239965dcfb56d9a2
 commitment_type: FLC1
 core_tx_validation: false
-date_utc: 2026-03-18T21:07:53.582707Z
+date_utc: 2026-03-18T22:36:28.418804Z
 height: 1
 match: false
 match_on_chain_address: true
