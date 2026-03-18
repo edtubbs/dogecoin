@@ -30,6 +30,10 @@ def default_output_log_path(txid: str) -> str:
     return os.path.abspath(f"core-e2e-validation-{txid}.log")
 
 
+def utc_now_z() -> str:
+    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
 def pick_field(cli_value: Optional[str], log_values: Dict[str, str], *keys: str) -> Optional[str]:
     if cli_value:
         return cli_value
@@ -113,7 +117,7 @@ def wait_for_rpc(url: str, timeout: int) -> AuthServiceProxy:
             if exc.error.get("code") != -28:
                 raise
         time.sleep(0.5)
-    raise RuntimeError("timed out waiting for testnet RPC startup")
+    raise RuntimeError("timed out waiting for RPC startup")
 
 
 def wait_for_sync(rpc: AuthServiceProxy, min_height: int, timeout: int) -> int:
@@ -129,7 +133,7 @@ def wait_for_sync(rpc: AuthServiceProxy, min_height: int, timeout: int) -> int:
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Run a testnet node with checkpoints and validate PQC commitment transaction from Core end-to-end inputs."
+        description="Run a node with checkpoints and validate PQC commitment transaction from Core end-to-end inputs."
     )
     parser.add_argument("--srcdir", default=os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "src")))
     parser.add_argument("--dogecoind", help="Path to dogecoind binary (defaults to --srcdir/dogecoind)")
@@ -147,9 +151,10 @@ def main() -> int:
     parser.add_argument("--dogecoin-testnet-wallet-address", help="Alias for --wallet-address from libdogecoin E2E scripts")
     parser.add_argument("--checkpoint-height", type=int, default=5900000, help="Checkpoint height to verify")
     parser.add_argument("--sync-timeout", type=int, default=900, help="Seconds to wait for node startup/sync")
-    parser.add_argument("--datadir", help="Optional datadir for testnet node (created if missing)")
-    parser.add_argument("--rpc-port", type=int, default=18383)
-    parser.add_argument("--p2p-port", type=int, default=22556)
+    parser.add_argument("--network", choices=["testnet", "regtest"], default="testnet")
+    parser.add_argument("--datadir", help="Optional datadir for node (created if missing)")
+    parser.add_argument("--rpc-port", type=int)
+    parser.add_argument("--p2p-port", type=int)
     parser.add_argument("--addnode", action="append", default=[], help="Optional addnode peers (repeatable)")
     parser.add_argument("--output-log", help="Write end-to-end run log to this file path")
     parser.add_argument("--nocleanup", action="store_true", help="Do not clean temporary datadir on exit")
@@ -208,23 +213,27 @@ def main() -> int:
     rpc_user = f"pqcuser{random.randint(10000, 99999)}"
     rpc_pass = f"pqcpass{random.randint(100000, 999999)}"
     dogecoind = args.dogecoind or os.path.join(args.srcdir, "dogecoind")
-    rpc_url = f"http://{rpc_user}:{rpc_pass}@127.0.0.1:{args.rpc_port}"
+    default_rpc_port = 18383 if args.network == "testnet" else 18332
+    default_p2p_port = 22556 if args.network == "testnet" else 18444
+    rpc_port = args.rpc_port if args.rpc_port is not None else default_rpc_port
+    p2p_port = args.p2p_port if args.p2p_port is not None else default_p2p_port
+    rpc_url = f"http://{rpc_user}:{rpc_pass}@127.0.0.1:{rpc_port}"
 
     command = [
         dogecoind,
-        "-testnet",
-        "-checkpoints=1",
+        f"-{args.network}",
+        f"-checkpoints={1 if args.network == 'testnet' else 0}",
         "-txindex=1",
         f"-datadir={datadir}",
         "-server",
         "-listen=0",
         "-discover=0",
-        "-dnsseed=1",
+        f"-dnsseed={1 if args.network == 'testnet' else 0}",
         "-upnp=0",
         f"-rpcuser={rpc_user}",
         f"-rpcpassword={rpc_pass}",
-        f"-rpcport={args.rpc_port}",
-        f"-port={args.p2p_port}",
+        f"-rpcport={rpc_port}",
+        f"-port={p2p_port}",
     ]
     for peer in args.addnode:
         command.append(f"-addnode={peer}")
@@ -277,13 +286,13 @@ def main() -> int:
                         "checkpoint_height": str(args.checkpoint_height),
                         "commitment_hex": commitment_hex,
                         "commitment_type": "FLC1",
-                        "date_utc": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+                        "date_utc": utc_now_z(),
                         "height": str(tx_height),
                         "match": "false",
                         "match_on_chain_address": "true" if match_on_chain_address else "false",
                         "match_on_chain_script": "true" if match_on_chain_script else "false",
                         "core_tx_validation": "false",
-                        "network": "testnet",
+                        "network": args.network,
                         "notes": str(exc),
                         "pubkey_hex": normalized_pubkey_hex,
                         "recomputed_commitment_hex": commitment_hex,
@@ -303,14 +312,14 @@ def main() -> int:
                     "checkpoint_height": str(args.checkpoint_height),
                     "commitment_hex": commitment_hex,
                     "commitment_type": "FLC1",
-                    "date_utc": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+                    "date_utc": utc_now_z(),
                     "height": str(tx_height),
                     "match": "true",
                     "match_on_chain_address": "true" if match_on_chain_address else "false",
                     "match_on_chain_script": "true" if match_on_chain_script else "false",
                     "core_tx_validation": "true",
-                    "network": "testnet",
-                    "notes": "core e2e testnet checkpoint scan successful",
+                    "network": args.network,
+                    "notes": "core e2e checkpoint scan successful",
                     "pubkey_hex": normalized_pubkey_hex,
                     "recomputed_commitment_hex": commitment_hex,
                     "script_pub_key_hex": expected_script_hex,

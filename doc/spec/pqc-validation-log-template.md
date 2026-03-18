@@ -38,8 +38,8 @@ If omitted, the script still writes a logfile to
 For libdogecoin E2E interoperability, CLI aliases are supported:
 `--txis` (`--txid`), `--tag` (`--commitment-type`), `--pubkey`,
 `--signature`, and `--dogecoin-testnet-wallet-address`.
-An example captured Core run artifact is committed at
-`doc/spec/core-e2e-validation-sample.txt`.
+A captured Core run artifact is committed at
+`doc/spec/core-e2e-validation-real.log`.
 
 ```
 date_utc:
