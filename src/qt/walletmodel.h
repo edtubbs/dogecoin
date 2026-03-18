@@ -8,7 +8,12 @@
 #include "walletmodeltransaction.h"
 
 #include "amount.h"
+#include "script/standard.h"
 #include "support/allocators/secure.h"
+#if ENABLE_LIBOQS
+#include "pqc/pqc_commitment.h"
+#include "uint256.h"
+#endif
 
 #include <map>
 #include <vector>
@@ -30,6 +35,8 @@ class COutput;
 class CPubKey;
 class CWallet;
 class uint256;
+class CScript;
+struct CMutableTransaction;
 
 QT_BEGIN_NAMESPACE
 class QTimer;
@@ -38,9 +45,9 @@ QT_END_NAMESPACE
 class SendCoinsRecipient
 {
 public:
-    explicit SendCoinsRecipient() : amount(0), fSubtractFeeFromAmount(false), nVersion(SendCoinsRecipient::CURRENT_VERSION) { }
+    explicit SendCoinsRecipient() : amount(0), fSubtractFeeFromAmount(false), includePqcCommitment(false), pqcCarrierMode(false), pqcCarrierParts(1), nVersion(SendCoinsRecipient::CURRENT_VERSION) { }
     explicit SendCoinsRecipient(const QString &addr, const QString &_label, const CAmount& _amount, const QString &_message):
-        address(addr), label(_label), amount(_amount), message(_message), fSubtractFeeFromAmount(false), nVersion(SendCoinsRecipient::CURRENT_VERSION) {}
+        address(addr), label(_label), amount(_amount), message(_message), fSubtractFeeFromAmount(false), includePqcCommitment(false), pqcCarrierMode(false), pqcCarrierParts(1), nVersion(SendCoinsRecipient::CURRENT_VERSION) {}
 
     // If from an unauthenticated payment request, this is used for storing
     // the addresses, e.g. address-A<br />address-B<br />address-C.
@@ -54,6 +61,10 @@ public:
     QString message;
 
     bool fSubtractFeeFromAmount; // memory only
+    bool includePqcCommitment; // memory only, tx-level setting attached in UI
+    bool pqcCarrierMode;       // memory only, when true TX_C includes P2SH carrier outputs
+    uint8_t pqcCarrierParts;   // memory only, number of P2SH carrier outputs needed (1..N)
+    QString pqcCommitmentScriptPubKey; // memory only, hex encoded script
 
     static const int CURRENT_VERSION = 1;
     int nVersion;
@@ -149,6 +160,40 @@ public:
     // Send coins to a list of recipients
     SendCoinsReturn sendCoins(WalletModelTransaction &transaction);
 
+#if ENABLE_LIBOQS
+    // Build an unsigned TX_C (with dummy OP_RETURN + carriers), then
+    // reconstruct TX_BASE from it using the BIP spec-compliant approach:
+    // strip OP_RETURN + carriers, restore carrier cost to vout[0].
+    // Returns the reconstructed TX_BASE and the change destination
+    // (needed to keep the final TX_C deterministic).
+    bool prepareBaseTransaction(const QList<SendCoinsRecipient>& recipients,
+                                const CCoinControl *coinControl,
+                                CMutableTransaction& txBase_out,
+                                CScript& scriptPubKeyForInput0_out,
+                                CAmount& input0Amount_out,
+                                std::vector<COutPoint>& selectedCoins_out,
+                                CAmount& nFeeRet_out,
+                                QString& error_out,
+                                CTxDestination& changeAddr_out,
+                                int& nChangePosRet_out,
+                                uint32_t& nLockTimeRet_out,
+                                PQCCommitmentType pqcType,
+                                uint8_t carrierParts,
+                                bool carrierMode);
+#endif
+
+#if ENABLE_LIBOQS
+    // Create and broadcast TX_R (carrier reveal transaction) after TX_C succeeds.
+    // Spends the P2SH carrier output from TX_C, embedding PQC key material in scriptSig.
+    // Returns the TX_R txid on success, or empty uint256 on failure.
+    bool sendCarrierTx(const CTransaction& txc,
+                       PQCCommitmentType pqcType,
+                       const std::vector<unsigned char>& pubkey,
+                       const std::vector<unsigned char>& signature,
+                       uint256& txr_txid_out,
+                       QString& error_out);
+#endif
+
     // Wallet encryption
     bool setWalletEncrypted(bool encrypted, const SecureString &passphrase);
     // Passphrase only needed when unlocking
@@ -193,6 +238,9 @@ public:
 
     void loadReceiveRequests(std::vector<std::string>& vReceiveRequests);
     bool saveReceiveRequest(const std::string &sAddress, const int64_t nId, const std::string &sRequest);
+    bool getWalletMeta(const std::string &key, std::string *value) const;
+    bool saveWalletMeta(const std::string &key, const std::string &value);
+    QString getWalletFilePath() const;
 
     bool transactionCanBeAbandoned(uint256 hash) const;
     bool abandonTransaction(uint256 hash) const;
@@ -256,6 +304,9 @@ Q_SIGNALS:
 
     // Watch-only address added
     void notifyWatchonlyChanged(bool fHaveWatchonly);
+
+    // Wallet metadata changed for key
+    void walletMetaChanged(const QString &key);
 
 public Q_SLOTS:
     /* Wallet status might have changed */

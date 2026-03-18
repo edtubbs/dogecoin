@@ -3115,7 +3115,17 @@ bool CWallet::CreateTransaction(const vector<CRecipient>& vecSend, CWalletTx& wt
         set<pair<const CWalletTx*,unsigned int> > setCoins;
         LOCK2(cs_main, cs_wallet);
         {
-            txNew.nLockTime = GetLocktimeForNewTransaction();
+            // Allow the caller to pin nLockTime (used by the PQC carrier flow
+            // to keep TX_C byte-identical to the signed TX_BASE template;
+            // otherwise GetLocktimeForNewTransaction()'s ~10% back-dating
+            // would break sighash32(TX_BASE) reconstruction on SPV verifiers
+            // such as libdogecoin).
+            if (coinControl && coinControl->nLockTime >= 0 &&
+                coinControl->nLockTime <= std::numeric_limits<uint32_t>::max()) {
+                txNew.nLockTime = static_cast<uint32_t>(coinControl->nLockTime);
+            } else {
+                txNew.nLockTime = GetLocktimeForNewTransaction();
+            }
 
             std::vector<COutput> vAvailableCoins;
             AvailableCoins(vAvailableCoins, true, coinControl);
