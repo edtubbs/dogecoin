@@ -23,8 +23,9 @@ static const unsigned char* GetTagForType(PQCCommitmentType type)
         return PQC_TAG_FALCON;
     case PQCCommitmentType::DILITHIUM2:
         return PQC_TAG_DILITHIUM;
+    default:
+        return nullptr;
     }
-    return nullptr;
 }
 
 bool PQCComputeCommitment(const std::vector<unsigned char>& public_key,
