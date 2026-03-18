@@ -35,6 +35,13 @@ static const unsigned platform_styles_count = sizeof(platform_styles)/sizeof(*pl
 static const char* DARK_MODE_SETTING = "fUseDarkMode";
 
 namespace {
+QColor DarkModeBorderColor()
+{
+    return QColor(46, 58, 51);
+}
+}
+
+namespace {
 /* Local functions for colorizing single-color images */
 
 void MakeSingleColorImage(QImage& img, const QColor& colorbase)
@@ -162,6 +169,7 @@ QPalette PlatformStyle::createDarkModePalette()
     const QColor buttonColor(35, 44, 38);
     const QColor highlightColor(74, 163, 111);
     const QColor highlightedTextColor(10, 24, 16);
+    const QColor borderColor = DarkModeBorderColor();
 
     darkPalette.setColor(QPalette::Window, windowColor);
     darkPalette.setColor(QPalette::WindowText, textColor);
@@ -172,7 +180,7 @@ QPalette PlatformStyle::createDarkModePalette()
     darkPalette.setColor(QPalette::Text, textColor);
     darkPalette.setColor(QPalette::Button, buttonColor);
     darkPalette.setColor(QPalette::ButtonText, textColor);
-    darkPalette.setColor(QPalette::Mid, QColor(46, 58, 51));
+    darkPalette.setColor(QPalette::Mid, borderColor);
     darkPalette.setColor(QPalette::Dark, QColor(16, 20, 18));
     darkPalette.setColor(QPalette::Shadow, QColor(8, 10, 9));
     darkPalette.setColor(QPalette::Light, QColor(45, 56, 49));
@@ -209,9 +217,10 @@ void PlatformStyle::applyTheme(bool darkModeEnabled)
 
     if (darkModeEnabled) {
         QApplication::setPalette(createDarkModePalette());
+        const QString borderColor = DarkModeBorderColor().name();
         qApp->setStyleSheet(
-            "QDialog, QMessageBox { border: 1px solid #2e3a33; }"
-            "QMenu { border: 1px solid #2e3a33; }");
+            QString("QDialog, QMessageBox { border: 1px solid %1; }"
+                    "QMenu { border: 1px solid %1; }").arg(borderColor));
     } else {
         const QStyle* currentStyle = QApplication::style();
         QApplication::setPalette(currentStyle ? currentStyle->standardPalette() : QPalette());
