@@ -68,4 +68,28 @@ BOOST_AUTO_TEST_CASE(pqc_extract_rejects_noncanonical_script)
     BOOST_CHECK(!PQCExtractCommitment(script, parsed_type, parsed_commitment));
 }
 
+BOOST_AUTO_TEST_CASE(pqc_extract_from_tx_roundtrip)
+{
+    const std::vector<unsigned char> bytes = ParseHex("11223344556677889900aabbccddeeff11223344556677889900aabbccddeeff");
+    const uint256 commitment(bytes);
+
+    CScript script;
+    BOOST_CHECK(PQCBuildCommitmentScript(PQCCommitmentType::FALCON512, commitment, script));
+
+    CMutableTransaction mtx;
+    mtx.vout.resize(2);
+    mtx.vout[0].scriptPubKey = CScript() << OP_DUP << OP_HASH160 << ParseHex("00112233445566778899aabbccddeeff00112233") << OP_EQUALVERIFY << OP_CHECKSIG;
+    mtx.vout[1].scriptPubKey = script;
+    const CTransaction tx(mtx);
+
+    PQCCommitmentType parsed_type;
+    uint256 parsed_commitment;
+    uint32_t output_index = 0;
+    BOOST_CHECK(PQCExtractCommitmentFromTx(tx, parsed_type, parsed_commitment, output_index));
+    BOOST_CHECK(parsed_type == PQCCommitmentType::FALCON512);
+    BOOST_CHECK(parsed_commitment == commitment);
+    BOOST_CHECK_EQUAL(output_index, 1U);
+    BOOST_CHECK_EQUAL(std::string(PQCCommitmentTypeToString(parsed_type)), "FALCON512/FLC1");
+}
+
 BOOST_AUTO_TEST_SUITE_END()

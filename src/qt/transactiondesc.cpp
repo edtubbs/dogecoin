@@ -13,6 +13,7 @@
 #include "base58.h"
 #include "chainparams.h"
 #include "consensus/consensus.h"
+#include "pqc/pqc_commitment.h"
 #include "validation.h"
 #include "script/script.h"
 #include "timedata.h"
@@ -235,6 +236,18 @@ QString TransactionDesc::toHTML(CWallet *wallet, CWalletTx &wtx, TransactionReco
     strHTML += "<b>" + tr("Transaction ID") + ":</b> " + rec->getTxID() + "<br>";
     strHTML += "<b>" + tr("Transaction total size") + ":</b> " + QString::number(wtx.tx->GetTotalSize()) + " bytes<br>";
     strHTML += "<b>" + tr("Output index") + ":</b> " + QString::number(rec->getOutputIndex()) + "<br>";
+
+    PQCCommitmentType pqcType;
+    uint256 pqcCommitment;
+    uint32_t pqcOutputIndex = 0;
+    if (PQCExtractCommitmentFromTx(*wtx.tx, pqcType, pqcCommitment, pqcOutputIndex)) {
+        QString pqcTypeStr = (pqcType == PQCCommitmentType::FALCON512) ? "FALCON512/FLC1" : "DILITHIUM2/DIL2";
+        strHTML += "<b>" + tr("PQC validation") + ":</b> " + tr("valid commitment detected") + " (" + pqcTypeStr + ")<br>";
+        strHTML += "<b>" + tr("PQC commitment") + ":</b> " + QString::fromStdString(pqcCommitment.GetHex()) + "<br>";
+        strHTML += "<b>" + tr("PQC output index") + ":</b> " + QString::number(pqcOutputIndex) + "<br>";
+    } else {
+        strHTML += "<b>" + tr("PQC validation") + ":</b> " + tr("no commitment detected") + "<br>";
+    }
 
     // Message from normal bitcoin:URI (bitcoin:123...?message=example)
     for (const PAIRTYPE(std::string, std::string)& r : wtx.vOrderForm)

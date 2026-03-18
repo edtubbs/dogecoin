@@ -21,6 +21,7 @@
 #include "policy/fees.h"
 #include "policy/policy.h"
 #include "pow.h"
+#include "pqc/pqc_commitment.h"
 #include "primitives/block.h"
 #include "primitives/pureheader.h"
 #include "primitives/transaction.h"
@@ -1038,6 +1039,14 @@ bool AcceptToMemoryPoolWorker(CTxMemPool& pool, CValidationState& state, const C
             LimitMempoolSize(pool, GetArg("-maxmempool", DEFAULT_MAX_MEMPOOL_SIZE) * 1000000, GetArg("-mempoolexpiry", DEFAULT_MEMPOOL_EXPIRY) * 60 * 60);
             if (!pool.exists(hash))
                 return state.DoS(0, false, REJECT_INSUFFICIENTFEE, "mempool full");
+        }
+
+        PQCCommitmentType pqc_type;
+        uint256 pqc_commitment;
+        uint32_t pqc_output_index = 0;
+        if (PQCExtractCommitmentFromTx(tx, pqc_type, pqc_commitment, pqc_output_index)) {
+            LogPrint("mempool", "PQC commitment validated for mempool tx %s: type=%s vout=%u commitment=%s\n",
+                hash.ToString(), PQCCommitmentTypeToString(pqc_type), pqc_output_index, pqc_commitment.GetHex());
         }
     }
 

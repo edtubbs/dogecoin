@@ -87,3 +87,29 @@ bool PQCExtractCommitment(const CScript& script,
     commitment_out = uint256(commitment_bytes);
     return true;
 }
+
+const char* PQCCommitmentTypeToString(PQCCommitmentType type)
+{
+    switch (type) {
+    case PQCCommitmentType::FALCON512:
+        return "FALCON512/FLC1";
+    case PQCCommitmentType::DILITHIUM2:
+        return "DILITHIUM2/DIL2";
+    default:
+        return "UNKNOWN";
+    }
+}
+
+bool PQCExtractCommitmentFromTx(const CTransaction& tx,
+                                PQCCommitmentType& type_out,
+                                uint256& commitment_out,
+                                uint32_t& output_index_out)
+{
+    for (uint32_t i = 0; i < tx.vout.size(); ++i) {
+        if (PQCExtractCommitment(tx.vout[i].scriptPubKey, type_out, commitment_out)) {
+            output_index_out = i;
+            return true;
+        }
+    }
+    return false;
+}

@@ -6,8 +6,10 @@
 #define DOGECOIN_PQC_COMMITMENT_H
 
 #include "script/script.h"
+#include "primitives/transaction.h"
 #include "uint256.h"
 
+#include <stdint.h>
 #include <vector>
 
 enum class PQCCommitmentType {
@@ -35,5 +37,12 @@ bool PQCBuildCommitmentScript(PQCCommitmentType type,
 bool PQCExtractCommitment(const CScript& script,
                           PQCCommitmentType& type_out,
                           uint256& commitment_out);
+
+const char* PQCCommitmentTypeToString(PQCCommitmentType type);
+
+bool PQCExtractCommitmentFromTx(const CTransaction& tx,
+                                PQCCommitmentType& type_out,
+                                uint256& commitment_out,
+                                uint32_t& output_index_out);
 
 #endif // DOGECOIN_PQC_COMMITMENT_H
