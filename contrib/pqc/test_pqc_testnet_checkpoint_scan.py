@@ -77,6 +77,12 @@ wallet_address: nXBQ8M5xFf7f8sM2jQY5q2f2uvvE4nStQd
             os.unlink(output_path)
         self.assertEqual(lines, ["a: first", "z: last"])
 
+    def test_pick_field_prefers_cli_value_then_log_values(self) -> None:
+        parsed = {"txid": "from_log", "address": "from_log_address"}
+        self.assertEqual(MODULE.pick_field("from_cli", parsed, "txid"), "from_cli")
+        self.assertEqual(MODULE.pick_field(None, parsed, "txid"), "from_log")
+        self.assertEqual(MODULE.pick_field(None, parsed, "wallet_address", "address"), "from_log_address")
+
 
 if __name__ == "__main__":
     unittest.main()

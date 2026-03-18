@@ -15,12 +15,18 @@ script (`6a24 + tag + commitment`), and returns non-zero if `commitment_hex` or
 
 On-chain testnet checkpoint scan (starts `dogecoind -testnet -checkpoints=1`,
 waits for sync, finds `txid` at `height`, and verifies computed PQC script in
-the transaction outputs):
+the transaction outputs). You can provide either direct Core end-to-end fields
+or an optional key/value `--log-file`:
 
 ```
 python3 qa/rpc-tests/pqc_testnet_checkpoint_scan.py \
   --srcdir /path/to/dogecoin/src \
-  --log-file /path/to/log.txt \
+  --txid <txid> \
+  --height <height> \
+  --commitment-type FLC1 \
+  --pubkey-hex <pubkey_hex> \
+  --signature-hex <signature_hex> \
+  --wallet-address <optional_testnet_address> \
   --output-log /path/to/core-e2e-log.txt \
   --datadir /path/to/testnet-datadir
 ```

@@ -26,6 +26,16 @@ def write_log_file(path: str, fields: Dict[str, str]) -> None:
             log_file.write(f"{key}: {fields[key]}\n")
 
 
+def pick_field(cli_value: Optional[str], log_values: Dict[str, str], *keys: str) -> Optional[str]:
+    if cli_value:
+        return cli_value
+    for key in keys:
+        value = log_values.get(key)
+        if value:
+            return value
+    return None
+
+
 def normalize_hex(value: str) -> bytes:
     normalized = value.strip().lower()
     if normalized.startswith("0x"):
@@ -117,11 +127,17 @@ def wait_for_sync(rpc: AuthServiceProxy, min_height: int, timeout: int) -> int:
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Run a testnet node with checkpoints and validate PQC commitment transaction from log data."
+        description="Run a testnet node with checkpoints and validate PQC commitment transaction from Core end-to-end inputs."
     )
     parser.add_argument("--srcdir", default=os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "src")))
     parser.add_argument("--dogecoind", help="Path to dogecoind binary (defaults to --srcdir/dogecoind)")
-    parser.add_argument("--log-file", required=True, help="libdogecoin E2E log with tx and PQC fields")
+    parser.add_argument("--log-file", help="Optional key/value log with tx and PQC fields")
+    parser.add_argument("--txid", help="Transaction ID to scan on-chain")
+    parser.add_argument("--height", help="Block height containing txid")
+    parser.add_argument("--commitment-type", help="PQC commitment type/tag (FLC1 or DIL2)")
+    parser.add_argument("--pubkey-hex", help="PQC public key hex")
+    parser.add_argument("--signature-hex", help="PQC signature hex")
+    parser.add_argument("--wallet-address", help="Optional wallet/testnet address expected in tx outputs")
     parser.add_argument("--checkpoint-height", type=int, default=5900000, help="Checkpoint height to verify")
     parser.add_argument("--sync-timeout", type=int, default=900, help="Seconds to wait for node startup/sync")
     parser.add_argument("--datadir", help="Optional datadir for testnet node (created if missing)")
@@ -132,23 +148,27 @@ def main() -> int:
     parser.add_argument("--nocleanup", action="store_true", help="Do not clean temporary datadir on exit")
     args = parser.parse_args()
 
-    log_values = parse_log_file(args.log_file)
-    algo = infer_algo(log_values.get("commitment_type", "")) or infer_algo(log_values.get("tag", ""))
-    if algo is None:
-        raise ValueError("missing commitment_type/tag in log")
+    log_values: Dict[str, str] = {}
+    if args.log_file:
+        log_values = parse_log_file(args.log_file)
 
-    txid = log_values.get("txid")
-    height_raw = log_values.get("height")
-    pubkey_hex = log_values.get("pubkey_hex") or log_values.get("pubkey")
-    signature_hex = log_values.get("signature_hex") or log_values.get("signature")
+    commitment_type_raw = pick_field(args.commitment_type, log_values, "commitment_type", "tag")
+    algo = infer_algo(commitment_type_raw or "")
+    if algo is None:
+        raise ValueError("missing commitment type/tag (use --commitment-type or provide commitment_type/tag in --log-file)")
+
+    txid = pick_field(args.txid, log_values, "txid")
+    height_raw = pick_field(args.height, log_values, "height")
+    pubkey_hex = pick_field(args.pubkey_hex, log_values, "pubkey_hex", "pubkey")
+    signature_hex = pick_field(args.signature_hex, log_values, "signature_hex", "signature")
     if not txid:
-        raise ValueError("missing txid in log")
+        raise ValueError("missing txid (use --txid or provide txid in --log-file)")
     if not height_raw:
-        raise ValueError("missing height in log")
+        raise ValueError("missing height (use --height or provide height in --log-file)")
     if not pubkey_hex:
-        raise ValueError("missing pubkey_hex/pubkey in log")
+        raise ValueError("missing pubkey_hex/pubkey (use --pubkey-hex or provide pubkey in --log-file)")
     if not signature_hex:
-        raise ValueError("missing signature_hex/signature in log")
+        raise ValueError("missing signature_hex/signature (use --signature-hex or provide signature in --log-file)")
     try:
         tx_height = int(height_raw)
     except ValueError as exc:
@@ -162,11 +182,7 @@ def main() -> int:
     if logged_script_hex and normalize_hex(logged_script_hex).hex() != expected_script_hex:
         raise ValueError("log script_pub_key_hex does not match computed PQC script")
 
-    wallet_address = (
-        log_values.get("wallet_address")
-        or log_values.get("dogecoin_testnet_wallet_address")
-        or log_values.get("address")
-    )
+    wallet_address = pick_field(args.wallet_address, log_values, "wallet_address", "dogecoin_testnet_wallet_address", "address")
 
     datadir_created = False
     datadir = args.datadir
