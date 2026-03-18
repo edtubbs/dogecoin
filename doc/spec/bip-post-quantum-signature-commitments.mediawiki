@@ -1,0 +1,34 @@
+<pre>
+  BIP: ?
+  Layer: Applications
+  Title: Post-Quantum Signature Commitments
+  Author: Dogecoin Core Contributors
+  Status: Draft
+  Type: Standards Track
+  Created: 2026-03-18
+  License: BSD-3-Clause
+</pre>
+
+==Abstract==
+
+This draft specifies a compatibility commitment format for post-quantum (PQC)
+signatures that matches libdogecoin PQC commitment encoding.
+
+Canonical commitments are encoded in script as:
+
+<source>
+Falcon-512:  OP_RETURN 0x24 "FLC1" <32-byte commitment>
+Dilithium2:  OP_RETURN 0x24 "DIL2" <32-byte commitment>
+</source>
+
+Where commitment bytes are:
+
+<source>
+commitment32 = SHA256(public_key_bytes || signature_bytes)
+</source>
+
+==Compatibility==
+
+This draft is intentionally policy-level and consensus-neutral. It provides
+deterministic script encoding and parsing conventions for interop between
+Dogecoin Core tooling and libdogecoin PQC workflows.

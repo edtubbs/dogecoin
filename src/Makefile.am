@@ -124,6 +124,7 @@ BITCOIN_CORE_H = \
   policy/fees.h \
   policy/policy.h \
   policy/rbf.h \
+  pqc/pqc_commitment.h \
   pow.h \
   primitives/block.h \
   primitives/pureheader.h \
@@ -339,6 +340,7 @@ libdogecoin_common_a_SOURCES = \
   keystore.cpp \
   netaddress.cpp \
   netbase.cpp \
+  pqc/pqc_commitment.cpp \
   primitives/block.cpp \
   primitives/pureheader.cpp \
   primitives/transaction.cpp \
