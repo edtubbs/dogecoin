@@ -4,6 +4,7 @@
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
+#include "config/bitcoin-config.h"
 #include "amount.h"
 #include "base58.h"
 #include "chain.h"
@@ -14,6 +15,11 @@
 #include "net.h"
 #include "policy/policy.h"
 #include "policy/rbf.h"
+#if ENABLE_LIBOQS
+#include "pqc/pqc_commitment.h"
+#include "support/experimental.h"
+EXPERIMENTAL_FEATURE
+#endif
 #include "rpc/server.h"
 #include "script/sign.h"
 #include "timedata.h"
@@ -541,6 +547,340 @@ UniValue signmessage(const JSONRPCRequest& request)
 
     return EncodeBase64(&vchSig[0], vchSig.size());
 }
+
+#if ENABLE_LIBOQS
+UniValue generatepqccommitment(const JSONRPCRequest& request)
+{
+    if (!EnsureWalletIsAvailable(request.fHelp))
+        return NullUniValue;
+
+    if (request.fHelp || request.params.size() != 3)
+        throw runtime_error(
+            "generatepqccommitment \"algorithm\" \"public_key_hex\" \"signature_hex\"\n"
+            "\nGenerate a PQC OP_RETURN commitment artifact from a PQC public key and signature.\n"
+            "\nArguments:\n"
+            "1. \"algorithm\"         (string, required) PQC algorithm: falcon512|flc1, dilithium2|dil2"
+#ifdef ENABLE_LIBOQS_RACCOON
+            ", or raccoong44|rcg4"
+#endif
+            ".\n"
+            "2. \"public_key_hex\"    (string, required) PQC public key bytes, hex encoded.\n"
+            "3. \"signature_hex\"     (string, required) PQC signature bytes, hex encoded.\n"
+            "\nResult:\n"
+            "{\n"
+            "  \"algorithm\": \"str\",       (string) Canonical algorithm label with tag\n"
+            "  \"commitment\": \"hex\",      (string) SHA256(public_key || signature), little-endian uint256 hex\n"
+            "  \"scriptPubKey\": \"hex\"     (string) Canonical OP_RETURN PQC commitment script\n"
+            "}\n"
+            "\nExamples:\n"
+            + HelpExampleCli("generatepqccommitment", "\"falcon512\" \"021122\" \"304402\"")
+            + HelpExampleRpc("generatepqccommitment", "\"falcon512\", \"021122\", \"304402\"")
+        );
+
+    const std::string algo = request.params[0].get_str();
+    const std::string pubkey_hex = request.params[1].get_str();
+    const std::string sig_hex = request.params[2].get_str();
+
+    PQCCommitmentType type;
+    if (!ParsePQCCommitmentType(algo, type)) {
+        throw JSONRPCError(RPC_INVALID_PARAMETER, "Unknown PQC algorithm. Use falcon512|flc1, dilithium2|dil2"
+#ifdef ENABLE_LIBOQS_RACCOON
+            ", or raccoong44|rcg4"
+#endif
+            ".");
+    }
+    if (!IsHex(pubkey_hex) || !IsHex(sig_hex)) {
+        throw JSONRPCError(RPC_INVALID_PARAMETER, "public_key_hex and signature_hex must be valid hex strings.");
+    }
+
+    const std::vector<unsigned char> public_key = ParseHex(pubkey_hex);
+    const std::vector<unsigned char> signature = ParseHex(sig_hex);
+
+    uint256 commitment;
+    if (!PQCComputeCommitment(public_key, signature, commitment)) {
+        throw JSONRPCError(RPC_INVALID_PARAMETER, "public_key_hex and signature_hex must both decode to non-empty byte strings.");
+    }
+
+    CScript script;
+    if (!PQCBuildCommitmentScript(type, commitment, script)) {
+        throw JSONRPCError(RPC_INTERNAL_ERROR, "Failed to build PQC commitment script.");
+    }
+
+    UniValue result(UniValue::VOBJ);
+    result.pushKV("algorithm", PQCCommitmentTypeToString(type));
+    result.pushKV("commitment", commitment.GetHex());
+    result.pushKV("scriptPubKey", HexStr(script.begin(), script.end()));
+    return result;
+}
+
+UniValue sendpqcreveal(const JSONRPCRequest& request)
+{
+    if (!EnsureWalletIsAvailable(request.fHelp))
+        return NullUniValue;
+
+    if (request.fHelp || request.params.size() != 4)
+        throw runtime_error(
+            "sendpqcreveal \"txc_txid\" \"algorithm\" \"public_key_hex\" \"signature_hex\"\n"
+            "\nBuild and broadcast TX_R (PQC carrier reveal transaction) spending the P2SH carrier\n"
+            "output(s) from a previously broadcast TX_C commitment transaction.\n"
+            "\nArguments:\n"
+            "1. \"txc_txid\"          (string, required) The txid of the TX_C commitment transaction.\n"
+            "2. \"algorithm\"         (string, required) PQC algorithm: falcon512|flc1, dilithium2|dil2"
+#ifdef ENABLE_LIBOQS_RACCOON
+            ", or raccoong44|rcg4"
+#endif
+            ".\n"
+            "3. \"public_key_hex\"    (string, required) PQC public key bytes, hex encoded.\n"
+            "4. \"signature_hex\"     (string, required) PQC signature bytes, hex encoded.\n"
+            "\nResult:\n"
+            "\"txid\"                 (string) The TX_R transaction id.\n"
+            "\nExamples:\n"
+            + HelpExampleCli("sendpqcreveal", "\"<txc_txid>\" \"falcon512\" \"<pubkey_hex>\" \"<sig_hex>\"")
+            + HelpExampleRpc("sendpqcreveal", "\"<txc_txid>\", \"falcon512\", \"<pubkey_hex>\", \"<sig_hex>\"")
+        );
+
+    const std::string txc_txid_str = request.params[0].get_str();
+    const std::string algo = request.params[1].get_str();
+    const std::string pubkey_hex = request.params[2].get_str();
+    const std::string sig_hex = request.params[3].get_str();
+
+    uint256 txcHash;
+    txcHash.SetHex(txc_txid_str);
+
+    PQCCommitmentType type;
+    if (!ParsePQCCommitmentType(algo, type)) {
+        throw JSONRPCError(RPC_INVALID_PARAMETER, "Unknown PQC algorithm. Use falcon512|flc1, dilithium2|dil2"
+#ifdef ENABLE_LIBOQS_RACCOON
+            ", or raccoong44|rcg4"
+#endif
+            ".");
+    }
+    if (!IsHex(pubkey_hex) || !IsHex(sig_hex)) {
+        throw JSONRPCError(RPC_INVALID_PARAMETER, "public_key_hex and signature_hex must be valid hex strings.");
+    }
+
+    const std::vector<unsigned char> pubkey = ParseHex(pubkey_hex);
+    const std::vector<unsigned char> signature = ParseHex(sig_hex);
+
+    if (pubkey.empty() || signature.empty()) {
+        throw JSONRPCError(RPC_INVALID_PARAMETER, "public_key_hex and signature_hex must be non-empty.");
+    }
+
+    // Look up TX_C in the wallet
+    CTransactionRef txcRef;
+    {
+        LOCK(pwalletMain->cs_wallet);
+        auto it = pwalletMain->mapWallet.find(txcHash);
+        if (it == pwalletMain->mapWallet.end())
+            throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "TX_C txid not found in wallet");
+        txcRef = it->second.tx;
+    }
+    const CTransaction& txc = *txcRef;
+
+    // Step 1: Find all P2SH carrier outputs in TX_C
+    CScript carrierScriptPubKey;
+    if (!PQCBuildCarrierScriptPubKey(carrierScriptPubKey))
+        throw JSONRPCError(RPC_INTERNAL_ERROR, "Failed to build carrier scriptPubKey");
+
+    std::vector<std::pair<int, CAmount>> carrierOutputs;
+    for (unsigned int i = 0; i < txc.vout.size(); ++i) {
+        if (txc.vout[i].scriptPubKey == carrierScriptPubKey)
+            carrierOutputs.push_back(std::make_pair((int)i, txc.vout[i].nValue));
+    }
+    if (carrierOutputs.empty())
+        throw JSONRPCError(RPC_INVALID_PARAMETER, "No P2SH carrier output found in TX_C");
+
+    // Step 2: Determine parts needed
+    size_t payloadSize = pubkey.size() + signature.size();
+    uint8_t partsNeeded = PQCCarrierPartsNeeded(payloadSize);
+    if (partsNeeded == 0)
+        throw JSONRPCError(RPC_INVALID_PARAMETER, "Invalid PQC payload size");
+    if ((size_t)partsNeeded > carrierOutputs.size())
+        throw JSONRPCError(RPC_INVALID_PARAMETER,
+            strprintf("TX_C has %d carrier output(s) but %d needed for payload",
+                      (int)carrierOutputs.size(), (int)partsNeeded));
+
+    // Step 3: Build TX_R
+    CMutableTransaction txr;
+    txr.nVersion = 1;
+    txr.nLockTime = 0;
+
+    CAmount totalCarrierValue = 0;
+    for (uint8_t p = 0; p < partsNeeded; ++p) {
+        txr.vin.push_back(CTxIn(COutPoint(txc.GetHash(), carrierOutputs[p].first), CScript(), CTxIn::SEQUENCE_FINAL));
+        totalCarrierValue += carrierOutputs[p].second;
+    }
+
+    // Step 4: Build carrier scriptSig for each part
+    for (uint8_t p = 0; p < partsNeeded; ++p) {
+        CScript carrierScriptSig;
+        if (!PQCBuildCarrierPartScriptSig(type, pubkey, signature, p, carrierScriptSig))
+            throw JSONRPCError(RPC_INTERNAL_ERROR, strprintf("Failed to build carrier scriptSig for part %d", (int)p));
+        txr.vin[p].scriptSig = carrierScriptSig;
+    }
+
+    // Step 5: Estimate fee and set output
+    CPubKey changePubKey;
+    {
+        LOCK(pwalletMain->cs_wallet);
+        if (!pwalletMain->GetKeyFromPool(changePubKey))
+            throw JSONRPCError(RPC_WALLET_KEYPOOL_RAN_OUT, "Failed to get change address from wallet keypool");
+    }
+    CScript changeScript = GetScriptForDestination(changePubKey.GetID());
+    txr.vout.push_back(CTxOut(0, changeScript));
+
+    CTransaction txrTemp(txr);
+    unsigned int txrSize = ::GetSerializeSize(txrTemp, SER_NETWORK, PROTOCOL_VERSION);
+    CAmount fee = (CAmount)txrSize * PQC_CARRIER_FEE_RATE;
+    if (fee < PQC_CARRIER_MIN_FEE) fee = PQC_CARRIER_MIN_FEE;
+
+    CAmount outputValue = totalCarrierValue - fee;
+    if (outputValue <= 0)
+        throw JSONRPCError(RPC_WALLET_INSUFFICIENT_FUNDS, "Carrier output value too small to cover TX_R fee");
+    txr.vout[0].nValue = outputValue;
+
+    // Step 6: Submit to mempool
+    CTransactionRef txrRef = MakeTransactionRef(std::move(txr));
+    uint256 txrHash = txrRef->GetHash();
+    {
+        CValidationState state;
+        bool fMissingInputs = false;
+        LOCK(cs_main);
+        if (!AcceptToMemoryPool(mempool, state, txrRef, false, &fMissingInputs, nullptr, false, 0)) {
+            if (fMissingInputs)
+                throw JSONRPCError(RPC_TRANSACTION_ERROR, "Missing inputs (TX_C not yet confirmed or already spent)");
+            throw JSONRPCError(RPC_TRANSACTION_REJECTED,
+                strprintf("%i: %s", state.GetRejectCode(), state.GetRejectReason()));
+        }
+    }
+
+    // Add to wallet
+    {
+        LOCK(pwalletMain->cs_wallet);
+        CWalletTx wtxr(pwalletMain, txrRef);
+        pwalletMain->AddToWallet(wtxr, false);
+    }
+
+    // Relay to peers
+    if (g_connman) {
+        CInv inv(MSG_TX, txrHash);
+        g_connman->ForEachNode([&inv](CNode* pnode) {
+            pnode->PushInventory(inv);
+        });
+    }
+
+    LogPrintf("PQC RPC: TX_R broadcast: %s (from TX_C %s)\n", txrHash.GetHex(), txcHash.GetHex());
+    return txrHash.GetHex();
+}
+
+UniValue sendpqccommitment(const JSONRPCRequest& request)
+{
+    if (!EnsureWalletIsAvailable(request.fHelp))
+        return NullUniValue;
+
+    if (request.fHelp || request.params.size() != 5)
+        throw runtime_error(
+            "sendpqccommitment \"address\" amount \"algorithm\" \"public_key_hex\" \"signature_hex\"\n"
+            "\nBuild and broadcast TX_C (PQC commitment transaction) that sends coins to an address\n"
+            "and embeds a PQC OP_RETURN commitment with P2SH carrier output(s) for on-chain reveal.\n"
+            "\nArguments:\n"
+            "1. \"address\"           (string, required) The recipient Dogecoin address.\n"
+            "2. amount               (numeric, required) The amount to send in DOGE.\n"
+            "3. \"algorithm\"         (string, required) PQC algorithm: falcon512|flc1, dilithium2|dil2"
+#ifdef ENABLE_LIBOQS_RACCOON
+            ", or raccoong44|rcg4"
+#endif
+            ".\n"
+            "4. \"public_key_hex\"    (string, required) PQC public key bytes, hex encoded.\n"
+            "5. \"signature_hex\"     (string, required) PQC signature bytes, hex encoded.\n"
+            "\nResult:\n"
+            "\"txid\"                 (string) The TX_C transaction id.\n"
+            "\nExamples:\n"
+            + HelpExampleCli("sendpqccommitment", "\"DRF7yvmFHR5gMXRtijkbkPzmLYnMfTYMGZ\" 4.0 \"falcon512\" \"<pubkey_hex>\" \"<sig_hex>\"")
+            + HelpExampleRpc("sendpqccommitment", "\"DRF7yvmFHR5gMXRtijkbkPzmLYnMfTYMGZ\", 4.0, \"falcon512\", \"<pubkey_hex>\", \"<sig_hex>\"")
+        );
+
+    const std::string strAddress = request.params[0].get_str();
+    CAmount nAmount = AmountFromValue(request.params[1]);
+    const std::string algo = request.params[2].get_str();
+    const std::string pubkey_hex = request.params[3].get_str();
+    const std::string sig_hex = request.params[4].get_str();
+
+    CBitcoinAddress address(strAddress);
+    if (!address.IsValid())
+        throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Invalid Dogecoin address");
+
+    if (nAmount <= 0)
+        throw JSONRPCError(RPC_INVALID_PARAMETER, "Invalid amount");
+
+    PQCCommitmentType type;
+    if (!ParsePQCCommitmentType(algo, type)) {
+        throw JSONRPCError(RPC_INVALID_PARAMETER, "Unknown PQC algorithm. Use falcon512|flc1, dilithium2|dil2"
+#ifdef ENABLE_LIBOQS_RACCOON
+            ", or raccoong44|rcg4"
+#endif
+            ".");
+    }
+
+    if (!IsHex(pubkey_hex) || !IsHex(sig_hex))
+        throw JSONRPCError(RPC_INVALID_PARAMETER, "public_key_hex and signature_hex must be valid hex strings.");
+
+    const std::vector<unsigned char> pubkey = ParseHex(pubkey_hex);
+    const std::vector<unsigned char> signature = ParseHex(sig_hex);
+
+    if (pubkey.empty() || signature.empty())
+        throw JSONRPCError(RPC_INVALID_PARAMETER, "public_key_hex and signature_hex must be non-empty.");
+
+    // Compute PQC commitment hash
+    uint256 commitment;
+    if (!PQCComputeCommitment(pubkey, signature, commitment))
+        throw JSONRPCError(RPC_INVALID_PARAMETER, "Failed to compute PQC commitment from public_key_hex and signature_hex.");
+
+    // Build OP_RETURN commitment script
+    CScript commitScript;
+    if (!PQCBuildCommitmentScript(type, commitment, commitScript))
+        throw JSONRPCError(RPC_INTERNAL_ERROR, "Failed to build PQC commitment script.");
+
+    // Determine number of P2SH carrier outputs needed
+    size_t payloadSize = pubkey.size() + signature.size();
+    uint8_t partsNeeded = PQCCarrierPartsNeeded(payloadSize);
+    if (partsNeeded == 0) partsNeeded = 1;
+
+    // Build P2SH carrier scriptPubKey
+    CScript carrierScriptPubKey;
+    if (!PQCBuildCarrierScriptPubKey(carrierScriptPubKey))
+        throw JSONRPCError(RPC_INTERNAL_ERROR, "Failed to build carrier scriptPubKey.");
+
+    // Build vecSend: payment + OP_RETURN commitment + carrier output(s)
+    std::vector<CRecipient> vecSend;
+    vecSend.push_back({GetScriptForDestination(address.Get()), nAmount, false});
+    vecSend.push_back({commitScript, 0, false});
+    for (uint8_t p = 0; p < partsNeeded; ++p)
+        vecSend.push_back({carrierScriptPubKey, PQC_CARRIER_OUTPUT_VALUE, false}); // 1 DOGE per part
+
+    EnsureWalletIsUnlocked();
+
+    CWalletTx wtxNew;
+    wtxNew.fTimeReceivedIsTxTime = true;
+    CReserveKey reservekey(pwalletMain);
+    CAmount nFeeRequired = 0;
+    int nChangePosRet = -1;
+    std::string strFailReason;
+
+    if (!pwalletMain->CreateTransaction(vecSend, wtxNew, reservekey, nFeeRequired, nChangePosRet, strFailReason))
+        throw JSONRPCError(RPC_WALLET_ERROR, strFailReason);
+
+    CValidationState state;
+    if (!pwalletMain->CommitTransaction(wtxNew, reservekey, g_connman.get(), state)) {
+        throw JSONRPCError(RPC_WALLET_ERROR,
+            strprintf("Transaction commit failed: %s", state.GetRejectReason()));
+    }
+
+    uint256 txcHash = wtxNew.GetHash();
+    LogPrintf("PQC RPC: TX_C broadcast: %s (commitment %s)\n", txcHash.GetHex(), commitment.GetHex());
+    return txcHash.GetHex();
+}
+#endif // ENABLE_LIBOQS
 
 UniValue getreceivedbyaddress(const JSONRPCRequest& request)
 {
@@ -3268,6 +3608,11 @@ static const CRPCCommand commands[] =
     { "wallet",             "setaccount",               &setaccount,               true,   {"address","account"} },
     { "wallet",             "settxfee",                 &settxfee,                 true,   {"amount"} },
     { "wallet",             "signmessage",              &signmessage,              true,   {"address","message"} },
+#if ENABLE_LIBOQS
+    { "wallet",             "generatepqccommitment",    &generatepqccommitment,    true,   {"algorithm","public_key_hex","signature_hex"} },
+    { "wallet",             "sendpqccommitment",        &sendpqccommitment,        false,  {"address","amount","algorithm","public_key_hex","signature_hex"} },
+    { "wallet",             "sendpqcreveal",            &sendpqcreveal,            false,  {"txc_txid","algorithm","public_key_hex","signature_hex"} },
+#endif
     { "wallet",             "walletlock",               &walletlock,               true,   {} },
     { "wallet",             "walletpassphrasechange",   &walletpassphrasechange,   true,   {"oldpassphrase","newpassphrase"} },
     { "wallet",             "walletpassphrase",         &walletpassphrase,         true,   {"passphrase","timeout"} },

@@ -111,6 +111,7 @@ BITCOIN_TESTS =\
   test/netbase_tests.cpp \
   test/pmt_tests.cpp \
   test/policyestimator_tests.cpp \
+  test/pqc_commitment_tests.cpp \
   test/pow_tests.cpp \
   test/prevector_tests.cpp \
   test/raii_event_tests.cpp \
@@ -165,7 +166,11 @@ if ENABLE_WALLET
 test_test_dogecoin_LDADD += $(LIBDOGECOIN_WALLET)
 endif
 
-test_test_dogecoin_LDADD += $(LIBDOGECOIN_CONSENSUS) $(BDB_LIBS) $(SSL_LIBS) $(CRYPTO_LIBS) $(MINIUPNPC_LIBS)
+test_test_dogecoin_LDADD += $(LIBDOGECOIN_CONSENSUS) $(BDB_LIBS)
+if ENABLE_LIBOQS
+test_test_dogecoin_LDADD += $(LIBOQS_LIBS)
+endif
+test_test_dogecoin_LDADD += $(SSL_LIBS) $(CRYPTO_LIBS) $(MINIUPNPC_LIBS)
 test_test_dogecoin_LDFLAGS = $(RELDFLAGS) $(AM_LDFLAGS) $(LIBTOOL_APP_LDFLAGS) -static
 
 if ENABLE_ZMQ
@@ -190,7 +195,11 @@ test_test_dogecoin_fuzzy_LDADD = \
   $(LIBDOGECOIN_CRYPTO_AVX2) \
   $(LIBSECP256K1)
 
-test_test_dogecoin_fuzzy_LDADD += $(BOOST_LIBS) $(CRYPTO_LIBS)
+test_test_dogecoin_fuzzy_LDADD += $(BOOST_LIBS)
+if ENABLE_LIBOQS
+test_test_dogecoin_fuzzy_LDADD += $(LIBOQS_LIBS)
+endif
+test_test_dogecoin_fuzzy_LDADD += $(CRYPTO_LIBS)
 #
 
 nodist_test_test_dogecoin_SOURCES = $(GENERATED_TEST_FILES)

@@ -6,6 +6,7 @@
 #include "sendcoinsdialog.h"
 #include "ui_sendcoinsdialog.h"
 
+#include "config/bitcoin-config.h"
 #include "addresstablemodel.h"
 #include "bitcoinunits.h"
 #include "clientmodel.h"
@@ -19,18 +20,49 @@
 #include "base58.h"
 #include "chainparams.h"
 #include "dogecoin-fees.h"
+#if ENABLE_LIBOQS
+#include "pqc/pqc_commitment.h"
+#include "support/experimental.h"
+EXPERIMENTAL_FEATURE
+#endif
+#include "script/standard.h"
+#include "utilstrencodings.h"
 #include "wallet/coincontrol.h"
 #include "validation.h" // mempool and minRelayTxFeeRate
 #include "ui_interface.h"
 #include "txmempool.h"
 #include "wallet/wallet.h"
+#include "crypto/sha256.h"
+#include "support/cleanse.h"
+#include "wallet/crypter.h"
+#include "script/interpreter.h"
+#include "primitives/transaction.h"
+
+#include <univalue.h>
 
 #include <QFontMetrics>
+#include <QFormLayout>
+#include <QCheckBox>
+#include <QComboBox>
+#include <QDialogButtonBox>
+#include <QInputDialog>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QJsonParseError>
+#include <QLabel>
+#include <QLineEdit>
 #include <QMessageBox>
+#include <QPushButton>
 #include <QScrollBar>
 #include <QSettings>
+#include <QSizePolicy>
+#include <QTextEdit>
 #include <QTextDocument>
 #include <QTimer>
+#include <QVBoxLayout>
+
+#include "rpc/protocol.h"
+#include "rpc/server.h"
 
 #define SEND_CONFIRM_DELAY   3
 #define CHARACTERS_DISPLAY_LIMIT_IN_LABEL 45
@@ -58,10 +90,75 @@ SendCoinsDialog::SendCoinsDialog(const PlatformStyle *_platformStyle, QWidget *p
 
     GUIUtil::setupAddressWidget(ui->lineEditCoinControlChange, this);
 
+    QFrame *pqcFrame = new QFrame(this);
+    pqcFrame->setFrameShape(QFrame::StyledPanel);
+    pqcFrame->setFrameShadow(QFrame::Sunken);
+    QVBoxLayout *pqcLayout = new QVBoxLayout(pqcFrame);
+
+    // Header row: title only
+    QHBoxLayout *pqcHeaderLayout = new QHBoxLayout();
+    QLabel *pqcHeader = new QLabel(tr("PQC Commitment"), pqcFrame);
+    QFont pqcFont = pqcHeader->font();
+    pqcFont.setBold(true);
+    pqcHeader->setFont(pqcFont);
+    pqcHeaderLayout->addWidget(pqcHeader);
+    pqcHeaderLayout->addStretch();
+    pqcLayout->addLayout(pqcHeaderLayout);
+
+    // Form: logical top-to-bottom flow
+    QFormLayout *pqcForm = new QFormLayout();
+
+    // 1) Signature key pair selection
+    pqcKeyPairComboBox = new QComboBox(pqcFrame);
+    pqcLoadStoredKeyButton = new QPushButton(tr("Refresh keys"), pqcFrame);
+    QHBoxLayout *pqcKeyRow = new QHBoxLayout();
+    pqcKeyRow->addWidget(pqcKeyPairComboBox);
+    pqcKeyRow->addWidget(pqcLoadStoredKeyButton);
+    QWidget *pqcKeyRowWidget = new QWidget(pqcFrame);
+    pqcKeyRowWidget->setLayout(pqcKeyRow);
+    pqcForm->addRow(tr("Signature key pair:"), pqcKeyRowWidget);
+
+    // 2) Carrier mode — must be selected before generating
+    pqcCarrierModeCheckBox = new QCheckBox(tr("Carrier mode (P2SH data carrier for on-chain PQ verification)"), pqcFrame);
+    pqcCarrierModeCheckBox->setChecked(false);
+    pqcCarrierModeCheckBox->setToolTip(tr("When enabled, TX_C includes P2SH carrier output(s) alongside the OP_RETURN commitment.\n"
+                                            "A separate follow-up transaction (TX_R) reveals the full PQC public key and signature on-chain and must be broadcast separately.\n"
+                                            "This is the canonical Phase 1 transport for on-chain PQ verification material."));
+    pqcForm->addRow(QString(), pqcCarrierModeCheckBox);
+
+    // 3) Generate / Decode buttons
+    pqcGenerateButton = new QPushButton(tr("Generate for transaction"), pqcFrame);
+    pqcDecodeButton = new QPushButton(tr("Decode Commitment"), pqcFrame);
+    pqcDecodeButton->setEnabled(false);
+    QHBoxLayout *pqcButtonRow = new QHBoxLayout();
+    pqcButtonRow->addWidget(pqcGenerateButton);
+    pqcButtonRow->addWidget(pqcDecodeButton);
+    pqcButtonRow->addStretch();
+    QWidget *pqcButtonRowWidget = new QWidget(pqcFrame);
+    pqcButtonRowWidget->setLayout(pqcButtonRow);
+    pqcForm->addRow(QString(), pqcButtonRowWidget);
+
+    // 4) Generated commitment display
+    pqcCommitmentLineEdit = new QLineEdit(pqcFrame);
+    pqcCommitmentLineEdit->setReadOnly(true);
+    pqcCommitmentLineEdit->setPlaceholderText(tr("No commitment generated yet"));
+    pqcForm->addRow(tr("Generated commitment:"), pqcCommitmentLineEdit);
+
+    // 5) Include commitment checkbox
+    pqcIncludeCommitmentCheckBox = new QCheckBox(tr("Include commitment in this transaction"), pqcFrame);
+    pqcIncludeCommitmentCheckBox->setChecked(false);
+    pqcForm->addRow(QString(), pqcIncludeCommitmentCheckBox);
+    pqcLayout->addLayout(pqcForm);
+
+    ui->verticalLayout->insertWidget(2, pqcFrame);
+
     addEntry();
 
     connect(ui->addButton, SIGNAL(clicked()), this, SLOT(addEntry()));
     connect(ui->clearButton, SIGNAL(clicked()), this, SLOT(clear()));
+    connect(pqcLoadStoredKeyButton, SIGNAL(clicked()), this, SLOT(onUseStoredPqcKeyClicked()));
+    connect(pqcGenerateButton, SIGNAL(clicked()), this, SLOT(onGeneratePqcCommitmentClicked()));
+    connect(pqcDecodeButton, SIGNAL(clicked()), this, SLOT(onDecodePqcCommitmentClicked()));
 
     // Coin Control
     connect(ui->pushButtonCoinControl, SIGNAL(clicked()), this, SLOT(coinControlButtonClicked()));
@@ -180,6 +277,8 @@ void SendCoinsDialog::setModel(WalletModel *_model)
         // set the smartfee-sliders default value (wallets default conf.target or last stored value)
         QSettings settings;
         ui->sliderSmartFee->setValue(settings.value("nPresetFeeSliderPosition").toInt());
+        refreshPqcKeyInventory();
+        connect(_model, SIGNAL(walletMetaChanged(QString)), this, SLOT(refreshPqcKeyInventory()), Qt::UniqueConnection);
     }
 }
 
@@ -225,6 +324,182 @@ void SendCoinsDialog::on_sendButton_clicked()
         return;
     }
 
+    bool pqcEnabled = pqcIncludeCommitmentCheckBox && pqcIncludeCommitmentCheckBox->isChecked();
+
+#if ENABLE_LIBOQS
+    // ── PQC sighash32(TX_BASE) signing flow per the BIP spec ──
+    // TX_BASE is reconstructed from the full TX_C structure (strip OP_RETURN
+    // + carriers, restore carrier cost to vout[0]) so that signer and
+    // verifier compute the same deterministic sighash32.
+    if (pqcEnabled) {
+        if (pqcDecryptedSecretKey.empty() || pqcSelectedPublicKeyHex.isEmpty() || pqcSelectedAlgorithm.isEmpty()) {
+            Q_EMIT message(tr("PQC Commitment"), tr("Prepare the PQC key first (click Generate PQC Commitment)."), CClientUIInterface::MSG_WARNING);
+            return;
+        }
+
+        PQCCommitmentType pqcType;
+        if (!ParsePQCCommitmentType(pqcSelectedAlgorithm.toStdString(), pqcType)) {
+            Q_EMIT message(tr("PQC Commitment"), tr("Unknown PQC algorithm: %1").arg(pqcSelectedAlgorithm), CClientUIInterface::MSG_ERROR);
+            return;
+        }
+
+        // Step 1: Resolve carrier parts from the actual signed payload
+        // by iterating TX_BASE -> sighash32 -> signature until part-count stabilizes.
+        bool carrierMode = (pqcCarrierModeCheckBox && pqcCarrierModeCheckBox->isChecked());
+        std::vector<unsigned char> pubkeyBytes = ParseHex(pqcSelectedPublicKeyHex.toStdString());
+        std::vector<unsigned char> signatureBytes;
+        uint256 sighash32;
+
+        CMutableTransaction txBase;
+        CScript scriptPubKeyInput0;
+        CAmount input0Amount = 0;
+        std::vector<COutPoint> selectedCoins;
+        CAmount baseFee = 0;
+        QString baseError;
+        CTxDestination changeAddr;
+        int pqcChangePos = -1;
+        uint32_t pqcLockTime = 0;
+        bool pqcLockTimeResolved = false;
+
+        uint8_t resolvedCarrierParts = 0;
+        uint8_t carrierPartsForTemplate = carrierMode ? 1 : 0;
+        const int kMaxCarrierPartResolveIterations = 4;
+        bool resolvedCarrierLayout = false;
+
+        for (int iter = 0; iter < kMaxCarrierPartResolveIterations; ++iter) {
+            CCoinControl baseCtrl;
+            if (model->getOptionsModel()->getCoinControlFeatures())
+                baseCtrl = *CoinControlDialog::coinControl;
+            if (ui->radioSmartFee->isChecked())
+                baseCtrl.nPriority = static_cast<FeeRatePreset>(ui->sliderSmartFee->value());
+            else
+                baseCtrl.nPriority = MINIMUM;
+
+            const uint8_t partsForThisIteration = carrierMode ? (carrierPartsForTemplate > 0 ? carrierPartsForTemplate : 1) : 0;
+            // Seed the template's change position with the one resolved on
+            // the previous iteration (if any), so part-count convergence
+            // doesn't drift the layout used for signing.
+            baseCtrl.nChangePosition = pqcChangePos;
+            // Seed the locktime with the one resolved on the previous
+            // iteration (if any), so successive template iterations stay
+            // on the same locktime and converge on a byte-identical
+            // TX_BASE for signing.
+            baseCtrl.nLockTime = pqcLockTimeResolved ? static_cast<int64_t>(pqcLockTime) : -1;
+            uint32_t iterLockTime = 0;
+            if (!model->prepareBaseTransaction(recipients, &baseCtrl, txBase, scriptPubKeyInput0,
+                                               input0Amount, selectedCoins, baseFee, baseError,
+                                               changeAddr, pqcChangePos, iterLockTime, pqcType, partsForThisIteration, carrierMode)) {
+                Q_EMIT message(tr("PQC Commitment"), tr("Failed to build base transaction for PQC signing: %1").arg(baseError), CClientUIInterface::MSG_ERROR);
+                memory_cleanse(pqcDecryptedSecretKey.data(), pqcDecryptedSecretKey.size());
+                pqcDecryptedSecretKey.clear();
+                return;
+            }
+            pqcLockTime = iterLockTime;
+            pqcLockTimeResolved = true;
+
+            CTransaction txBaseConst(txBase);
+            sighash32 = SignatureHash(scriptPubKeyInput0, txBaseConst, 0, SIGHASH_ALL, input0Amount, SIGVERSION_BASE);
+
+            signatureBytes.clear();
+            bool signOk = PQCSign(pqcType, pqcDecryptedSecretKey, sighash32.begin(), 32, signatureBytes);
+            if (!signOk || signatureBytes.empty()) {
+                memory_cleanse(pqcDecryptedSecretKey.data(), pqcDecryptedSecretKey.size());
+                pqcDecryptedSecretKey.clear();
+                Q_EMIT message(tr("PQC Commitment"), tr("PQC signing over sighash32(TX_BASE) failed."), CClientUIInterface::MSG_ERROR);
+                return;
+            }
+
+            if (!carrierMode) {
+                resolvedCarrierParts = 0;
+                resolvedCarrierLayout = true;
+                break;
+            }
+
+            size_t actualPayload = pubkeyBytes.size() + signatureBytes.size();
+            uint8_t actualParts = PQCCarrierPartsNeeded(actualPayload);
+            if (actualParts == 0) actualParts = 1;
+
+            if (actualParts == partsForThisIteration) {
+                resolvedCarrierParts = actualParts;
+                resolvedCarrierLayout = true;
+                break;
+            }
+
+            carrierPartsForTemplate = actualParts;
+        }
+
+        // Securely clear the stored secret key after signing
+        memory_cleanse(pqcDecryptedSecretKey.data(), pqcDecryptedSecretKey.size());
+        pqcDecryptedSecretKey.clear();
+
+        if (!resolvedCarrierLayout) {
+            Q_EMIT message(tr("PQC Commitment"), tr("Failed to resolve stable carrier part count for TX_BASE signing."), CClientUIInterface::MSG_ERROR);
+            return;
+        }
+
+        pqcSelectedSignatureHex = QString::fromStdString(HexStr(signatureBytes.begin(), signatureBytes.end()));
+        pqcSigningMessageHex = QString::fromStdString(HexStr(sighash32.begin(), sighash32.end()));
+
+        // Step 5: Compute commitment = SHA256(pk || sig) and build OP_RETURN script
+        uint256 commitment;
+        if (!PQCComputeCommitment(pubkeyBytes, signatureBytes, commitment)) {
+            Q_EMIT message(tr("PQC Commitment"), tr("Failed to compute PQC commitment."), CClientUIInterface::MSG_ERROR);
+            return;
+        }
+        CScript commitScript;
+        if (!PQCBuildCommitmentScript(pqcType, commitment, commitScript)) {
+            Q_EMIT message(tr("PQC Commitment"), tr("Failed to build OP_RETURN commitment script."), CClientUIInterface::MSG_ERROR);
+            return;
+        }
+        pqcCommitmentScriptPubKeyHex = QString::fromStdString(HexStr(commitScript.begin(), commitScript.end()));
+        pqcCommitmentLineEdit->setText(QString::fromStdString(commitment.GetHex()));
+
+        // Step 6: Set PQC commitment info on recipients for prepareTransaction
+        recipients[0].includePqcCommitment = true;
+        recipients[0].pqcCommitmentScriptPubKey = pqcCommitmentScriptPubKeyHex;
+        recipients[0].pqcCarrierMode = carrierMode;
+        if (carrierMode) {
+            recipients[0].pqcCarrierParts = resolvedCarrierParts > 0 ? resolvedCarrierParts : 1;
+        }
+
+        // Step 7: Lock the same coins and force the same change address
+        //         so TX_C has identical structure to the final signed TX_BASE template
+        CCoinControl pqcCtrl;
+        if (model->getOptionsModel()->getCoinControlFeatures())
+            pqcCtrl = *CoinControlDialog::coinControl;
+        if (ui->radioSmartFee->isChecked())
+            pqcCtrl.nPriority = static_cast<FeeRatePreset>(ui->sliderSmartFee->value());
+        else
+            pqcCtrl.nPriority = MINIMUM;
+        for (const auto& outpoint : selectedCoins) {
+            pqcCtrl.Select(outpoint);
+        }
+        // Force the same change destination used in the dummy TX_C
+        if (!(boost::get<CNoDestination>(&changeAddr))) {
+            pqcCtrl.destChange = changeAddr;
+        }
+        // Pin the change-output position so the final TX_C layout is
+        // byte-identical to the signed TX_BASE template. Without this,
+        // CWallet::CreateTransaction would place change at a random index
+        // and the reconstructed TX_BASE sighash32 would no longer match
+        // the one that was actually signed (breaking cross-verification
+        // with SPV verifiers such as libdogecoin's spvnode).
+        pqcCtrl.nChangePosition = pqcChangePos;
+        // Pin the nLockTime so the final TX_C is byte-identical to the
+        // signed TX_BASE template. Without this, CWallet::CreateTransaction
+        // would call GetLocktimeForNewTransaction() again (which performs a
+        // stochastic ~10% back-dating) and the final TX_C's nLockTime could
+        // drift from the template, breaking sighash32(TX_BASE) reconstruction
+        // on SPV verifiers (e.g. libdogecoin's spvnode).
+        if (pqcLockTimeResolved) {
+            pqcCtrl.nLockTime = static_cast<int64_t>(pqcLockTime);
+        }
+        // Replace ctrl for the main prepareTransaction call below
+        CoinControlDialog::coinControl->UnSelectAll();
+        *CoinControlDialog::coinControl = pqcCtrl;
+    }
+#endif
+
     fNewRecipientAllowed = false;
     WalletModel::UnlockContext ctx(model->requestUnlock());
     if(!ctx.isValid())
@@ -242,6 +517,21 @@ void SendCoinsDialog::on_sendButton_clicked()
     CCoinControl ctrl;
     if (model->getOptionsModel()->getCoinControlFeatures())
         ctrl = *CoinControlDialog::coinControl;
+#if ENABLE_LIBOQS
+    // When PQC commitment is enabled, the signer has pinned the coin
+    // selection, change destination, and change-output position on
+    // CoinControlDialog::coinControl so that the final signed TX_C
+    // matches the TX_BASE template byte-for-byte. That pinning must be
+    // honored regardless of whether the coin-control UI panel is
+    // visible — otherwise prepareTransaction gets a default CCoinControl
+    // (nChangePosition=-1, no selected coins, no forced change), the
+    // wallet picks a fresh layout for TX_C, and the reconstructed
+    // sighash32(TX_BASE) no longer matches the one that was actually
+    // signed (breaking libdogecoin/SPV cross-validation even though
+    // the commitment and stored-sighash fallback still verify).
+    else if (pqcEnabled)
+        ctrl = *CoinControlDialog::coinControl;
+#endif
     if (ui->radioSmartFee->isChecked())
         ctrl.nPriority = static_cast<FeeRatePreset>(ui->sliderSmartFee->value());
     else
@@ -321,6 +611,73 @@ void SendCoinsDialog::on_sendButton_clicked()
     questionString.append(QString("<span style='font-size:10pt;font-weight:normal;'><br />(=%2)</span>")
         .arg(alternativeUnits.join(" " + tr("or") + "<br />")));
 
+    bool hasPqcCarrierSend = false;
+#if ENABLE_LIBOQS
+    Q_FOREACH(const SendCoinsRecipient &rcp, currentTransaction.getRecipients())
+    {
+        if (rcp.includePqcCommitment && rcp.pqcCarrierMode)
+        {
+            hasPqcCarrierSend = true;
+            break;
+        }
+    }
+    if (hasPqcCarrierSend)
+    {
+        Q_FOREACH(const SendCoinsRecipient &rcp, currentTransaction.getRecipients())
+        {
+            if (!rcp.includePqcCommitment || !rcp.pqcCarrierMode)
+                continue;
+
+            uint8_t parts = rcp.pqcCarrierParts > 0 ? rcp.pqcCarrierParts : 1;
+            CAmount carrierValue = static_cast<CAmount>(parts) * PQC_CARRIER_OUTPUT_VALUE;
+
+            // Estimate TX_R fee: use payload size (from stored hex) with standard fee rate
+            CAmount txrFeeEst = PQC_CARRIER_MIN_FEE;
+            if (!pqcSelectedPublicKeyHex.isEmpty() && !pqcSelectedSignatureHex.isEmpty()) {
+                size_t pubSize = static_cast<size_t>(pqcSelectedPublicKeyHex.length()) / 2;
+                size_t sigSize = static_cast<size_t>(pqcSelectedSignatureHex.length()) / 2;
+                size_t payloadSize = pubSize + sigSize;
+                // TX_R size: 10 bytes overhead + parts*(40 bytes prevout/seq + scriptSig) + 34 bytes output
+                // scriptSig per part ≈ payload bytes + ~60 bytes tag/hdr/redeemscript/pushdata overhead
+                size_t txrSizeEst = 44 + static_cast<size_t>(parts) * 100 + payloadSize;
+                txrFeeEst = static_cast<CAmount>(txrSizeEst) * PQC_CARRIER_FEE_RATE;
+                if (txrFeeEst < PQC_CARRIER_MIN_FEE) txrFeeEst = PQC_CARRIER_MIN_FEE;
+            }
+            CAmount txrReturn = carrierValue - txrFeeEst;
+
+            questionString.append("<hr /><b>");
+            questionString.append(tr("Carrier mode enabled"));
+            questionString.append(":</b> ");
+            questionString.append(tr("Carrier mode requires two separate transactions: TX_C (commitment) and TX_R (reveal). TX_C will be broadcast now; TX_R will also be broadcast automatically."));
+
+            questionString.append("<br /><br />");
+            questionString.append("<b>");
+            questionString.append(tr("TX_C"));
+            questionString.append(":</b> ");
+            //: %1 = total amount including fees, %2 = TX_C fee
+            questionString.append(tr("%1 total (%2 to recipient + fees + %3 carrier)")
+                .arg(BitcoinUnits::formatHtmlWithUnit(model->getOptionsModel()->getDisplayUnit(), currentTransaction.getTotalTransactionAmount() + txFee))
+                .arg(BitcoinUnits::formatHtmlWithUnit(model->getOptionsModel()->getDisplayUnit(), currentTransaction.getTotalTransactionAmount()))
+                .arg(BitcoinUnits::formatHtmlWithUnit(model->getOptionsModel()->getDisplayUnit(), carrierValue)));
+
+            questionString.append("<br />");
+            questionString.append("<b>");
+            questionString.append(tr("TX_R"));
+            questionString.append(":</b> ");
+            if (txrReturn > 0) {
+                questionString.append(tr("~%1 returns to you (%2 carrier minus ~%3 TX_R fee)")
+                    .arg(BitcoinUnits::formatHtmlWithUnit(model->getOptionsModel()->getDisplayUnit(), txrReturn))
+                    .arg(BitcoinUnits::formatHtmlWithUnit(model->getOptionsModel()->getDisplayUnit(), carrierValue))
+                    .arg(BitcoinUnits::formatHtmlWithUnit(model->getOptionsModel()->getDisplayUnit(), txrFeeEst)));
+            } else {
+                questionString.append(tr("carrier value (%1) may be insufficient to cover TX_R fee")
+                    .arg(BitcoinUnits::formatHtmlWithUnit(model->getOptionsModel()->getDisplayUnit(), carrierValue)));
+            }
+            break;
+        }
+    }
+#endif
+
     SendConfirmationDialog confirmationDialog(tr("Confirm send coins"),
         questionString.arg(formatted.join("<br />")), SEND_CONFIRM_DELAY, this);
     confirmationDialog.exec();
@@ -332,6 +689,16 @@ void SendCoinsDialog::on_sendButton_clicked()
         return;
     }
 
+    // Store TX_C sighash (the transaction digest signed by the PQC key) for later verification
+#if ENABLE_LIBOQS
+    if (!pqcSigningMessageHex.isEmpty()) {
+        CWalletTx *wtxPqc = currentTransaction.getTransaction();
+        if (wtxPqc) {
+            wtxPqc->mapValue["pqcSigningMessage"] = pqcSigningMessageHex.toStdString();
+        }
+    }
+#endif
+
     // now send the prepared transaction
     WalletModel::SendCoinsReturn sendStatus = model->sendCoins(currentTransaction);
     // process sendStatus and on error generate message shown to user
@@ -339,6 +706,40 @@ void SendCoinsDialog::on_sendButton_clicked()
 
     if (sendStatus.status == WalletModel::OK)
     {
+#if ENABLE_LIBOQS
+        // If carrier mode is enabled, automatically create and broadcast TX_R
+        bool carrierSent = false;
+        Q_FOREACH(const SendCoinsRecipient &rcp, currentTransaction.getRecipients())
+        {
+            if (rcp.includePqcCommitment && rcp.pqcCarrierMode &&
+                !pqcSelectedPublicKeyHex.isEmpty() && !pqcSelectedSignatureHex.isEmpty() &&
+                !pqcSelectedAlgorithm.isEmpty() &&
+                IsHex(pqcSelectedPublicKeyHex.toStdString()) &&
+                IsHex(pqcSelectedSignatureHex.toStdString()))
+            {
+                PQCCommitmentType pqcType;
+                if (ParsePQCCommitmentType(pqcSelectedAlgorithm.toStdString(), pqcType)) {
+                    const std::vector<unsigned char> pubkeyBytes = ParseHex(pqcSelectedPublicKeyHex.toStdString());
+                    const std::vector<unsigned char> sigBytes = ParseHex(pqcSelectedSignatureHex.toStdString());
+
+                    uint256 txrTxid;
+                    QString txrError;
+                    const CTransaction& txc = *currentTransaction.getTransaction()->tx;
+                    if (model->sendCarrierTx(txc, pqcType, pubkeyBytes, sigBytes, txrTxid, txrError)) {
+                        carrierSent = true;
+                        Q_EMIT message(tr("PQC Carrier"),
+                            tr("TX_R (carrier reveal) broadcast successfully.\nTX_R txid: %1").arg(QString::fromStdString(txrTxid.GetHex())),
+                            CClientUIInterface::MSG_INFORMATION);
+                    } else {
+                        Q_EMIT message(tr("PQC Carrier"),
+                            tr("TX_C was sent, but TX_R (carrier reveal) failed: %1\nYou may need to manually create the TX_R.").arg(txrError),
+                            CClientUIInterface::MSG_WARNING);
+                    }
+                }
+                break;
+            }
+        }
+#endif
         accept();
         CoinControlDialog::coinControl->UnSelectAll();
         coinControlUpdateLabels();
@@ -348,6 +749,23 @@ void SendCoinsDialog::on_sendButton_clicked()
 
 void SendCoinsDialog::clear()
 {
+    pqcSelectedAlgorithm.clear();
+    pqcSelectedPublicKeyHex.clear();
+    pqcSelectedSignatureHex.clear();
+    pqcSigningMessageHex.clear();
+    pqcCommitmentScriptPubKeyHex.clear();
+    if (pqcCommitmentLineEdit) {
+        pqcCommitmentLineEdit->clear();
+    }
+    if (pqcIncludeCommitmentCheckBox) {
+        pqcIncludeCommitmentCheckBox->setChecked(false);
+    }
+    if (pqcCarrierModeCheckBox) {
+        pqcCarrierModeCheckBox->setChecked(false);
+    }
+    if (pqcDecodeButton) {
+        pqcDecodeButton->setEnabled(false);
+    }
     // Remove entries until only one left
     while(ui->entries->count())
     {
@@ -356,6 +774,512 @@ void SendCoinsDialog::clear()
     addEntry();
 
     updateTabsAndLabels();
+}
+
+void SendCoinsDialog::refreshPqcKeyInventory()
+{
+    if (!pqcKeyPairComboBox) {
+        return;
+    }
+    pqcKeyPairComboBox->clear();
+    if (!model) {
+        pqcKeyPairComboBox->addItem(tr("Wallet not available"), QVariant());
+        return;
+    }
+
+    struct KeyItem {
+        const char* storageKey;
+        const char* algorithm;
+    };
+    const KeyItem items[] = {
+        {"pqc_sigkey_falcon512", "falcon512"},
+        {"pqc_sigkey_dilithium2", "dilithium2"},
+#ifdef ENABLE_LIBOQS_RACCOON
+        {"pqc_sigkey_raccoong44", "raccoong44"}
+#endif
+    };
+
+    for (size_t i = 0; i < sizeof(items) / sizeof(items[0]); ++i) {
+        std::string metaJson;
+        if (!model->getWalletMeta(items[i].storageKey, &metaJson)) {
+            continue;
+        }
+        QJsonParseError parseError;
+        QJsonDocument doc = QJsonDocument::fromJson(QByteArray::fromStdString(metaJson), &parseError);
+        if (parseError.error != QJsonParseError::NoError || !doc.isObject()) {
+            continue;
+        }
+        const QString pubHex = doc.object().value("public_key_hex").toString().trimmed();
+        if (pubHex.isEmpty()) {
+            continue;
+        }
+        const QString label = QString("%1 • %2...%3")
+            .arg(QString::fromLatin1(items[i].algorithm))
+            .arg(pubHex.left(10))
+            .arg(pubHex.right(8));
+        pqcKeyPairComboBox->addItem(label, QString::fromLatin1(items[i].algorithm) + "|" + pubHex);
+    }
+
+    if (pqcKeyPairComboBox->count() == 0) {
+        pqcKeyPairComboBox->addItem(tr("No stored PQC keys. Generate keys in File > Manage PQC Keys..."), QVariant());
+    }
+}
+
+void SendCoinsDialog::onUseStoredPqcKeyClicked()
+{
+    refreshPqcKeyInventory();
+}
+
+void SendCoinsDialog::onGeneratePqcCommitmentClicked()
+{
+    if (!model) {
+        Q_EMIT message(tr("PQC Commitment"), tr("Wallet model is not available."), CClientUIInterface::MSG_ERROR);
+        return;
+    }
+
+    if (!pqcKeyPairComboBox || !pqcKeyPairComboBox->currentData().isValid()) {
+        Q_EMIT message(tr("PQC Commitment"), tr("No stored PQC signature key is selected."), CClientUIInterface::MSG_WARNING);
+        return;
+    }
+    const QString pairData = pqcKeyPairComboBox->currentData().toString();
+    const int sep = pairData.indexOf('|');
+    if (sep <= 0 || sep >= pairData.size() - 1) {
+        Q_EMIT message(tr("PQC Commitment"), tr("Selected PQC key entry is invalid."), CClientUIInterface::MSG_WARNING);
+        return;
+    }
+    const QString algorithm = pairData.left(sep);
+    const QString publicKeyHex = pairData.mid(sep + 1);
+
+    QList<SendCoinsRecipient> recipients;
+    for (int i = 0; i < ui->entries->count(); ++i)
+    {
+        SendCoinsEntry* entry = qobject_cast<SendCoinsEntry*>(ui->entries->itemAt(i)->widget());
+        if (!entry) {
+            continue;
+        }
+        const SendCoinsRecipient r = entry->getValue();
+        if (!r.address.trimmed().isEmpty() && r.amount > 0) {
+            recipients.append(r);
+        }
+    }
+    if (recipients.isEmpty()) {
+        Q_EMIT message(tr("PQC Commitment"), tr("Enter at least one recipient with amount before generating a transaction commitment."), CClientUIInterface::MSG_WARNING);
+        return;
+    }
+
+#if ENABLE_LIBOQS
+    // Parse the PQC algorithm type
+    PQCCommitmentType pqcType;
+    if (!ParsePQCCommitmentType(algorithm.toStdString(), pqcType)) {
+        Q_EMIT message(tr("PQC Commitment"), tr("Unknown PQC algorithm: %1").arg(algorithm), CClientUIInterface::MSG_ERROR);
+        return;
+    }
+
+    // Retrieve the stored key metadata to get the encrypted private key
+    const char* storageKeys[] = {
+        "pqc_sigkey_falcon512",
+        "pqc_sigkey_dilithium2",
+#ifdef ENABLE_LIBOQS_RACCOON
+        "pqc_sigkey_raccoong44",
+#endif
+    };
+    std::string metaJson;
+    bool foundKey = false;
+    for (size_t i = 0; i < sizeof(storageKeys) / sizeof(storageKeys[0]); ++i) {
+        if (model->getWalletMeta(storageKeys[i], &metaJson)) {
+            QJsonDocument doc = QJsonDocument::fromJson(QByteArray::fromStdString(metaJson));
+            if (doc.isObject()) {
+                const QString storedPubHex = doc.object().value("public_key_hex").toString().trimmed();
+                if (storedPubHex == publicKeyHex) {
+                    foundKey = true;
+                    break;
+                }
+            }
+        }
+    }
+    if (!foundKey || metaJson.empty()) {
+        Q_EMIT message(tr("PQC Commitment"), tr("Could not find stored PQC key metadata for the selected public key."), CClientUIInterface::MSG_ERROR);
+        return;
+    }
+
+    QJsonDocument metaDoc = QJsonDocument::fromJson(QByteArray::fromStdString(metaJson));
+    QJsonObject metaObj = metaDoc.object();
+    const QString encryptedHex = metaObj.value("encrypted_private_key_hex").toString().trimmed();
+    const QString saltHex = metaObj.value("salt_hex").toString().trimmed();
+    const int kdfRounds = metaObj.value("kdf_rounds").toInt(25000);
+
+    if (encryptedHex.isEmpty() || saltHex.isEmpty()) {
+        Q_EMIT message(tr("PQC Commitment"), tr("Stored PQC key is missing encrypted private key or salt."), CClientUIInterface::MSG_ERROR);
+        return;
+    }
+
+    // Prompt user for passphrase to decrypt the PQC private key
+    bool ok = false;
+    QString passphrase = QInputDialog::getText(
+        this,
+        tr("PQC Signature — Decrypt Private Key"),
+        tr("Enter passphrase to decrypt PQC private key for signing:"),
+        QLineEdit::Password,
+        QString(),
+        &ok);
+    if (!ok || passphrase.isEmpty()) {
+        Q_EMIT message(tr("PQC Commitment"), tr("PQC signing cancelled."), CClientUIInterface::MSG_WARNING);
+        return;
+    }
+
+    // Decrypt the private key
+    std::vector<unsigned char> encryptedPrivate = ParseHex(encryptedHex.toStdString());
+    std::vector<unsigned char> salt = ParseHex(saltHex.toStdString());
+    QByteArray passphraseBytes = passphrase.toUtf8();
+    SecureString pass(passphraseBytes.constData(), passphraseBytes.constData() + passphraseBytes.size());
+    memory_cleanse(passphraseBytes.data(), passphraseBytes.size());
+
+    CCrypter keyCrypter;
+    if (!keyCrypter.SetKeyFromPassphrase(pass, salt, kdfRounds, 0)) {
+        Q_EMIT message(tr("PQC Commitment"), tr("Failed to derive decryption key from passphrase."), CClientUIInterface::MSG_ERROR);
+        return;
+    }
+
+    CKeyingMaterial decryptedMaterial;
+    if (!keyCrypter.Decrypt(encryptedPrivate, decryptedMaterial)) {
+        Q_EMIT message(tr("PQC Commitment"), tr("Failed to decrypt PQC private key. Wrong passphrase?"), CClientUIInterface::MSG_ERROR);
+        return;
+    }
+
+    // Store the decrypted secret key for later signing during on_sendButton_clicked().
+    // PQC signing is deferred until after the base transaction (TX_BASE) is built,
+    // because per the BIP spec the PQC signature covers sighash32(TX_BASE).
+    pqcDecryptedSecretKey.assign(decryptedMaterial.begin(), decryptedMaterial.end());
+    memory_cleanse(&decryptedMaterial[0], decryptedMaterial.size());
+
+    pqcSelectedAlgorithm = algorithm;
+    pqcSelectedPublicKeyHex = publicKeyHex;
+    // Clear any stale signature/commitment from a prior attempt
+    pqcSelectedSignatureHex.clear();
+    pqcSigningMessageHex.clear();
+    pqcCommitmentScriptPubKeyHex.clear();
+
+    // Build a preview commitment immediately so Decode can be used before Send.
+    // Final signing/commitment is still recomputed at send time.
+    bool previewReady = false;
+    QString previewError;
+    do {
+        bool carrierMode = (pqcCarrierModeCheckBox && pqcCarrierModeCheckBox->isChecked());
+        uint8_t estimatedParts = 0;
+        if (carrierMode) {
+            std::vector<unsigned char> pubkeyBytes = ParseHex(pqcSelectedPublicKeyHex.toStdString());
+            size_t maxSigLen = PQCMaxSignatureLength(pqcType);
+            if (maxSigLen == 0) {
+                previewError = tr("Could not determine max signature size for %1.").arg(pqcSelectedAlgorithm);
+                break;
+            }
+            size_t estimatedPayload = pubkeyBytes.size() + maxSigLen;
+            estimatedParts = PQCCarrierPartsNeeded(estimatedPayload);
+            if (estimatedParts == 0) estimatedParts = 1;
+        }
+
+        CCoinControl baseCtrl;
+        if (model->getOptionsModel()->getCoinControlFeatures())
+            baseCtrl = *CoinControlDialog::coinControl;
+        if (ui->radioSmartFee->isChecked())
+            baseCtrl.nPriority = static_cast<FeeRatePreset>(ui->sliderSmartFee->value());
+        else
+            baseCtrl.nPriority = MINIMUM;
+
+        CMutableTransaction txBase;
+        CScript scriptPubKeyInput0;
+        CAmount input0Amount = 0;
+        std::vector<COutPoint> selectedCoins;
+        CAmount baseFee = 0;
+        CTxDestination changeAddr;
+        int previewChangePos = -1;
+        uint32_t previewLockTime = 0;
+        if (!model->prepareBaseTransaction(recipients, &baseCtrl, txBase, scriptPubKeyInput0,
+                                           input0Amount, selectedCoins, baseFee, previewError,
+                                           changeAddr, previewChangePos, previewLockTime, pqcType, estimatedParts, carrierMode)) {
+            if (previewError.isEmpty()) {
+                previewError = tr("Failed to prepare base transaction for PQC preview.");
+            }
+            break;
+        }
+
+        CTransaction txBaseConst(txBase);
+        uint256 sighash32 = SignatureHash(scriptPubKeyInput0, txBaseConst, 0, SIGHASH_ALL, input0Amount, SIGVERSION_BASE);
+
+        std::vector<unsigned char> signatureBytes;
+        bool signOk = PQCSign(pqcType, pqcDecryptedSecretKey, sighash32.begin(), 32, signatureBytes);
+        if (!signOk || signatureBytes.empty()) {
+            previewError = tr("PQC preview signing over sighash32(TX_BASE) failed.");
+            break;
+        }
+
+        std::vector<unsigned char> pubkeyBytes = ParseHex(pqcSelectedPublicKeyHex.toStdString());
+        uint256 commitment;
+        if (!PQCComputeCommitment(pubkeyBytes, signatureBytes, commitment)) {
+            previewError = tr("Failed to compute PQC preview commitment.");
+            break;
+        }
+        CScript commitScript;
+        if (!PQCBuildCommitmentScript(pqcType, commitment, commitScript)) {
+            previewError = tr("Failed to build PQC preview OP_RETURN commitment script.");
+            break;
+        }
+
+        pqcSelectedSignatureHex = QString::fromStdString(HexStr(signatureBytes.begin(), signatureBytes.end()));
+        pqcSigningMessageHex = QString::fromStdString(HexStr(sighash32.begin(), sighash32.end()));
+        pqcCommitmentScriptPubKeyHex = QString::fromStdString(HexStr(commitScript.begin(), commitScript.end()));
+        pqcCommitmentLineEdit->setText(QString::fromStdString(commitment.GetHex()));
+        pqcDecodeButton->setEnabled(true);
+        previewReady = true;
+    } while (false);
+
+    if (previewReady) {
+        Q_EMIT message(tr("PQC Commitment"),
+            tr("PQC key decrypted and preview commitment generated. Final commitment will be recomputed at send time from sighash32(TX_BASE)."),
+            CClientUIInterface::MSG_INFORMATION);
+    } else {
+        pqcCommitmentLineEdit->setText(tr("(will be computed at send time)"));
+        // Keep decode available so users can inspect currently available PQC details
+        // even when final commitment/script are deferred to send-time recomputation.
+        pqcDecodeButton->setEnabled(true);
+        Q_EMIT message(tr("PQC Commitment"),
+            previewError.isEmpty()
+                ? tr("PQC key decrypted and ready. The commitment will be computed from sighash32(TX_BASE) when you click Send.")
+                : tr("PQC key decrypted, but preview generation failed: %1\nThe commitment will be computed at send time.").arg(previewError),
+            previewError.isEmpty() ? CClientUIInterface::MSG_INFORMATION : CClientUIInterface::MSG_WARNING);
+    }
+#else
+    Q_EMIT message(tr("PQC Commitment"), tr("PQC signing requires liboqs. Rebuild with --with-liboqs --enable-experimental."), CClientUIInterface::MSG_ERROR);
+    return;
+#endif
+}
+
+void SendCoinsDialog::onDecodePqcCommitmentClicked()
+{
+    const QString commitment = pqcCommitmentLineEdit ? pqcCommitmentLineEdit->text().trimmed() : QString();
+    const QString scriptPubKey = pqcCommitmentScriptPubKeyHex.trimmed();
+    if (pqcSelectedAlgorithm.isEmpty() && commitment.isEmpty() && scriptPubKey.isEmpty()) {
+        Q_EMIT message(tr("Decode PQC Commitment"), tr("Generate a PQC commitment first."), CClientUIInterface::MSG_WARNING);
+        return;
+    }
+    const bool hasCommitmentData = !commitment.isEmpty() && !scriptPubKey.isEmpty();
+
+    QString algorithmTag = tr("Unknown");
+    QString extractedCommitment = tr("n/a");
+#if ENABLE_LIBOQS
+    PQCCommitmentType detectedType = PQCCommitmentType::FALCON512;
+    bool commitmentExtracted = false;
+    if (hasCommitmentData && IsHex(scriptPubKey.toStdString())) {
+        const std::vector<unsigned char> scriptBytes = ParseHex(scriptPubKey.toStdString());
+        CScript script(scriptBytes.begin(), scriptBytes.end());
+        PQCCommitmentType pqcType;
+        uint256 extracted;
+        if (PQCExtractCommitment(script, pqcType, extracted)) {
+            algorithmTag = QString::fromLatin1(PQCCommitmentTypeToString(pqcType));
+            extractedCommitment = QString::fromStdString(extracted.GetHex());
+            detectedType = pqcType;
+            commitmentExtracted = true;
+        }
+    }
+#else
+    bool commitmentExtracted = false;
+#endif
+
+    const bool carrierEnabled = pqcCarrierModeCheckBox && pqcCarrierModeCheckBox->isChecked();
+
+    // Use the real PQC signature stored during commitment generation
+    const QString pqcSignatureHex = pqcSelectedSignatureHex;
+
+    // Build HTML matching the transaction details style (<b>Label:</b> value<br>)
+    QString html;
+    html += "<html><body style=\"word-break: break-all;\">";
+    html += "<b>" + tr("Selected key algorithm") + ":</b> " + GUIUtil::HtmlEscape(pqcSelectedAlgorithm.isEmpty() ? tr("unknown") : pqcSelectedAlgorithm) + "<br>";
+    html += "<b>" + tr("Selected public key") + ":</b> " + GUIUtil::HtmlEscape(pqcSelectedPublicKeyHex.isEmpty() ? tr("n/a") : pqcSelectedPublicKeyHex) + "<br>";
+    if (!pqcSelectedPublicKeyHex.isEmpty() && IsHex(pqcSelectedPublicKeyHex.toStdString())) {
+        html += "<b>" + tr("Selected public key size") + ":</b> " + QString::number(ParseHex(pqcSelectedPublicKeyHex.toStdString()).size()) + " " + tr("bytes") + "<br>";
+    }
+    html += "<b>" + tr("Selected PQC signature") + ":</b> " + GUIUtil::HtmlEscape(pqcSignatureHex.isEmpty() ? tr("n/a") : pqcSignatureHex) + "<br>";
+    if (!pqcSignatureHex.isEmpty() && IsHex(pqcSignatureHex.toStdString())) {
+        html += "<b>" + tr("Selected PQC signature size") + ":</b> " + QString::number(ParseHex(pqcSignatureHex.toStdString()).size()) + " " + tr("bytes") + "<br>";
+    }
+    html += "<b>" + tr("Commitment") + ":</b> "
+          + GUIUtil::HtmlEscape(hasCommitmentData ? commitment : tr("(will be computed at send time)")) + "<br>";
+    html += "<b>" + tr("OP_RETURN scriptPubKey") + ":</b> "
+          + GUIUtil::HtmlEscape(hasCommitmentData ? scriptPubKey : tr("(will be computed at send time)")) + "<br>";
+    html += "<b>" + tr("Script starts with OP_RETURN") + ":</b> "
+          + (hasCommitmentData && scriptPubKey.startsWith("6a24", Qt::CaseInsensitive) ? tr("yes") : tr("no")) + "<br>";
+    html += "<b>" + tr("Algorithm tag") + ":</b> " + GUIUtil::HtmlEscape(algorithmTag) + "<br>";
+    html += "<b>" + tr("Extracted commitment from script") + ":</b> " + GUIUtil::HtmlEscape(extractedCommitment) + "<br>";
+    html += "<b>" + tr("Carrier mode") + ":</b> " + (carrierEnabled ? tr("enabled (TX_C + TX_R P2SH data carrier)") : tr("disabled (commitment-only)")) + "<br>";
+
+    // Decode TX_C and TX_R carrier details when carrier mode is enabled
+#if ENABLE_LIBOQS
+    if (carrierEnabled && commitmentExtracted) {
+        html += "<br>";
+        html += "<b>" + tr("TX_C (Commitment Transaction)") + ":</b><br>";
+        html += "<b>" + tr("TX_C OP_RETURN output") + ":</b> " + GUIUtil::HtmlEscape(scriptPubKey) + "<br>";
+
+        // Compute carrier P2SH scriptPubKey
+        CScript carrierScriptPubKey;
+        if (PQCBuildCarrierScriptPubKey(carrierScriptPubKey)) {
+            const std::string carrierSpkHex = HexStr(carrierScriptPubKey.begin(), carrierScriptPubKey.end());
+            html += "<b>" + tr("TX_C carrier P2SH scriptPubKey") + ":</b> " + GUIUtil::HtmlEscape(QString::fromStdString(carrierSpkHex)) + "<br>";
+
+            // Extract the P2SH address from the scriptPubKey
+            CTxDestination dest;
+            if (ExtractDestination(carrierScriptPubKey, dest)) {
+                html += "<b>" + tr("TX_C carrier P2SH address") + ":</b> " + GUIUtil::HtmlEscape(QString::fromStdString(CBitcoinAddress(dest).ToString())) + "<br>";
+            }
+        }
+
+        // Show carrier redeemScript
+        CScript redeemScript;
+        if (PQCBuildCarrierRedeemScript(redeemScript)) {
+            const std::string redeemHex = HexStr(redeemScript.begin(), redeemScript.end());
+            html += "<b>" + tr("TX_C carrier redeemScript") + ":</b> " + GUIUtil::HtmlEscape(QString::fromStdString(redeemHex)) + " (OP_DROP×5 OP_TRUE)<br>";
+        }
+
+        // Compute carrier parts needed based on selected public key size
+        size_t pkLen = 0;
+        if (!pqcSelectedPublicKeyHex.isEmpty() && IsHex(pqcSelectedPublicKeyHex.toStdString())) {
+            pkLen = ParseHex(pqcSelectedPublicKeyHex.toStdString()).size();
+        }
+        // Use actual auto-generated signature size
+        const size_t sigLen = (!pqcSignatureHex.isEmpty() && IsHex(pqcSignatureHex.toStdString()))
+            ? ParseHex(pqcSignatureHex.toStdString()).size() : 0;
+        const size_t payloadSize = pkLen + sigLen;
+        const uint8_t partsNeeded = PQCCarrierPartsNeeded(payloadSize);
+
+        html += "<b>" + tr("Estimated carrier payload") + ":</b> " + QString::number(payloadSize) + " " + tr("bytes") + " (" + tr("pk") + "=" + QString::number(pkLen) + " + " + tr("sig") + "=" + QString::number(sigLen) + ")<br>";
+        html += "<b>" + tr("Carrier parts needed") + ":</b> " + QString::number(partsNeeded) + "<br>";
+
+        // Determine carrier tag
+        QString carrierTag;
+        switch (detectedType) {
+            case PQCCommitmentType::FALCON512:  carrierTag = "FLC1FULL"; break;
+            case PQCCommitmentType::DILITHIUM2: carrierTag = "DIL2FULL"; break;
+#ifdef ENABLE_LIBOQS_RACCOON
+            case PQCCommitmentType::RACCOONG44: carrierTag = "RCG4FULL"; break;
+#endif
+        }
+        html += "<b>" + tr("Carrier tag (8-byte)") + ":</b> " + GUIUtil::HtmlEscape(carrierTag) + "<br>";
+
+        html += "<br>";
+        html += "<b>" + tr("TX_R (Reveal Transaction)") + ":</b><br>";
+
+        // Build actual TX_R carrier scriptSig data for each part
+        if (!pqcSelectedPublicKeyHex.isEmpty() && IsHex(pqcSelectedPublicKeyHex.toStdString())
+            && !pqcSignatureHex.isEmpty() && IsHex(pqcSignatureHex.toStdString())) {
+            const std::vector<unsigned char> pubkeyBytes = ParseHex(pqcSelectedPublicKeyHex.toStdString());
+            const std::vector<unsigned char> sigBytes = ParseHex(pqcSignatureHex.toStdString());
+
+            for (uint8_t p = 0; p < partsNeeded; ++p) {
+                CScript partScriptSig;
+                if (PQCBuildCarrierPartScriptSig(detectedType, pubkeyBytes, sigBytes, p, partScriptSig)) {
+                    const std::string ssHex = HexStr(partScriptSig.begin(), partScriptSig.end());
+                    html += "<b>" + tr("TX_R scriptSig part %1/%2").arg(p + 1).arg(partsNeeded) + ":</b> "
+                          + GUIUtil::HtmlEscape(QString::fromStdString(ssHex)) + "<br>";
+                    html += "<b>" + tr("TX_R part %1 size").arg(p + 1) + ":</b> "
+                          + QString::number(partScriptSig.size()) + " " + tr("bytes") + "<br>";
+                }
+            }
+
+            // Show PQC public key and signature separately (for visual comparison with header)
+            const std::string pubkeyHexStr = HexStr(pubkeyBytes.begin(), pubkeyBytes.end());
+            const std::string sigHexStr = HexStr(sigBytes.begin(), sigBytes.end());
+            html += "<b>" + tr("TX_R PQC public key") + ":</b> "
+                  + GUIUtil::HtmlEscape(QString::fromStdString(pubkeyHexStr)) + "<br>";
+            html += "<b>" + tr("TX_R PQC public key size") + ":</b> " + QString::number(pubkeyBytes.size()) + " " + tr("bytes") + "<br>";
+            html += "<b>" + tr("TX_R PQC signature") + ":</b> "
+                  + GUIUtil::HtmlEscape(QString::fromStdString(sigHexStr)) + "<br>";
+            html += "<b>" + tr("TX_R PQC signature size") + ":</b> " + QString::number(sigBytes.size()) + " " + tr("bytes") + "<br>";
+
+            // Validate TX_R public key matches selected public key
+            const bool pkMatch = (pubkeyHexStr == pqcSelectedPublicKeyHex.toStdString());
+            html += "<b>" + tr("TX_R public key matches selected") + ":</b> "
+                  + (pkMatch ? tr("yes") : tr("NO — MISMATCH")) + "<br>";
+
+            // Validate TX_R signature matches auto-generated signature
+            const bool sigMatch = (sigHexStr == pqcSignatureHex.toStdString());
+            html += "<b>" + tr("TX_R signature matches selected") + ":</b> "
+                  + (sigMatch ? tr("yes") : tr("NO — MISMATCH")) + "<br>";
+
+            // Show full payload hex (pk || sig)
+            std::vector<unsigned char> fullPayload;
+            fullPayload.reserve(pubkeyBytes.size() + sigBytes.size());
+            fullPayload.insert(fullPayload.end(), pubkeyBytes.begin(), pubkeyBytes.end());
+            fullPayload.insert(fullPayload.end(), sigBytes.begin(), sigBytes.end());
+            const std::string fullPayloadHex = HexStr(fullPayload.begin(), fullPayload.end());
+            html += "<b>" + tr("TX_R full payload (pk||sig)") + ":</b> "
+                  + GUIUtil::HtmlEscape(QString::fromStdString(fullPayloadHex)) + "<br>";
+            html += "<b>" + tr("TX_R payload size") + ":</b> " + QString::number(fullPayload.size()) + " " + tr("bytes") + "<br>";
+
+            // Verify commitment matches SHA256(pk || sig)
+            CSHA256 hasher;
+            hasher.Write(fullPayload.data(), fullPayload.size());
+            unsigned char hash[CSHA256::OUTPUT_SIZE];
+            hasher.Finalize(hash);
+            uint256 recomputedCommitment;
+            memcpy(recomputedCommitment.begin(), hash, 32);
+            html += "<b>" + tr("TX_R SHA256(pk||sig)") + ":</b> " + GUIUtil::HtmlEscape(QString::fromStdString(recomputedCommitment.GetHex()))
+                  + " " + tr("(included in both TX_C OP_RETURN and TX_R carrier)") + "<br>";
+            const bool commitmentMatch = (recomputedCommitment.GetHex() == commitment.toStdString());
+            html += "<b>" + tr("Commitment matches") + ":</b> " + (commitmentMatch ? tr("yes") : tr("NO — MISMATCH")) + "<br>";
+
+            // Overall signature validation summary
+            html += "<br>";
+
+            // Perform real cryptographic PQC signature verification using liboqs
+            bool cryptoVerified = false;
+            if (pkMatch && commitmentMatch && !pqcSigningMessageHex.isEmpty()
+                && IsHex(pqcSigningMessageHex.toStdString())) {
+                const std::vector<unsigned char> messageBytes = ParseHex(pqcSigningMessageHex.toStdString());
+                cryptoVerified = PQCVerify(detectedType, pubkeyBytes,
+                                           messageBytes.data(), messageBytes.size(),
+                                           sigBytes);
+            }
+
+            html += "<b>" + tr("TX_C sighash (hex)") + ":</b> "
+                  + GUIUtil::HtmlEscape(pqcSigningMessageHex.isEmpty() ? tr("n/a") : pqcSigningMessageHex) + "<br>";
+            html += "<b>" + tr("OQS_SIG_verify() cryptographic check") + ":</b> "
+                  + (cryptoVerified
+                       ? "<span style=\"color:green;\">" + tr("PASSED") + "</span>"
+                       : "<span style=\"color:red;\">" + tr("FAILED") + "</span>") + "<br>";
+
+            if (pkMatch && sigMatch && commitmentMatch && cryptoVerified) {
+                html += "<b>" + tr("PQC signature validation") + ":</b> <span style=\"color:green;\">"
+                      + tr("PASSED — public key, signature, commitment, and cryptographic verification all verified") + "</span><br>";
+            } else {
+                QString failReason;
+                if (!pkMatch) failReason += tr("public key mismatch") + "; ";
+                if (!sigMatch) failReason += tr("signature mismatch") + "; ";
+                if (!commitmentMatch) failReason += tr("commitment mismatch") + "; ";
+                if (!cryptoVerified) failReason += tr("OQS_SIG_verify() failed") + "; ";
+                html += "<b>" + tr("PQC signature validation") + ":</b> <span style=\"color:red;\">"
+                      + tr("FAILED — %1").arg(failReason) + "</span><br>";
+            }
+        } else {
+            html += "<b>" + tr("TX_R data") + ":</b> " + tr("public key not available for scriptSig computation") + "<br>";
+        }
+    }
+#endif
+
+    html += "</body></html>";
+
+    QDialog decodeDialog(this);
+    decodeDialog.setWindowTitle(tr("Decoded PQC Commitment"));
+    decodeDialog.resize(820, 560);
+    QVBoxLayout* layout = new QVBoxLayout(&decodeDialog);
+    QLabel* label = new QLabel(tr("Decoded PQC commitment details:"), &decodeDialog);
+    layout->addWidget(label);
+    QTextEdit* decodedText = new QTextEdit(&decodeDialog);
+    decodedText->setReadOnly(true);
+    decodedText->setHtml(html);
+    layout->addWidget(decodedText);
+    QDialogButtonBox* buttons = new QDialogButtonBox(QDialogButtonBox::Close, &decodeDialog);
+    connect(buttons, &QDialogButtonBox::rejected, &decodeDialog, &QDialog::reject);
+    layout->addWidget(buttons);
+    decodeDialog.exec();
 }
 
 void SendCoinsDialog::reject()

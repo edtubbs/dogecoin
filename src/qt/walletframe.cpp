@@ -166,6 +166,27 @@ void WalletFrame::backupWallet()
         walletView->backupWallet();
 }
 
+void WalletFrame::backupWalletEncrypted()
+{
+    WalletView *walletView = currentWalletView();
+    if (walletView)
+        walletView->backupWalletEncrypted();
+}
+
+void WalletFrame::restoreWalletEncrypted()
+{
+    WalletView *walletView = currentWalletView();
+    if (walletView)
+        walletView->restoreWalletEncrypted();
+}
+
+void WalletFrame::showPQCSignatureDialog()
+{
+    WalletView *walletView = currentWalletView();
+    if (walletView)
+        walletView->showPQCSignatureDialog();
+}
+
 void WalletFrame::changePassphrase()
 {
     WalletView *walletView = currentWalletView();
