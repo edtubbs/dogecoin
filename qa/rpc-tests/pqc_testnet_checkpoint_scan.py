@@ -138,6 +138,10 @@ def did_reach_checkpoint(current_height: int, checkpoint_height: int) -> bool:
     return current_height >= 0 and current_height >= checkpoint_height
 
 
+def testnet_block_sync_from_checkpoint(network: str, current_height: int, checkpoint_height: int) -> bool:
+    return network == "testnet" and did_reach_checkpoint(current_height, checkpoint_height)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="Run a node with checkpoints and validate PQC commitment transaction from Core end-to-end inputs."
@@ -308,9 +312,13 @@ def main() -> int:
                         "recomputed_commitment_hex": commitment_hex,
                         "script_pub_key_hex": expected_script_hex,
                         "signature_hex": normalized_signature_hex,
+                        "tag": "FLC1",
+                        "testnet_block_sync_from_checkpoint": "true" if testnet_block_sync_from_checkpoint(args.network, current_height, args.checkpoint_height) else "false",
                         "sync_target_height": str(wait_height),
                         "synced_height": str(current_height),
+                        "txis": txid,
                         "txid": txid,
+                        "dogecoin_testnet_wallet_address": wallet_address or "",
                     },
                 )
             print(f"output_log: {output_log_path}")
@@ -338,9 +346,13 @@ def main() -> int:
                     "recomputed_commitment_hex": commitment_hex,
                     "script_pub_key_hex": expected_script_hex,
                     "signature_hex": normalized_signature_hex,
+                    "tag": "FLC1",
+                    "testnet_block_sync_from_checkpoint": "true" if testnet_block_sync_from_checkpoint(args.network, current_height, args.checkpoint_height) else "false",
                     "sync_target_height": str(wait_height),
                     "synced_height": str(current_height),
+                    "txis": txid,
                     "txid": txid,
+                    "dogecoin_testnet_wallet_address": wallet_address or "",
                     "wallet_address": wallet_address or "",
                 },
             )

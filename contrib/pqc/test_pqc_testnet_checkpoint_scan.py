@@ -93,6 +93,12 @@ wallet_address: nXBQ8M5xFf7f8sM2jQY5q2f2uvvE4nStQd
         self.assertFalse(MODULE.did_reach_checkpoint(5899999, 5900000))
         self.assertFalse(MODULE.did_reach_checkpoint(-1, 5900000))
 
+    def test_testnet_block_sync_from_checkpoint(self) -> None:
+        self.assertTrue(MODULE.testnet_block_sync_from_checkpoint("testnet", 5900000, 5900000))
+        self.assertTrue(MODULE.testnet_block_sync_from_checkpoint("testnet", 5900001, 5900000))
+        self.assertFalse(MODULE.testnet_block_sync_from_checkpoint("testnet", 5899999, 5900000))
+        self.assertFalse(MODULE.testnet_block_sync_from_checkpoint("regtest", 5900001, 5900000))
+
 
 if __name__ == "__main__":
     unittest.main()

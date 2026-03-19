@@ -1,5 +1,5 @@
-block_hash: 5e065ccff3d6c01d8a623baeb3daf9b75ad84997c55c17125018aab1f3e5a5fc
-checkpoint_hash: 2406930886456367eee9507646f0750cd5eea788aa6d1a255b900e3ac2ba4826
+block_hash: eb497634eee2725b1e4c493c842542bdafff1e158be5c06931e95b61b434fe43
+checkpoint_hash: 35c4f2ed57429602036e0d99e1016850d500ba02bd4a72d9eb7a64f0b2896905
 checkpoint_height: 1
 checkpoint_sync_reached: true
 checkpoint_sync_target_height: 1
@@ -7,7 +7,8 @@ checkpoints_enabled: false
 commitment_hex: b8811ee16066dbc91557b6fa55f0d31edc575c97673cd678239965dcfb56d9a2
 commitment_type: FLC1
 core_tx_validation: true
-date_utc: 2026-03-19T15:21:13.212911Z
+date_utc: 2026-03-19T15:44:22.665000Z
+dogecoin_testnet_wallet_address: n4cnqCiASoYVu5nHLP8TitqnCMF8Pdnzce
 height: 111
 match: true
 match_on_chain_address: true
@@ -20,5 +21,8 @@ script_pub_key_hex: 6a24464c4331b8811ee16066dbc91557b6fa55f0d31edc575c97673cd678
 signature_hex: bb66
 sync_target_height: 111
 synced_height: 111
-txid: 4c1151716ec17f374c73e8b586b8cc9cfb3d14e23eb18b638102ccd26d229737
-wallet_address: n4M2fZbdcRvvAq2eiLtWdTXckQeRskNLT3
+tag: FLC1
+testnet_block_sync_from_checkpoint: false
+txid: 7cf142f0985f3e1a9753e5a5c21bf91d6b62ef208a109992551b4572060d4e04
+txis: 7cf142f0985f3e1a9753e5a5c21bf91d6b62ef208a109992551b4572060d4e04
+wallet_address: n4cnqCiASoYVu5nHLP8TitqnCMF8Pdnzce
