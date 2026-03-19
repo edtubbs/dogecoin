@@ -220,7 +220,6 @@ libdogecoin_server_a_SOURCES = \
   blockfilter.cpp \
   chain.cpp \
   checkpoints.cpp \
-  consensus/tx_verify.cpp \
   flatfile.cpp \
   httprpc.cpp \
   httpserver.cpp \
