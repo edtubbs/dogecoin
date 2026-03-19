@@ -10,6 +10,7 @@
 #include "splashscreen.h"
 
 #include "networkstyle.h"
+#include "platformstyle.h"
 
 #include "clientversion.h"
 #include "init.h"
@@ -25,12 +26,123 @@
 #include <QCloseEvent>
 #include <QDesktopWidget>
 #include <QPainter>
+#include <QPushButton>
 #include <QRadialGradient>
 
 #include <boost/bind/bind.hpp>
 
 SplashScreen::SplashScreen(Qt::WindowFlags f, const NetworkStyle *networkStyle) :
-    QWidget(0, f), curAlignment(0)
+    QWidget(0, f), curAlignment(0), networkStyle(networkStyle), darkModeButton(nullptr)
+{
+    buildPixmap(PlatformStyle::isDarkModeEnabled());
+
+    // Set window title
+    setWindowTitle(tr(PACKAGE_NAME) + " " + networkStyle->getTitleAddText());
+
+    // Resize window and move to center of desktop, disallow resizing
+    const qreal ratio = pixmap.devicePixelRatio();
+    QRect r(QPoint(), QSize(pixmap.size().width()/ratio, pixmap.size().height()/ratio));
+    resize(r.size());
+    setFixedSize(r.size());
+    move(QApplication::desktop()->screenGeometry().center() - r.center());
+    darkModeButton = new QPushButton(this);
+    connect(darkModeButton, SIGNAL(clicked()), this, SLOT(toggleDarkMode()));
+    updateDarkModeButton();
+    darkModeButton->show();
+
+    subscribeToCoreSignals();
+}
+
+SplashScreen::~SplashScreen()
+{
+    unsubscribeFromCoreSignals();
+}
+
+void SplashScreen::slotFinish(QWidget *mainWin)
+{
+    Q_UNUSED(mainWin);
+
+    /* If the window is minimized, hide() will be ignored. */
+    /* Make sure we de-minimize the splashscreen window before hiding */
+    if (isMinimized())
+        showNormal();
+    hide();
+    deleteLater(); // No more need for this
+}
+
+static void InitMessage(SplashScreen *splash, const std::string &message)
+{
+    const QColor progressColor = PlatformStyle::isDarkModeEnabled() ? QColor(214,232,220) : QColor(55,55,55);
+    QMetaObject::invokeMethod(splash, "showMessage",
+        Qt::QueuedConnection,
+        Q_ARG(QString, QString::fromStdString(message)),
+        Q_ARG(int, Qt::AlignBottom|Qt::AlignHCenter),
+        Q_ARG(QColor, progressColor));
+}
+
+static void ShowProgress(SplashScreen *splash, const std::string &title, int nProgress)
+{
+    InitMessage(splash, title + strprintf("%d", nProgress) + "%");
+}
+
+#ifdef ENABLE_WALLET
+void SplashScreen::ConnectWallet(CWallet* wallet)
+{
+    wallet->ShowProgress.connect(boost::bind(ShowProgress, this,
+                                             boost::placeholders::_1,
+                                             boost::placeholders::_2));
+    connectedWallets.push_back(wallet);
+}
+#endif
+
+void SplashScreen::subscribeToCoreSignals()
+{
+    // Connect signals to client
+    uiInterface.InitMessage.connect(boost::bind(InitMessage, this,
+                                                boost::placeholders::_1));
+    uiInterface.ShowProgress.connect(boost::bind(ShowProgress, this,
+                                                 boost::placeholders::_1,boost::placeholders::_2));
+#ifdef ENABLE_WALLET
+    uiInterface.LoadWallet.connect(boost::bind(&SplashScreen::ConnectWallet, this,
+                                               boost::placeholders::_1));
+#endif
+}
+
+void SplashScreen::unsubscribeFromCoreSignals()
+{
+    // Disconnect signals from client
+    uiInterface.InitMessage.disconnect(boost::bind(InitMessage, this,
+                                                   boost::placeholders::_1));
+    uiInterface.ShowProgress.disconnect(boost::bind(ShowProgress, this,
+                                                    boost::placeholders::_1,
+                                                    boost::placeholders::_2));
+#ifdef ENABLE_WALLET
+    Q_FOREACH(CWallet* const & pwallet, connectedWallets) {
+        pwallet->ShowProgress.disconnect(boost::bind(ShowProgress, this,
+                                                     boost::placeholders::_1,
+                                                     boost::placeholders::_2));
+    }
+#endif
+}
+
+void SplashScreen::showMessage(const QString &message, int alignment, const QColor &color)
+{
+    curMessage = message;
+    curAlignment = alignment;
+    curColor = color;
+    update();
+}
+
+void SplashScreen::toggleDarkMode()
+{
+    const bool darkModeEnabled = PlatformStyle::isDarkModeEnabled();
+    PlatformStyle::setDarkModeEnabled(!darkModeEnabled);
+    buildPixmap(!darkModeEnabled);
+    updateDarkModeButton();
+    update();
+}
+
+void SplashScreen::buildPixmap(bool darkModeEnabled)
 {
     // set reference point, paddings
     int paddingRight            = 50;
@@ -62,12 +174,18 @@ SplashScreen::SplashScreen(Qt::WindowFlags f, const NetworkStyle *networkStyle) 
 #endif
 
     QPainter pixPaint(&pixmap);
-    pixPaint.setPen(QColor(100,100,100));
+    const QColor textColor = darkModeEnabled ? QColor(214,232,220) : QColor(100,100,100);
+    pixPaint.setPen(textColor);
 
     // draw a slightly radial gradient
     QRadialGradient gradient(QPoint(0,0), splashSize.width()/devicePixelRatio);
-    gradient.setColorAt(0, Qt::white);
-    gradient.setColorAt(1, QColor(247,247,247));
+    if (darkModeEnabled) {
+        gradient.setColorAt(0, QColor(22, 31, 27));
+        gradient.setColorAt(1, QColor(15, 23, 19));
+    } else {
+        gradient.setColorAt(0, Qt::white);
+        gradient.setColorAt(1, QColor(247,247,247));
+    }
     QRect rGradient(QPoint(0,0), splashSize);
     pixPaint.fillRect(rGradient, gradient);
 
@@ -123,96 +241,18 @@ SplashScreen::SplashScreen(Qt::WindowFlags f, const NetworkStyle *networkStyle) 
     }
 
     pixPaint.end();
-
-    // Set window title
-    setWindowTitle(titleText + " " + titleAddText);
-
-    // Resize window and move to center of desktop, disallow resizing
-    QRect r(QPoint(), QSize(pixmap.size().width()/devicePixelRatio,pixmap.size().height()/devicePixelRatio));
-    resize(r.size());
-    setFixedSize(r.size());
-    move(QApplication::desktop()->screenGeometry().center() - r.center());
-
-    subscribeToCoreSignals();
+    curColor = darkModeEnabled ? QColor(214,232,220) : QColor(55,55,55);
 }
 
-SplashScreen::~SplashScreen()
+void SplashScreen::updateDarkModeButton()
 {
-    unsubscribeFromCoreSignals();
-}
-
-void SplashScreen::slotFinish(QWidget *mainWin)
-{
-    Q_UNUSED(mainWin);
-
-    /* If the window is minimized, hide() will be ignored. */
-    /* Make sure we de-minimize the splashscreen window before hiding */
-    if (isMinimized())
-        showNormal();
-    hide();
-    deleteLater(); // No more need for this
-}
-
-static void InitMessage(SplashScreen *splash, const std::string &message)
-{
-    QMetaObject::invokeMethod(splash, "showMessage",
-        Qt::QueuedConnection,
-        Q_ARG(QString, QString::fromStdString(message)),
-        Q_ARG(int, Qt::AlignBottom|Qt::AlignHCenter),
-        Q_ARG(QColor, QColor(55,55,55)));
-}
-
-static void ShowProgress(SplashScreen *splash, const std::string &title, int nProgress)
-{
-    InitMessage(splash, title + strprintf("%d", nProgress) + "%");
-}
-
-#ifdef ENABLE_WALLET
-void SplashScreen::ConnectWallet(CWallet* wallet)
-{
-    wallet->ShowProgress.connect(boost::bind(ShowProgress, this,
-                                             boost::placeholders::_1,
-                                             boost::placeholders::_2));
-    connectedWallets.push_back(wallet);
-}
-#endif
-
-void SplashScreen::subscribeToCoreSignals()
-{
-    // Connect signals to client
-    uiInterface.InitMessage.connect(boost::bind(InitMessage, this,
-                                                boost::placeholders::_1));
-    uiInterface.ShowProgress.connect(boost::bind(ShowProgress, this,
-                                                 boost::placeholders::_1,boost::placeholders::_2));
-#ifdef ENABLE_WALLET
-    uiInterface.LoadWallet.connect(boost::bind(&SplashScreen::ConnectWallet, this,
-                                               boost::placeholders::_1));
-#endif
-}
-
-void SplashScreen::unsubscribeFromCoreSignals()
-{
-    // Disconnect signals from client
-    uiInterface.InitMessage.disconnect(boost::bind(InitMessage, this,
-                                                   boost::placeholders::_1));
-    uiInterface.ShowProgress.disconnect(boost::bind(ShowProgress, this,
-                                                    boost::placeholders::_1,
-                                                    boost::placeholders::_2));
-#ifdef ENABLE_WALLET
-    Q_FOREACH(CWallet* const & pwallet, connectedWallets) {
-        pwallet->ShowProgress.disconnect(boost::bind(ShowProgress, this,
-                                                     boost::placeholders::_1,
-                                                     boost::placeholders::_2));
+    if (darkModeButton == nullptr) {
+        return;
     }
-#endif
-}
-
-void SplashScreen::showMessage(const QString &message, int alignment, const QColor &color)
-{
-    curMessage = message;
-    curAlignment = alignment;
-    curColor = color;
-    update();
+    const bool darkModeEnabled = PlatformStyle::isDarkModeEnabled();
+    darkModeButton->setText(darkModeEnabled ? tr("Light") : tr("Dark"));
+    darkModeButton->setFixedSize(58, 24);
+    darkModeButton->move(width() - darkModeButton->width() - 10, height() - darkModeButton->height() - 10);
 }
 
 void SplashScreen::paintEvent(QPaintEvent *event)
