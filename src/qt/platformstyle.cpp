@@ -9,8 +9,10 @@
 #include <QApplication>
 #include <QColor>
 #include <QCoreApplication>
+#include <QEvent>
 #include <QIcon>
 #include <QImage>
+#include <QObject>
 #include <QPalette>
 #include <QPixmap>
 #include <QSettings>
@@ -109,6 +111,34 @@ void ApplyTitleBarTheme(bool darkModeEnabled)
     Q_UNUSED(darkModeEnabled);
 #endif
 }
+
+class DarkTitleBarEventFilter : public QObject
+{
+public:
+    explicit DarkTitleBarEventFilter(QObject* parent = 0) : QObject(parent) {}
+
+    bool eventFilter(QObject* watched, QEvent* event)
+    {
+        if (event && event->type() == QEvent::Show && PlatformStyle::isDarkModeEnabled()) {
+#if defined(Q_OS_WIN)
+            QWidget* window = qobject_cast<QWidget*>(watched);
+            if (window && window->isWindow()) {
+                const BOOL dark = TRUE;
+                HWND hwnd = reinterpret_cast<HWND>(window->winId());
+                if (hwnd) {
+                    const DWORD attrModern = 20; // DWMWA_USE_IMMERSIVE_DARK_MODE on newer SDKs
+                    const DWORD attrLegacy = 19; // Older Windows 10 builds
+                    DwmSetWindowAttribute(hwnd, attrModern, &dark, sizeof(dark));
+                    DwmSetWindowAttribute(hwnd, attrLegacy, &dark, sizeof(dark));
+                }
+            }
+#endif
+        }
+        return QObject::eventFilter(watched, event);
+    }
+};
+
+DarkTitleBarEventFilter* g_darkTitleBarEventFilter = 0;
 }
 
 namespace {
@@ -296,6 +326,11 @@ void PlatformStyle::applyTheme(bool darkModeEnabled)
 {
     if (!qobject_cast<QApplication*>(QCoreApplication::instance())) {
         return;
+    }
+
+    if (!g_darkTitleBarEventFilter) {
+        g_darkTitleBarEventFilter = new DarkTitleBarEventFilter(qApp);
+        qApp->installEventFilter(g_darkTitleBarEventFilter);
     }
 
     QStyle* fusionStyle = QStyleFactory::create("Fusion");
