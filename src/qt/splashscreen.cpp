@@ -250,8 +250,11 @@ void SplashScreen::updateDarkModeButton()
         return;
     }
     const bool darkModeEnabled = PlatformStyle::isDarkModeEnabled();
-    darkModeButton->setText(darkModeEnabled ? tr("Light") : tr("Dark"));
-    darkModeButton->setFixedSize(58, 24);
+    const QChar sunGlyph(0x2600);
+    const QChar moonGlyph(0x263E);
+    darkModeButton->setText(darkModeEnabled ? QString(sunGlyph) : QString(moonGlyph));
+    darkModeButton->setToolTip(darkModeEnabled ? tr("Switch to light mode") : tr("Switch to dark mode"));
+    darkModeButton->setFixedSize(24, 24);
     darkModeButton->move(width() - darkModeButton->width() - 10, height() - darkModeButton->height() - 10);
 }
 
