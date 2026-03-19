@@ -189,6 +189,7 @@ testScriptsExt = [
     'pruning.py',
     # vv Tests less than 20m vv
     'smartfees.py',
+    'pqc_testnet_checkpoint_scan.py',
     # vv Tests less than 5m vv
     'maxuploadtarget.py',
     'mempool_packages.py',
