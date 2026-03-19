@@ -14,6 +14,7 @@
 #include "net.h"
 #include "policy/policy.h"
 #include "policy/rbf.h"
+#include "pqc/pqc_commitment.h"
 #include "rpc/server.h"
 #include "script/sign.h"
 #include "timedata.h"
@@ -540,6 +541,62 @@ UniValue signmessage(const JSONRPCRequest& request)
         throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Sign failed");
 
     return EncodeBase64(&vchSig[0], vchSig.size());
+}
+
+UniValue generatepqccommitment(const JSONRPCRequest& request)
+{
+    if (!EnsureWalletIsAvailable(request.fHelp))
+        return NullUniValue;
+
+    if (request.fHelp || request.params.size() != 3)
+        throw runtime_error(
+            "generatepqccommitment \"algorithm\" \"public_key_hex\" \"signature_hex\"\n"
+            "\nGenerate a PQC OP_RETURN commitment artifact from a PQC public key and signature.\n"
+            "\nArguments:\n"
+            "1. \"algorithm\"         (string, required) PQC algorithm: falcon512|flc1 or dilithium2|dil2.\n"
+            "2. \"public_key_hex\"    (string, required) PQC public key bytes, hex encoded.\n"
+            "3. \"signature_hex\"     (string, required) PQC signature bytes, hex encoded.\n"
+            "\nResult:\n"
+            "{\n"
+            "  \"algorithm\": \"str\",       (string) Canonical algorithm label with tag\n"
+            "  \"commitment\": \"hex\",      (string) SHA256(public_key || signature), little-endian uint256 hex\n"
+            "  \"scriptPubKey\": \"hex\"     (string) Canonical OP_RETURN PQC commitment script\n"
+            "}\n"
+            "\nExamples:\n"
+            + HelpExampleCli("generatepqccommitment", "\"falcon512\" \"021122\" \"304402\"")
+            + HelpExampleRpc("generatepqccommitment", "\"falcon512\", \"021122\", \"304402\"")
+        );
+
+    const std::string algo = request.params[0].get_str();
+    const std::string pubkey_hex = request.params[1].get_str();
+    const std::string sig_hex = request.params[2].get_str();
+
+    PQCCommitmentType type;
+    if (!ParsePQCCommitmentType(algo, type)) {
+        throw JSONRPCError(RPC_INVALID_PARAMETER, "Unknown PQC algorithm. Use falcon512|flc1 or dilithium2|dil2.");
+    }
+    if (!IsHex(pubkey_hex) || !IsHex(sig_hex)) {
+        throw JSONRPCError(RPC_INVALID_PARAMETER, "public_key_hex and signature_hex must be valid hex strings.");
+    }
+
+    const std::vector<unsigned char> public_key = ParseHex(pubkey_hex);
+    const std::vector<unsigned char> signature = ParseHex(sig_hex);
+
+    uint256 commitment;
+    if (!PQCComputeCommitment(public_key, signature, commitment)) {
+        throw JSONRPCError(RPC_INVALID_PARAMETER, "public_key_hex and signature_hex must both decode to non-empty byte strings.");
+    }
+
+    CScript script;
+    if (!PQCBuildCommitmentScript(type, commitment, script)) {
+        throw JSONRPCError(RPC_INTERNAL_ERROR, "Failed to build PQC commitment script.");
+    }
+
+    UniValue result(UniValue::VOBJ);
+    result.pushKV("algorithm", PQCCommitmentTypeToString(type));
+    result.pushKV("commitment", commitment.GetHex());
+    result.pushKV("scriptPubKey", HexStr(script.begin(), script.end()));
+    return result;
 }
 
 UniValue getreceivedbyaddress(const JSONRPCRequest& request)
@@ -3268,6 +3325,7 @@ static const CRPCCommand commands[] =
     { "wallet",             "setaccount",               &setaccount,               true,   {"address","account"} },
     { "wallet",             "settxfee",                 &settxfee,                 true,   {"amount"} },
     { "wallet",             "signmessage",              &signmessage,              true,   {"address","message"} },
+    { "wallet",             "generatepqccommitment",    &generatepqccommitment,    true,   {"algorithm","public_key_hex","signature_hex"} },
     { "wallet",             "walletlock",               &walletlock,               true,   {} },
     { "wallet",             "walletpassphrasechange",   &walletpassphrasechange,   true,   {"oldpassphrase","newpassphrase"} },
     { "wallet",             "walletpassphrase",         &walletpassphrase,         true,   {"passphrase","timeout"} },

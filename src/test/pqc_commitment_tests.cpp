@@ -92,4 +92,18 @@ BOOST_AUTO_TEST_CASE(pqc_extract_from_tx_roundtrip)
     BOOST_CHECK_EQUAL(std::string(PQCCommitmentTypeToString(parsed_type)), "FALCON512/FLC1");
 }
 
+BOOST_AUTO_TEST_CASE(pqc_parse_commitment_type_aliases)
+{
+    PQCCommitmentType type;
+    BOOST_CHECK(ParsePQCCommitmentType("falcon512", type));
+    BOOST_CHECK(type == PQCCommitmentType::FALCON512);
+    BOOST_CHECK(ParsePQCCommitmentType("FLC1", type));
+    BOOST_CHECK(type == PQCCommitmentType::FALCON512);
+    BOOST_CHECK(ParsePQCCommitmentType("dilithium2", type));
+    BOOST_CHECK(type == PQCCommitmentType::DILITHIUM2);
+    BOOST_CHECK(ParsePQCCommitmentType("dil2", type));
+    BOOST_CHECK(type == PQCCommitmentType::DILITHIUM2);
+    BOOST_CHECK(!ParsePQCCommitmentType("unknown", type));
+}
+
 BOOST_AUTO_TEST_SUITE_END()

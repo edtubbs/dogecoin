@@ -100,6 +100,19 @@ const char* PQCCommitmentTypeToString(PQCCommitmentType type)
     }
 }
 
+bool ParsePQCCommitmentType(const std::string& type, PQCCommitmentType& type_out)
+{
+    if (type == "falcon512" || type == "FALCON512" || type == "flc1" || type == "FLC1") {
+        type_out = PQCCommitmentType::FALCON512;
+        return true;
+    }
+    if (type == "dilithium2" || type == "DILITHIUM2" || type == "dil2" || type == "DIL2") {
+        type_out = PQCCommitmentType::DILITHIUM2;
+        return true;
+    }
+    return false;
+}
+
 bool PQCExtractCommitmentFromTx(const CTransaction& tx,
                                 PQCCommitmentType& type_out,
                                 uint256& commitment_out,

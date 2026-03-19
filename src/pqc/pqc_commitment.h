@@ -10,6 +10,7 @@
 #include "uint256.h"
 
 #include <stdint.h>
+#include <string>
 #include <vector>
 
 enum class PQCCommitmentType {
@@ -39,6 +40,7 @@ bool PQCExtractCommitment(const CScript& script,
                           uint256& commitment_out);
 
 const char* PQCCommitmentTypeToString(PQCCommitmentType type);
+bool ParsePQCCommitmentType(const std::string& type, PQCCommitmentType& type_out);
 
 bool PQCExtractCommitmentFromTx(const CTransaction& tx,
                                 PQCCommitmentType& type_out,
