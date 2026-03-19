@@ -134,6 +134,10 @@ def wait_for_sync(rpc: AuthServiceProxy, min_height: int, timeout: int) -> int:
     raise RuntimeError(f"timed out waiting for sync to height {min_height} (current: {height})")
 
 
+def did_reach_checkpoint(current_height: int, checkpoint_height: int) -> bool:
+    return current_height >= 0 and current_height >= checkpoint_height
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="Run a node with checkpoints and validate PQC commitment transaction from Core end-to-end inputs."
@@ -245,6 +249,7 @@ def main() -> int:
     rpc = None
     checkpoint_hash = ""
     current_height = -1
+    wait_height = max(tx_height, args.checkpoint_height)
     match_on_chain_script = False
     match_on_chain_address = wallet_address is None
     block_hash = ""
@@ -252,7 +257,6 @@ def main() -> int:
     try:
         try:
             rpc = wait_for_rpc(rpc_url, args.sync_timeout)
-            wait_height = max(tx_height, args.checkpoint_height)
             current_height = wait_for_sync(rpc, wait_height, args.sync_timeout)
             print(f"synced_height: {current_height}")
 
@@ -287,6 +291,9 @@ def main() -> int:
                         "block_hash": block_hash,
                         "checkpoint_hash": checkpoint_hash,
                         "checkpoint_height": str(args.checkpoint_height),
+                        "checkpoint_sync_reached": "true" if did_reach_checkpoint(current_height, args.checkpoint_height) else "false",
+                        "checkpoint_sync_target_height": str(args.checkpoint_height),
+                        "checkpoints_enabled": "true" if args.network == "testnet" else "false",
                         "commitment_hex": commitment_hex,
                         "commitment_type": "FLC1",
                         "date_utc": utc_now_z(),
@@ -301,6 +308,7 @@ def main() -> int:
                         "recomputed_commitment_hex": commitment_hex,
                         "script_pub_key_hex": expected_script_hex,
                         "signature_hex": normalized_signature_hex,
+                        "sync_target_height": str(wait_height),
                         "synced_height": str(current_height),
                         "txid": txid,
                     },
@@ -313,6 +321,9 @@ def main() -> int:
                     "block_hash": block_hash,
                     "checkpoint_hash": checkpoint_hash,
                     "checkpoint_height": str(args.checkpoint_height),
+                    "checkpoint_sync_reached": "true" if did_reach_checkpoint(current_height, args.checkpoint_height) else "false",
+                    "checkpoint_sync_target_height": str(args.checkpoint_height),
+                    "checkpoints_enabled": "true" if args.network == "testnet" else "false",
                     "commitment_hex": commitment_hex,
                     "commitment_type": "FLC1",
                     "date_utc": utc_now_z(),
@@ -327,6 +338,7 @@ def main() -> int:
                     "recomputed_commitment_hex": commitment_hex,
                     "script_pub_key_hex": expected_script_hex,
                     "signature_hex": normalized_signature_hex,
+                    "sync_target_height": str(wait_height),
                     "synced_height": str(current_height),
                     "txid": txid,
                     "wallet_address": wallet_address or "",

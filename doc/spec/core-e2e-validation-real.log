@@ -1,20 +1,24 @@
-block_hash: a1d9765c76c5ad6ac172ac94a2624e8b4d5ab42c076584b296c69ac3319f0d23
-checkpoint_hash: 43140978c5fb9cd097875476702b7f0e3cd24e855af03503c7f5391825cfd368
+block_hash: 5e065ccff3d6c01d8a623baeb3daf9b75ad84997c55c17125018aab1f3e5a5fc
+checkpoint_hash: 2406930886456367eee9507646f0750cd5eea788aa6d1a255b900e3ac2ba4826
 checkpoint_height: 1
+checkpoint_sync_reached: true
+checkpoint_sync_target_height: 1
+checkpoints_enabled: false
 commitment_hex: b8811ee16066dbc91557b6fa55f0d31edc575c97673cd678239965dcfb56d9a2
 commitment_type: FLC1
 core_tx_validation: true
-date_utc: 2026-03-18T23:00:36.416153Z
+date_utc: 2026-03-19T15:21:13.212911Z
 height: 111
 match: true
 match_on_chain_address: true
 match_on_chain_script: true
 network: regtest
-notes: core e2e testnet checkpoint scan successful
+notes: core e2e checkpoint scan successful
 pubkey_hex: aa55
 recomputed_commitment_hex: b8811ee16066dbc91557b6fa55f0d31edc575c97673cd678239965dcfb56d9a2
 script_pub_key_hex: 6a24464c4331b8811ee16066dbc91557b6fa55f0d31edc575c97673cd678239965dcfb56d9a2
 signature_hex: bb66
+sync_target_height: 111
 synced_height: 111
-txid: 35e6f00e73efb31eb1fe31663f762759b0e937b1e9c505a3dd6c84d36a85358b
-wallet_address: mtrb2w5Fu5vBYoavPLp3pvekscxpAWq9KV
+txid: 4c1151716ec17f374c73e8b586b8cc9cfb3d14e23eb18b638102ccd26d229737
+wallet_address: n4M2fZbdcRvvAq2eiLtWdTXckQeRskNLT3

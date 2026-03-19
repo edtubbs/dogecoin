@@ -53,5 +53,9 @@ pubkey_hex:
 signature_hex:
 recomputed_commitment_hex:
 match: true|false
+checkpoints_enabled: true|false
+checkpoint_sync_target_height:
+checkpoint_sync_reached: true|false
+sync_target_height:
 notes:
 ```
