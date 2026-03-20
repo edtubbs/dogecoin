@@ -667,6 +667,9 @@ bool WalletModel::saveReceiveRequest(const std::string &sAddress, const int64_t 
 bool WalletModel::getWalletMeta(const std::string &key, std::string *value) const
 {
     LOCK(wallet->cs_wallet);
+    if (!wallet->vchDefaultKey.IsValid()) {
+        return false;
+    }
     const CTxDestination dest = wallet->vchDefaultKey.GetID();
     return wallet->GetDestData(dest, key, value);
 }
@@ -674,6 +677,9 @@ bool WalletModel::getWalletMeta(const std::string &key, std::string *value) cons
 bool WalletModel::saveWalletMeta(const std::string &key, const std::string &value)
 {
     LOCK(wallet->cs_wallet);
+    if (!wallet->vchDefaultKey.IsValid()) {
+        return false;
+    }
     const CTxDestination dest = wallet->vchDefaultKey.GetID();
     if (value.empty())
         return wallet->EraseDestData(dest, key);
