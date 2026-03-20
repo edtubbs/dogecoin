@@ -22,7 +22,6 @@
 
 #if defined(Q_OS_WIN)
 #include <windows.h>
-#include <dwmapi.h>
 #endif
 
 static const struct {
@@ -88,10 +87,40 @@ const DarkTintColors& ActiveDarkTintColors()
     return DARK_TINTS[CurrentDarkTintFromSettings()];
 }
 
+#if defined(Q_OS_WIN)
+bool SetWindowDarkTitleBar(HWND hwnd, bool darkModeEnabled)
+{
+    if (!hwnd) {
+        return false;
+    }
+
+    typedef HRESULT (WINAPI *DwmSetWindowAttributePtr)(HWND, DWORD, LPCVOID, DWORD);
+    HMODULE dwmapi = GetModuleHandleW(L"dwmapi.dll");
+    if (!dwmapi) {
+        dwmapi = LoadLibraryW(L"dwmapi.dll");
+    }
+    if (!dwmapi) {
+        return false;
+    }
+
+    DwmSetWindowAttributePtr setWindowAttribute =
+        reinterpret_cast<DwmSetWindowAttributePtr>(GetProcAddress(dwmapi, "DwmSetWindowAttribute"));
+    if (!setWindowAttribute) {
+        return false;
+    }
+
+    const BOOL dark = darkModeEnabled ? TRUE : FALSE;
+    const DWORD attrModern = 20; // DWMWA_USE_IMMERSIVE_DARK_MODE on newer SDKs
+    const DWORD attrLegacy = 19; // Older Windows 10 builds
+    setWindowAttribute(hwnd, attrModern, &dark, sizeof(dark));
+    setWindowAttribute(hwnd, attrLegacy, &dark, sizeof(dark));
+    return true;
+}
+#endif
+
 void ApplyTitleBarTheme(bool darkModeEnabled)
 {
 #if defined(Q_OS_WIN)
-    const BOOL dark = darkModeEnabled ? TRUE : FALSE;
     QWidgetList windows = QApplication::topLevelWidgets();
     Q_FOREACH (QWidget* window, windows)
     {
@@ -102,10 +131,7 @@ void ApplyTitleBarTheme(bool darkModeEnabled)
         if (!hwnd) {
             continue;
         }
-        const DWORD attrModern = 20; // DWMWA_USE_IMMERSIVE_DARK_MODE on newer SDKs
-        const DWORD attrLegacy = 19; // Older Windows 10 builds
-        DwmSetWindowAttribute(hwnd, attrModern, &dark, sizeof(dark));
-        DwmSetWindowAttribute(hwnd, attrLegacy, &dark, sizeof(dark));
+        SetWindowDarkTitleBar(hwnd, darkModeEnabled);
     }
 #else
     Q_UNUSED(darkModeEnabled);
@@ -123,14 +149,8 @@ public:
 #if defined(Q_OS_WIN)
             QWidget* window = qobject_cast<QWidget*>(watched);
             if (window && window->isWindow()) {
-                const BOOL dark = TRUE;
                 HWND hwnd = reinterpret_cast<HWND>(window->winId());
-                if (hwnd) {
-                    const DWORD attrModern = 20; // DWMWA_USE_IMMERSIVE_DARK_MODE on newer SDKs
-                    const DWORD attrLegacy = 19; // Older Windows 10 builds
-                    DwmSetWindowAttribute(hwnd, attrModern, &dark, sizeof(dark));
-                    DwmSetWindowAttribute(hwnd, attrLegacy, &dark, sizeof(dark));
-                }
+                SetWindowDarkTitleBar(hwnd, true);
             }
 #endif
         }
