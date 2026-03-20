@@ -188,6 +188,7 @@ testScripts = [
     'pqc_testnet_checkpoint_scan_test.py',
     'pqc_rpc_generate_commitment_test.py',
     'pqc_send_rpc.py',
+    'p2p-blockfilters.py',
 ]
 if ENABLE_ZMQ:
     testScripts.append('zmq_test.py')
