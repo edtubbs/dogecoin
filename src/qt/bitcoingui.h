@@ -112,6 +112,7 @@ private:
     QAction *encryptWalletAction;
     QAction *backupWalletAction;
     QAction *backupWalletEncryptedAction;
+    QAction *pqcSignatureDialogAction;
     QAction *changePassphraseAction;
     QAction *aboutQtAction;
     QAction *openRPCConsoleAction;

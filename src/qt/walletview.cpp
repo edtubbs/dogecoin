@@ -27,17 +27,26 @@
 
 #include "crypto/sha256.h"
 #include "random.h"
+#include "rpc/protocol.h"
+#include "rpc/server.h"
 #include "support/cleanse.h"
+
+#include <univalue.h>
 
 #include <QAction>
 #include <QActionGroup>
+#include <QComboBox>
 #include <QFileDialog>
 #include <QHBoxLayout>
 #include <QInputDialog>
+#include <QDialog>
+#include <QDialogButtonBox>
+#include <QFormLayout>
 #include <QLineEdit>
 #include <QFile>
 #include <QProgressDialog>
 #include <QPushButton>
+#include <QTextEdit>
 #include <QVBoxLayout>
 
 WalletView::WalletView(const PlatformStyle *_platformStyle, QWidget *parent):
@@ -326,12 +335,12 @@ void WalletView::backupWalletEncrypted()
     std::vector<unsigned char> salt(WALLET_CRYPTO_SALT_SIZE);
     GetStrongRandBytes(salt.data(), WALLET_CRYPTO_SALT_SIZE);
     CCrypter crypter;
-    std::string passphraseStd = passphrase.toStdString();
-    SecureString pass(passphraseStd.begin(), passphraseStd.end());
-    if (!passphraseStd.empty()) {
-        memory_cleanse(&passphraseStd[0], passphraseStd.size());
-    }
+    QByteArray passphraseBytes = passphrase.toUtf8();
+    SecureString pass(passphraseBytes.constData(), passphraseBytes.constData() + passphraseBytes.size());
     if (!crypter.SetKeyFromPassphrase(pass, salt, 25000, 0)) {
+        if (!passphraseBytes.isEmpty()) {
+            memory_cleanse(passphraseBytes.data(), passphraseBytes.size());
+        }
         if (!plain.isEmpty()) {
             memory_cleanse(plain.data(), plain.size());
         }
@@ -343,10 +352,15 @@ void WalletView::backupWalletEncrypted()
 
     CKeyingMaterial plainMaterial(reinterpret_cast<const unsigned char*>(plain.constData()),
                                   reinterpret_cast<const unsigned char*>(plain.constData()) + plain.size());
+    memory_cleanse(plain.data(), plain.size());
     std::vector<unsigned char> cipher;
     if (!crypter.Encrypt(plainMaterial, cipher)) {
-        if (!plain.isEmpty()) {
-            memory_cleanse(plain.data(), plain.size());
+        if (!passphraseBytes.isEmpty()) {
+            memory_cleanse(passphraseBytes.data(), passphraseBytes.size());
+        }
+        if (!plainMaterial.empty()) {
+            memory_cleanse(&plainMaterial[0], plainMaterial.size());
+            plainMaterial.clear();
         }
         QFile::remove(walletFilename);
         Q_EMIT message(tr("Encryption Failed"), tr("Unable to encrypt wallet backup."),
@@ -354,7 +368,15 @@ void WalletView::backupWalletEncrypted()
         return;
     }
 
-    const QByteArray algo = "AES256-CBC+PQC-FALCON-LABEL";
+    if (!plainMaterial.empty()) {
+        memory_cleanse(&plainMaterial[0], plainMaterial.size());
+        plainMaterial.clear();
+    }
+    if (!passphraseBytes.isEmpty()) {
+        memory_cleanse(passphraseBytes.data(), passphraseBytes.size());
+    }
+
+    const QByteArray algo = "AES256-CBC+PQC-ENVELOPE";
     CSHA256 hasher;
     hasher.Write(reinterpret_cast<const unsigned char*>(algo.constData()), algo.size());
     hasher.Write(reinterpret_cast<const unsigned char*>(salt.data()), salt.size());
@@ -366,9 +388,6 @@ void WalletView::backupWalletEncrypted()
     QFile outFile(outFilename);
     if (!outFile.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
         memory_cleanse(digest, sizeof(digest));
-        if (!plain.isEmpty()) {
-            memory_cleanse(plain.data(), plain.size());
-        }
         QFile::remove(walletFilename);
         Q_EMIT message(tr("Encryption Failed"), tr("Unable to write encrypted wallet backup %1.").arg(outFilename),
             CClientUIInterface::MSG_ERROR);
@@ -391,13 +410,62 @@ void WalletView::backupWalletEncrypted()
     outFile.close();
 
     memory_cleanse(digest, sizeof(digest));
-    if (!plain.isEmpty()) {
-        memory_cleanse(plain.data(), plain.size());
-    }
     QFile::remove(walletFilename);
 
     Q_EMIT message(tr("Backup Successful"), tr("The encrypted wallet backup was successfully saved to %1.").arg(outFilename),
         CClientUIInterface::MSG_INFORMATION);
+}
+
+void WalletView::showPQCSignatureDialog()
+{
+    QDialog dlg(this);
+    dlg.setWindowTitle(tr("Generate PQC Commitment"));
+    QVBoxLayout* vbox = new QVBoxLayout(&dlg);
+    QFormLayout* form = new QFormLayout();
+
+    QComboBox* algorithm = new QComboBox(&dlg);
+    algorithm->addItem("falcon512");
+    algorithm->addItem("dilithium2");
+
+    QLineEdit* publicKeyHex = new QLineEdit(&dlg);
+    QLineEdit* signatureHex = new QLineEdit(&dlg);
+    QTextEdit* result = new QTextEdit(&dlg);
+    result->setReadOnly(true);
+    result->setMinimumHeight(120);
+
+    form->addRow(tr("Algorithm:"), algorithm);
+    form->addRow(tr("Public key (hex):"), publicKeyHex);
+    form->addRow(tr("Signature (hex):"), signatureHex);
+    vbox->addLayout(form);
+    vbox->addWidget(result);
+
+    QDialogButtonBox* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Close, &dlg);
+    buttons->button(QDialogButtonBox::Ok)->setText(tr("Generate"));
+    vbox->addWidget(buttons);
+
+    connect(buttons, &QDialogButtonBox::rejected, &dlg, &QDialog::reject);
+    connect(buttons->button(QDialogButtonBox::Ok), &QPushButton::clicked, [&]() {
+        if (!walletModel) {
+            result->setPlainText(tr("Wallet model is not available."));
+            return;
+        }
+        UniValue params(UniValue::VARR);
+        params.push_back(UniValue(algorithm->currentText().toStdString()));
+        params.push_back(UniValue(publicKeyHex->text().trimmed().toStdString()));
+        params.push_back(UniValue(signatureHex->text().trimmed().toStdString()));
+        JSONRPCRequest req;
+        req.strMethod = "generatepqccommitment";
+        req.params = params;
+        req.fHelp = false;
+        try {
+            UniValue out = tableRPC.execute(req);
+            result->setPlainText(QString::fromStdString(out.write(2)));
+        } catch (const std::exception& e) {
+            result->setPlainText(tr("Error: %1").arg(QString::fromStdString(e.what())));
+        }
+    });
+
+    dlg.exec();
 }
 
 void WalletView::changePassphrase()
