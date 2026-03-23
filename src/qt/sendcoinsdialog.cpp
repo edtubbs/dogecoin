@@ -25,12 +25,23 @@
 #include "txmempool.h"
 #include "wallet/wallet.h"
 
+#include <univalue.h>
+
 #include <QFontMetrics>
+#include <QFormLayout>
+#include <QInputDialog>
+#include <QLabel>
+#include <QLineEdit>
 #include <QMessageBox>
+#include <QPushButton>
 #include <QScrollBar>
 #include <QSettings>
 #include <QTextDocument>
 #include <QTimer>
+#include <QVBoxLayout>
+
+#include "rpc/protocol.h"
+#include "rpc/server.h"
 
 #define SEND_CONFIRM_DELAY   3
 #define CHARACTERS_DISPLAY_LIMIT_IN_LABEL 45
@@ -58,10 +69,43 @@ SendCoinsDialog::SendCoinsDialog(const PlatformStyle *_platformStyle, QWidget *p
 
     GUIUtil::setupAddressWidget(ui->lineEditCoinControlChange, this);
 
+    QFrame *pqcFrame = new QFrame(this);
+    pqcFrame->setFrameShape(QFrame::StyledPanel);
+    pqcFrame->setFrameShadow(QFrame::Sunken);
+    QVBoxLayout *pqcLayout = new QVBoxLayout(pqcFrame);
+    QHBoxLayout *pqcHeaderLayout = new QHBoxLayout();
+    QLabel *pqcHeader = new QLabel(tr("PQC Commitment"), pqcFrame);
+    QFont pqcFont = pqcHeader->font();
+    pqcFont.setBold(true);
+    pqcHeader->setFont(pqcFont);
+    pqcHeaderLayout->addWidget(pqcHeader);
+    pqcHeaderLayout->addStretch();
+    pqcGenerateButton = new QPushButton(tr("Generate Commitment"), pqcFrame);
+    pqcDecodeButton = new QPushButton(tr("Decode Commitment"), pqcFrame);
+    pqcDecodeButton->setEnabled(false);
+    pqcHeaderLayout->addWidget(pqcGenerateButton);
+    pqcHeaderLayout->addWidget(pqcDecodeButton);
+    pqcLayout->addLayout(pqcHeaderLayout);
+
+    QFormLayout *pqcForm = new QFormLayout();
+    pqcCommitmentLineEdit = new QLineEdit(pqcFrame);
+    pqcCommitmentLineEdit->setReadOnly(true);
+    pqcCommitmentLineEdit->setPlaceholderText(tr("Generated commitment hash"));
+    pqcScriptPubKeyLineEdit = new QLineEdit(pqcFrame);
+    pqcScriptPubKeyLineEdit->setReadOnly(true);
+    pqcScriptPubKeyLineEdit->setPlaceholderText(tr("Generated OP_RETURN scriptPubKey"));
+    pqcForm->addRow(tr("Commitment:"), pqcCommitmentLineEdit);
+    pqcForm->addRow(tr("ScriptPubKey:"), pqcScriptPubKeyLineEdit);
+    pqcLayout->addLayout(pqcForm);
+
+    ui->verticalLayout->insertWidget(2, pqcFrame);
+
     addEntry();
 
     connect(ui->addButton, SIGNAL(clicked()), this, SLOT(addEntry()));
     connect(ui->clearButton, SIGNAL(clicked()), this, SLOT(clear()));
+    connect(pqcGenerateButton, SIGNAL(clicked()), this, SLOT(onGeneratePqcCommitmentClicked()));
+    connect(pqcDecodeButton, SIGNAL(clicked()), this, SLOT(onDecodePqcCommitmentClicked()));
 
     // Coin Control
     connect(ui->pushButtonCoinControl, SIGNAL(clicked()), this, SLOT(coinControlButtonClicked()));
@@ -348,6 +392,15 @@ void SendCoinsDialog::on_sendButton_clicked()
 
 void SendCoinsDialog::clear()
 {
+    if (pqcCommitmentLineEdit) {
+        pqcCommitmentLineEdit->clear();
+    }
+    if (pqcScriptPubKeyLineEdit) {
+        pqcScriptPubKeyLineEdit->clear();
+    }
+    if (pqcDecodeButton) {
+        pqcDecodeButton->setEnabled(false);
+    }
     // Remove entries until only one left
     while(ui->entries->count())
     {
@@ -356,6 +409,102 @@ void SendCoinsDialog::clear()
     addEntry();
 
     updateTabsAndLabels();
+}
+
+void SendCoinsDialog::onGeneratePqcCommitmentClicked()
+{
+    if (!model) {
+        Q_EMIT message(tr("PQC Commitment"), tr("Wallet model is not available."), CClientUIInterface::MSG_ERROR);
+        return;
+    }
+
+    bool ok = false;
+    QString algorithm = QInputDialog::getItem(
+        this,
+        tr("Select PQC Algorithm"),
+        tr("Algorithm:"),
+        QStringList() << "falcon512" << "dilithium2",
+        0,
+        false,
+        &ok);
+    if (!ok || algorithm.isEmpty()) {
+        return;
+    }
+
+    QString publicKeyHex = QInputDialog::getText(
+        this,
+        tr("PQC Public Key"),
+        tr("Public key (hex):"),
+        QLineEdit::Normal,
+        QString(),
+        &ok);
+    if (!ok || publicKeyHex.trimmed().isEmpty()) {
+        return;
+    }
+
+    QString signatureHex = QInputDialog::getText(
+        this,
+        tr("PQC Signature"),
+        tr("Signature (hex):"),
+        QLineEdit::Normal,
+        QString(),
+        &ok);
+    if (!ok || signatureHex.trimmed().isEmpty()) {
+        return;
+    }
+
+    try {
+        UniValue params(UniValue::VARR);
+        params.push_back(UniValue(algorithm.trimmed().toStdString()));
+        params.push_back(UniValue(publicKeyHex.trimmed().toStdString()));
+        params.push_back(UniValue(signatureHex.trimmed().toStdString()));
+        JSONRPCRequest req;
+        req.strMethod = "generatepqccommitment";
+        req.params = params;
+        req.fHelp = false;
+        UniValue out = tableRPC.execute(req);
+        const UniValue& outObj = out.get_obj();
+        QString commitment = QString::fromStdString(find_value(outObj, "commitment").get_str());
+        QString scriptPubKey = QString::fromStdString(find_value(outObj, "scriptPubKey").get_str());
+        pqcCommitmentLineEdit->setText(commitment);
+        pqcScriptPubKeyLineEdit->setText(scriptPubKey);
+        pqcDecodeButton->setEnabled(!commitment.isEmpty() && !scriptPubKey.isEmpty());
+    } catch (const std::exception& e) {
+        Q_EMIT message(tr("PQC Commitment"), tr("Error: %1").arg(QString::fromStdString(e.what())), CClientUIInterface::MSG_ERROR);
+    }
+}
+
+void SendCoinsDialog::onDecodePqcCommitmentClicked()
+{
+    const QString commitment = pqcCommitmentLineEdit ? pqcCommitmentLineEdit->text().trimmed() : QString();
+    const QString scriptPubKey = pqcScriptPubKeyLineEdit ? pqcScriptPubKeyLineEdit->text().trimmed() : QString();
+    if (commitment.isEmpty() || scriptPubKey.isEmpty()) {
+        Q_EMIT message(tr("Decode PQC Commitment"), tr("Generate a PQC commitment first."), CClientUIInterface::MSG_WARNING);
+        return;
+    }
+
+    QString algorithmTag = tr("Unknown");
+    if (scriptPubKey.size() >= 12) {
+        const QString maybeTagHex = scriptPubKey.mid(4, 8).toUpper();
+        if (maybeTagHex == "464C4331") {
+            algorithmTag = "FLC1 (falcon512)";
+        } else if (maybeTagHex == "44494C32") {
+            algorithmTag = "DIL2 (dilithium2)";
+        }
+    }
+
+    QString decoded;
+    decoded += tr("Commitment: %1").arg(commitment);
+    decoded += "\n";
+    decoded += tr("ScriptPubKey: %1").arg(scriptPubKey);
+    decoded += "\n";
+    decoded += tr("Script starts with OP_RETURN: %1").arg(scriptPubKey.startsWith("6a24", Qt::CaseInsensitive) ? tr("yes") : tr("no"));
+    decoded += "\n";
+    decoded += tr("Algorithm tag: %1").arg(algorithmTag);
+    decoded += "\n";
+    decoded += tr("Extracted commitment from script: %1").arg(scriptPubKey.size() >= 76 ? scriptPubKey.mid(12, 64) : tr("n/a"));
+
+    QMessageBox::information(this, tr("Decoded PQC Commitment"), decoded);
 }
 
 void SendCoinsDialog::reject()

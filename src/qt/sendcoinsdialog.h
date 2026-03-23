@@ -9,6 +9,7 @@
 #include "walletmodel.h"
 
 #include <QDialog>
+#include <QLineEdit>
 #include <QMessageBox>
 #include <QString>
 #include <QTimer>
@@ -16,6 +17,7 @@
 class ClientModel;
 class OptionsModel;
 class PlatformStyle;
+class QPushButton;
 class SendCoinsEntry;
 class SendCoinsRecipient;
 
@@ -63,6 +65,10 @@ private:
     bool fNewRecipientAllowed;
     bool fFeeMinimized;
     const PlatformStyle *platformStyle;
+    QLineEdit *pqcCommitmentLineEdit;
+    QLineEdit *pqcScriptPubKeyLineEdit;
+    QPushButton *pqcGenerateButton;
+    QPushButton *pqcDecodeButton;
 
     // Process WalletModel::SendCoinsReturn and generate a pair consisting
     // of a message and message flags for use in Q_EMIT message().
@@ -94,6 +100,8 @@ private Q_SLOTS:
     void updateMinFeeLabel();
     void updateFeeLabel();
     void updateGlobalFeeVariables();
+    void onGeneratePqcCommitmentClicked();
+    void onDecodePqcCommitmentClicked();
 
 Q_SIGNALS:
     // Fired when a message should be reported to the user
