@@ -20,10 +20,6 @@
 #include <QStyleFactory>
 #include <QWidget>
 
-#if defined(Q_OS_WIN)
-#include <windows.h>
-#endif
-
 static const struct {
     const char *platformId;
     /** Show images on push buttons */
@@ -87,78 +83,6 @@ const DarkTintColors& ActiveDarkTintColors()
     return DARK_TINTS[CurrentDarkTintFromSettings()];
 }
 
-#if defined(Q_OS_WIN)
-bool SetWindowDarkTitleBar(HWND hwnd, bool darkModeEnabled)
-{
-    if (!hwnd) {
-        return false;
-    }
-
-    typedef HRESULT (WINAPI *DwmSetWindowAttributePtr)(HWND, DWORD, LPCVOID, DWORD);
-    HMODULE dwmapi = GetModuleHandleW(L"dwmapi.dll");
-    if (!dwmapi) {
-        dwmapi = LoadLibraryW(L"dwmapi.dll");
-    }
-    if (!dwmapi) {
-        return false;
-    }
-
-    DwmSetWindowAttributePtr setWindowAttribute =
-        reinterpret_cast<DwmSetWindowAttributePtr>(GetProcAddress(dwmapi, "DwmSetWindowAttribute"));
-    if (!setWindowAttribute) {
-        return false;
-    }
-
-    const BOOL dark = darkModeEnabled ? TRUE : FALSE;
-    const DWORD attrModern = 20; // DWMWA_USE_IMMERSIVE_DARK_MODE on newer SDKs
-    const DWORD attrLegacy = 19; // Older Windows 10 builds
-    setWindowAttribute(hwnd, attrModern, &dark, sizeof(dark));
-    setWindowAttribute(hwnd, attrLegacy, &dark, sizeof(dark));
-    return true;
-}
-#endif
-
-void ApplyTitleBarTheme(bool darkModeEnabled)
-{
-#if defined(Q_OS_WIN)
-    QWidgetList windows = QApplication::topLevelWidgets();
-    Q_FOREACH (QWidget* window, windows)
-    {
-        if (!window) {
-            continue;
-        }
-        HWND hwnd = reinterpret_cast<HWND>(window->winId());
-        if (!hwnd) {
-            continue;
-        }
-        SetWindowDarkTitleBar(hwnd, darkModeEnabled);
-    }
-#else
-    Q_UNUSED(darkModeEnabled);
-#endif
-}
-
-class DarkTitleBarEventFilter : public QObject
-{
-public:
-    explicit DarkTitleBarEventFilter(QObject* parent = 0) : QObject(parent) {}
-
-    bool eventFilter(QObject* watched, QEvent* event)
-    {
-        if (event && event->type() == QEvent::Show && PlatformStyle::isDarkModeEnabled()) {
-#if defined(Q_OS_WIN)
-            QWidget* window = qobject_cast<QWidget*>(watched);
-            if (window && window->isWindow()) {
-                HWND hwnd = reinterpret_cast<HWND>(window->winId());
-                SetWindowDarkTitleBar(hwnd, true);
-            }
-#endif
-        }
-        return QObject::eventFilter(watched, event);
-    }
-};
-
-DarkTitleBarEventFilter* g_darkTitleBarEventFilter = 0;
 }
 
 namespace {
@@ -348,11 +272,6 @@ void PlatformStyle::applyTheme(bool darkModeEnabled)
         return;
     }
 
-    if (!g_darkTitleBarEventFilter) {
-        g_darkTitleBarEventFilter = new DarkTitleBarEventFilter(qApp);
-        qApp->installEventFilter(g_darkTitleBarEventFilter);
-    }
-
     QStyle* fusionStyle = QStyleFactory::create("Fusion");
     if (fusionStyle) {
         QApplication::setStyle(fusionStyle);
@@ -369,7 +288,6 @@ void PlatformStyle::applyTheme(bool darkModeEnabled)
         QApplication::setPalette(currentStyle ? currentStyle->standardPalette() : QPalette());
         qApp->setStyleSheet("");
     }
-    ApplyTitleBarTheme(darkModeEnabled);
 }
 
 void PlatformStyle::setDarkModeEnabled(bool enabled)
