@@ -87,6 +87,8 @@ def compute_pqc_script(algo: str, pubkey_hex: str, signature_hex: str) -> str:
     pubkey = normalize_hex(pubkey_hex)
     signature = normalize_hex(signature_hex)
     commitment = hashlib.sha256(pubkey + signature).digest()
+    if algo != "falcon512":
+        raise ValueError(f"unsupported pqc algorithm for script tag: {algo}")
     tag = b"FLC1"
     return (bytes([0x6A, 0x24]) + tag + commitment).hex()
 
@@ -275,20 +277,22 @@ def main() -> int:
     block_hash = ""
     output_log_path = args.output_log or default_output_log_path(txid)
     console_log_path = args.console_log or default_console_log_path(output_log_path)
-    console_log_file = open(console_log_path, "w", encoding="utf-8")
     console_log_lock = threading.Lock()
+    console_log_file = None
 
     def _capture_console_output() -> None:
-        if process.stdout is None:
+        if process.stdout is None or console_log_file is None:
             return
         for line in process.stdout:
             with console_log_lock:
                 console_log_file.write(line)
                 console_log_file.flush()
 
-    console_capture_thread = threading.Thread(target=_capture_console_output, daemon=True)
-    console_capture_thread.start()
+    console_capture_thread = None
     try:
+        console_log_file = open(console_log_path, "w", encoding="utf-8")
+        console_capture_thread = threading.Thread(target=_capture_console_output, daemon=True)
+        console_capture_thread.start()
         try:
             rpc = wait_for_rpc(rpc_url, args.sync_timeout)
             current_height = wait_for_sync(rpc, wait_height, args.sync_timeout)
@@ -396,10 +400,12 @@ def main() -> int:
             except Exception:
                 pass
         process.wait(timeout=90)
-        console_capture_thread.join(timeout=5)
-        with console_log_lock:
-            console_log_file.flush()
-            console_log_file.close()
+        if console_capture_thread is not None:
+            console_capture_thread.join(timeout=5)
+        if console_log_file is not None:
+            with console_log_lock:
+                console_log_file.flush()
+                console_log_file.close()
         if datadir_created and not args.nocleanup:
             shutil.rmtree(datadir, ignore_errors=True)
 

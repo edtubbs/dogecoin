@@ -1,5 +1,5 @@
-block_hash: a7981d5a688652a28b3b179f200287610318cf72ebbb31bf60af639cd2c586fb
-checkpoint_hash: 1949d4702e4d3b24ba2cfef435e13a45cdb0f1cdb394b1722a0749a934738308
+block_hash: 3324b72430459362cd8700c377370d87da94f053cc629d7a1a6c43a1b53461bf
+checkpoint_hash: de38ec9aabeb436f89c2e1bdeb98c0efba62e9f171b2ca9f2fa1fa88f5f4445a
 checkpoint_height: 1
 checkpoint_sync_reached: true
 checkpoint_sync_target_height: 1
@@ -8,8 +8,8 @@ commitment_hex: b8811ee16066dbc91557b6fa55f0d31edc575c97673cd678239965dcfb56d9a2
 commitment_type: FLC1
 console_log_path: /home/runner/work/dogecoin/dogecoin/doc/spec/core-e2e-validation-real.console.log
 core_tx_validation: true
-date_utc: 2026-03-23T17:57:38.419906Z
-dogecoin_testnet_wallet_address: my9UuGr9Hyziejfw3P69BJ1B4q8wHJP9tT
+date_utc: 2026-03-23T18:01:15.047389Z
+dogecoin_testnet_wallet_address: msMiyyogrZ7JPgcKZMnJpQ8Txj2oJtBSaz
 height: 121
 match: true
 match_on_chain_address: true
@@ -24,6 +24,6 @@ sync_target_height: 121
 synced_height: 122
 tag: FLC1
 testnet_block_sync_from_checkpoint: false
-txid: f3cf81ce8025cd00f3a50a33f42cc1e64a50aaaa9fa7ed475e8a32dad8d668a3
-txis: f3cf81ce8025cd00f3a50a33f42cc1e64a50aaaa9fa7ed475e8a32dad8d668a3
-wallet_address: my9UuGr9Hyziejfw3P69BJ1B4q8wHJP9tT
+txid: 68033582c858a07dac216a4333a6d53e0cdb12ce65d11a92d8b0f2ca90741791
+txis: 68033582c858a07dac216a4333a6d53e0cdb12ce65d11a92d8b0f2ca90741791
+wallet_address: msMiyyogrZ7JPgcKZMnJpQ8Txj2oJtBSaz
