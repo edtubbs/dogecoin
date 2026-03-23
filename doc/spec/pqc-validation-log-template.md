@@ -32,14 +32,19 @@ python3 qa/rpc-tests/pqc_testnet_checkpoint_scan.py \
 ```
 
 `--output-log` writes a template-compatible key/value logfile for the Core-based
-end-to-end run (including `match`, checkpoint data, and on-chain match flags).
+end-to-end run (including `match`, checkpoint data, on-chain match flags, and
+the `console_log_path` to the captured node console stream).
 If omitted, the script still writes a logfile to
 `core-e2e-validation-<txid>.log` in the current working directory.
+By default, dogecoind console output is captured to
+`core-e2e-validation-<txid>.console.log` (override with `--console-log`) so
+runtime lines like UpdateTip/progress can be reviewed.
 For libdogecoin E2E interoperability, CLI aliases are supported:
 `--txis` (`--txid`), `--tag` (`--commitment-type`), `--pubkey`,
 `--signature`, and `--dogecoin-testnet-wallet-address`.
 A captured Core run artifact is committed at
 `doc/spec/core-e2e-validation-real.log`.
+Captured console artifact: `doc/spec/core-e2e-validation-real.console.log`.
 
 ```
 date_utc:
@@ -62,4 +67,5 @@ checkpoint_sync_reached: true|false
 testnet_block_sync_from_checkpoint: true|false
 sync_target_height:
 notes:
+console_log_path:
 ```

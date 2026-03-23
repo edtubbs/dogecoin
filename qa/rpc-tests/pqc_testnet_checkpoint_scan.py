@@ -13,6 +13,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 from typing import Dict, Optional
 
@@ -31,6 +32,13 @@ def write_log_file(path: str, fields: Dict[str, str]) -> None:
 
 def default_output_log_path(txid: str) -> str:
     return os.path.abspath(f"core-e2e-validation-{txid}.log")
+
+
+def default_console_log_path(output_log_path: str) -> str:
+    root, ext = os.path.splitext(output_log_path)
+    if ext.lower() == ".log":
+        return f"{root}.console.log"
+    return f"{output_log_path}.console.log"
 
 
 def utc_now_z() -> str:
@@ -168,6 +176,7 @@ def main() -> int:
     parser.add_argument("--p2p-port", type=int)
     parser.add_argument("--addnode", action="append", default=[], help="Optional addnode peers (repeatable)")
     parser.add_argument("--output-log", help="Write end-to-end run log to this file path")
+    parser.add_argument("--console-log", help="Write captured dogecoind console output to this file path")
     parser.add_argument("--nocleanup", action="store_true", help="Do not clean temporary datadir on exit")
     args = parser.parse_args()
 
@@ -235,6 +244,7 @@ def main() -> int:
         f"-{args.network}",
         f"-checkpoints={1 if args.network == 'testnet' else 0}",
         "-txindex=1",
+        "-printtoconsole=1",
         f"-datadir={datadir}",
         "-server",
         "-listen=0",
@@ -249,7 +259,13 @@ def main() -> int:
     for peer in args.addnode:
         command.append(f"-addnode={peer}")
 
-    process = subprocess.Popen(command)
+    process = subprocess.Popen(
+        command,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        bufsize=1,
+    )
     rpc = None
     checkpoint_hash = ""
     current_height = -1
@@ -258,6 +274,20 @@ def main() -> int:
     match_on_chain_address = wallet_address is None
     block_hash = ""
     output_log_path = args.output_log or default_output_log_path(txid)
+    console_log_path = args.console_log or default_console_log_path(output_log_path)
+    console_log_file = open(console_log_path, "w", encoding="utf-8")
+    console_log_lock = threading.Lock()
+
+    def _capture_console_output() -> None:
+        if process.stdout is None:
+            return
+        for line in process.stdout:
+            with console_log_lock:
+                console_log_file.write(line)
+                console_log_file.flush()
+
+    console_capture_thread = threading.Thread(target=_capture_console_output, daemon=True)
+    console_capture_thread.start()
     try:
         try:
             rpc = wait_for_rpc(rpc_url, args.sync_timeout)
@@ -298,6 +328,7 @@ def main() -> int:
                         "checkpoint_sync_reached": "true" if did_reach_checkpoint(current_height, args.checkpoint_height) else "false",
                         "checkpoint_sync_target_height": str(args.checkpoint_height),
                         "checkpoints_enabled": "true" if args.network == "testnet" else "false",
+                        "console_log_path": console_log_path,
                         "commitment_hex": commitment_hex,
                         "commitment_type": "FLC1",
                         "date_utc": utc_now_z(),
@@ -332,6 +363,7 @@ def main() -> int:
                     "checkpoint_sync_reached": "true" if did_reach_checkpoint(current_height, args.checkpoint_height) else "false",
                     "checkpoint_sync_target_height": str(args.checkpoint_height),
                     "checkpoints_enabled": "true" if args.network == "testnet" else "false",
+                    "console_log_path": console_log_path,
                     "commitment_hex": commitment_hex,
                     "commitment_type": "FLC1",
                     "date_utc": utc_now_z(),
@@ -364,6 +396,10 @@ def main() -> int:
             except Exception:
                 pass
         process.wait(timeout=90)
+        console_capture_thread.join(timeout=5)
+        with console_log_lock:
+            console_log_file.flush()
+            console_log_file.close()
         if datadir_created and not args.nocleanup:
             shutil.rmtree(datadir, ignore_errors=True)
 

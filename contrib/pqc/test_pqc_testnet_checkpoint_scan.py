@@ -87,6 +87,16 @@ wallet_address: nXBQ8M5xFf7f8sM2jQY5q2f2uvvE4nStQd
         path = MODULE.default_output_log_path("abcd1234")
         self.assertTrue(path.endswith("core-e2e-validation-abcd1234.log"))
 
+    def test_default_console_log_path_uses_output_log_stem(self) -> None:
+        self.assertEqual(
+            MODULE.default_console_log_path("/tmp/core-e2e-validation-abcd1234.log"),
+            "/tmp/core-e2e-validation-abcd1234.console.log",
+        )
+        self.assertEqual(
+            MODULE.default_console_log_path("/tmp/custom-output"),
+            "/tmp/custom-output.console.log",
+        )
+
     def test_did_reach_checkpoint(self) -> None:
         self.assertTrue(MODULE.did_reach_checkpoint(5900000, 5900000))
         self.assertTrue(MODULE.did_reach_checkpoint(5900001, 5900000))
