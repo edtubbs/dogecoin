@@ -220,6 +220,7 @@ BitcoinGUI::BitcoinGUI(const PlatformStyle *_platformStyle, const NetworkStyle *
     themeToggleButton->setAutoRaise(true);
     themeToggleButton->setCursor(Qt::PointingHandCursor);
     themeToggleButton->setContextMenuPolicy(Qt::CustomContextMenu);
+    themeToggleButton->setStyleSheet(QString("QToolButton { color : %1; }").arg(platformStyle->SingleColor().name()));
     themeTintMenu = new QMenu(themeToggleButton);
     QActionGroup* tintGroup = new QActionGroup(themeTintMenu);
     tintGroup->setExclusive(true);
