@@ -1266,8 +1266,10 @@ void BitcoinGUI::updateDarkModeToggleText()
         return;
     }
     const bool darkModeEnabled = PlatformStyle::isDarkModeEnabled();
-    themeToggleButton->setText(darkModeEnabled ? tr("Dark") : tr("Light"));
-    themeToggleButton->setToolTip(tr("Toggle dark mode (right-click for green tint options)"));
+    const QChar sunGlyph(0x2600);
+    const QChar moonGlyph(0x263E);
+    themeToggleButton->setText(darkModeEnabled ? QString(sunGlyph) : QString(moonGlyph));
+    themeToggleButton->setToolTip(darkModeEnabled ? tr("Switch to light mode (right-click for green tint options)") : tr("Switch to dark mode (right-click for green tint options)"));
 }
 
 void BitcoinGUI::showDarkTintMenu(const QPoint& point)

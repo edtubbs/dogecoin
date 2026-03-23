@@ -25,14 +25,16 @@
 #include <QApplication>
 #include <QCloseEvent>
 #include <QDesktopWidget>
+#include <QMenu>
 #include <QPainter>
 #include <QPushButton>
 #include <QRadialGradient>
+#include <QActionGroup>
 
 #include <boost/bind/bind.hpp>
 
 SplashScreen::SplashScreen(Qt::WindowFlags f, const NetworkStyle *networkStyle) :
-    QWidget(0, f), curAlignment(0), networkStyle(networkStyle), darkModeButton(nullptr)
+    QWidget(0, f), curAlignment(0), networkStyle(networkStyle), darkModeButton(nullptr), darkModeTintMenu(nullptr)
 {
     buildPixmap(PlatformStyle::isDarkModeEnabled());
 
@@ -46,7 +48,20 @@ SplashScreen::SplashScreen(Qt::WindowFlags f, const NetworkStyle *networkStyle) 
     setFixedSize(r.size());
     move(QApplication::desktop()->screenGeometry().center() - r.center());
     darkModeButton = new QPushButton(this);
+    darkModeButton->setContextMenuPolicy(Qt::CustomContextMenu);
+    darkModeTintMenu = new QMenu(darkModeButton);
+    QActionGroup* tintGroup = new QActionGroup(darkModeTintMenu);
+    tintGroup->setExclusive(true);
+    for (int tint = 0; tint < PlatformStyle::darkModeTintCount(); ++tint) {
+        QAction* tintAction = new QAction(PlatformStyle::darkModeTintName(tint), darkModeTintMenu);
+        tintAction->setData(tint);
+        tintAction->setCheckable(true);
+        tintGroup->addAction(tintAction);
+        darkModeTintMenu->addAction(tintAction);
+    }
     connect(darkModeButton, SIGNAL(clicked()), this, SLOT(toggleDarkMode()));
+    connect(darkModeButton, SIGNAL(customContextMenuRequested(QPoint)), this, SLOT(showDarkTintMenu(QPoint)));
+    connect(darkModeTintMenu, SIGNAL(triggered(QAction*)), this, SLOT(onDarkTintSelected(QAction*)));
     updateDarkModeButton();
     darkModeButton->show();
 
@@ -253,9 +268,33 @@ void SplashScreen::updateDarkModeButton()
     const QChar sunGlyph(0x2600);
     const QChar moonGlyph(0x263E);
     darkModeButton->setText(darkModeEnabled ? QString(sunGlyph) : QString(moonGlyph));
-    darkModeButton->setToolTip(darkModeEnabled ? tr("Switch to light mode") : tr("Switch to dark mode"));
+    darkModeButton->setToolTip(darkModeEnabled ? tr("Switch to light mode (right-click for green tint options)") : tr("Switch to dark mode (right-click for green tint options)"));
     darkModeButton->setFixedSize(24, 24);
     darkModeButton->move(width() - darkModeButton->width() - 10, height() - darkModeButton->height() - 10);
+}
+
+void SplashScreen::showDarkTintMenu(const QPoint& point)
+{
+    if (!darkModeTintMenu || !darkModeButton) {
+        return;
+    }
+    const int currentTint = PlatformStyle::darkModeTint();
+    Q_FOREACH (QAction* action, darkModeTintMenu->actions())
+    {
+        action->setChecked(action->data().toInt() == currentTint);
+    }
+    darkModeTintMenu->exec(darkModeButton->mapToGlobal(point));
+}
+
+void SplashScreen::onDarkTintSelected(QAction* action)
+{
+    if (!action) {
+        return;
+    }
+    PlatformStyle::setDarkModeTint(action->data().toInt());
+    buildPixmap(PlatformStyle::isDarkModeEnabled());
+    updateDarkModeButton();
+    update();
 }
 
 void SplashScreen::paintEvent(QPaintEvent *event)
