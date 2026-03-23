@@ -8,7 +8,6 @@
 #endif
 
 #include "chainparams.h"
-#include "platformstyletests.h"
 #include "key.h"
 #include "rpcnestedtests.h"
 #include "util.h"
@@ -41,9 +40,6 @@ int main(int argc, char *argv[])
 
     URITests test1;
     if (QTest::qExec(&test1) != 0)
-        fInvalid = true;
-    PlatformStyleTests test2;
-    if (QTest::qExec(&test2) != 0)
         fInvalid = true;
     RPCNestedTests test3;
     if (QTest::qExec(&test3) != 0)

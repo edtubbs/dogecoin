@@ -220,7 +220,6 @@ BitcoinGUI::BitcoinGUI(const PlatformStyle *_platformStyle, const NetworkStyle *
     themeToggleButton->setAutoRaise(true);
     themeToggleButton->setCursor(Qt::PointingHandCursor);
     themeToggleButton->setContextMenuPolicy(Qt::CustomContextMenu);
-    themeToggleButton->setStyleSheet(QString("QToolButton { color : %1; }").arg(platformStyle->SingleColor().name()));
     themeTintMenu = new QMenu(themeToggleButton);
     QActionGroup* tintGroup = new QActionGroup(themeTintMenu);
     tintGroup->setExclusive(true);
@@ -1269,6 +1268,7 @@ void BitcoinGUI::updateDarkModeToggleText()
     const bool darkModeEnabled = PlatformStyle::isDarkModeEnabled();
     const QChar sunGlyph(0x2600);
     const QChar moonGlyph(0x263E);
+    themeToggleButton->setStyleSheet(QString("QToolButton { color : %1; }").arg(platformStyle->SingleColor().name()));
     themeToggleButton->setText(darkModeEnabled ? QString(sunGlyph) : QString(moonGlyph));
     themeToggleButton->setToolTip(darkModeEnabled ? tr("Switch to light mode (right-click for green tint options)") : tr("Switch to dark mode (right-click for green tint options)"));
 }
@@ -1292,6 +1292,7 @@ void BitcoinGUI::onDarkTintSelected(QAction* action)
         return;
     }
     PlatformStyle::setDarkModeTint(action->data().toInt());
+    updateDarkModeToggleText();
 }
 
 UnitDisplayStatusBarControl::UnitDisplayStatusBarControl(const PlatformStyle *platformStyle) :
