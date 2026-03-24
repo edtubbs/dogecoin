@@ -19,6 +19,7 @@
 #include "base58.h"
 #include "chainparams.h"
 #include "dogecoin-fees.h"
+#include "pqc/pqc_commitment.h"
 #include "wallet/coincontrol.h"
 #include "validation.h" // mempool and minRelayTxFeeRate
 #include "ui_interface.h"
@@ -290,10 +291,8 @@ void SendCoinsDialog::on_sendButton_clicked()
             Q_EMIT message(tr("PQC Commitment"), tr("Generate a commitment before including it in the transaction."), CClientUIInterface::MSG_WARNING);
             return;
         }
-        for (int i = 0; i < recipients.size(); ++i) {
-            recipients[i].includePqcCommitment = true;
-            recipients[i].pqcCommitmentScriptPubKey = pqcCommitmentScriptPubKeyHex.trimmed();
-        }
+        recipients[0].includePqcCommitment = true;
+        recipients[0].pqcCommitmentScriptPubKey = pqcCommitmentScriptPubKeyHex.trimmed();
     }
 
     fNewRecipientAllowed = false;
@@ -557,12 +556,15 @@ void SendCoinsDialog::onDecodePqcCommitmentClicked()
     }
 
     QString algorithmTag = tr("Unknown");
-    if (scriptPubKey.size() >= 12) {
-        const QString maybeTagHex = scriptPubKey.mid(4, 8).toUpper();
-        if (maybeTagHex == "464C4331") {
-            algorithmTag = "FLC1 (falcon512)";
-        } else if (maybeTagHex == "44494C32") {
-            algorithmTag = "DIL2 (dilithium2)";
+    QString extractedCommitment = tr("n/a");
+    if (IsHex(scriptPubKey.toStdString())) {
+        const std::vector<unsigned char> scriptBytes = ParseHex(scriptPubKey.toStdString());
+        CScript script(scriptBytes.begin(), scriptBytes.end());
+        PQCCommitmentType pqcType;
+        uint256 extracted;
+        if (PQCExtractCommitment(script, pqcType, extracted)) {
+            algorithmTag = QString::fromLatin1(PQCCommitmentTypeToString(pqcType));
+            extractedCommitment = QString::fromStdString(extracted.GetHex());
         }
     }
 
@@ -579,7 +581,7 @@ void SendCoinsDialog::onDecodePqcCommitmentClicked()
     decoded += "\n";
     decoded += tr("Algorithm tag: %1").arg(algorithmTag);
     decoded += "\n";
-    decoded += tr("Extracted commitment from script: %1").arg(scriptPubKey.size() >= 76 ? scriptPubKey.mid(12, 64) : tr("n/a"));
+    decoded += tr("Extracted commitment from script: %1").arg(extractedCommitment);
 
     QMessageBox::information(this, tr("Decoded PQC Commitment"), decoded);
 }
