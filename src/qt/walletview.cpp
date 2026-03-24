@@ -537,6 +537,7 @@ void WalletView::showPQCSignatureDialog()
     publicKeyHex->setPlaceholderText(tr("Hex-encoded public key"));
     signatureHex->setPlaceholderText(tr("Hex-encoded signature"));
     QPushButton* useStoredButton = new QPushButton(tr("Load Stored Public Key"), &dlg);
+    QPushButton* storePublicButton = new QPushButton(tr("Store Current Public Key"), &dlg);
     QPushButton* generateKeypairButton = new QPushButton(tr("Generate && Store Encrypted Key Pair"), &dlg);
     QPushButton* removeStoredButton = new QPushButton(tr("Remove Stored Key"), &dlg);
     QLabel* storedStatusLabel = new QLabel(&dlg);
@@ -551,6 +552,7 @@ void WalletView::showPQCSignatureDialog()
     vbox->addLayout(form);
     QHBoxLayout* keyButtons = new QHBoxLayout();
     keyButtons->addWidget(useStoredButton);
+    keyButtons->addWidget(storePublicButton);
     keyButtons->addWidget(generateKeypairButton);
     keyButtons->addWidget(removeStoredButton);
     vbox->addLayout(keyButtons);
@@ -596,6 +598,9 @@ void WalletView::showPQCSignatureDialog()
         if (!created.isEmpty()) {
             summary += tr(" (created %1)").arg(created);
         }
+        if (algorithm->currentText() == "falcon512") {
+            summary += tr(". This key is also used for encrypted wallet backup envelopes");
+        }
         summary += hasEncryptedPrivate
             ? tr(" with encrypted private key material.")
             : tr(" without encrypted private key material.");
@@ -633,6 +638,39 @@ void WalletView::showPQCSignatureDialog()
         }
         publicKeyHex->setText(pubHex);
         result->setPlainText(tr("Loaded stored %1 public key into the dialog.").arg(algorithm->currentText()));
+    });
+    connect(storePublicButton, &QPushButton::clicked, [&]() {
+        if (!walletModel) {
+            result->setPlainText(tr("Wallet model is not available."));
+            return;
+        }
+        const QString pubHex = publicKeyHex->text().trimmed();
+        if (pubHex.isEmpty()) {
+            result->setPlainText(tr("Enter a public key first."));
+            return;
+        }
+        if (QByteArray::fromHex(pubHex.toLatin1()).isEmpty()) {
+            result->setPlainText(tr("Public key must be valid hex."));
+            return;
+        }
+
+        QJsonObject keyObj;
+        keyObj["version"] = 1;
+        keyObj["algorithm"] = algorithm->currentText();
+        keyObj["created_utc"] = QDateTime::currentDateTimeUtc().toString(Qt::ISODate);
+        keyObj["public_key_hex"] = pubHex;
+        keyObj["source"] = "manual";
+        const QByteArray serialized = QJsonDocument(keyObj).toJson(QJsonDocument::Compact);
+
+        const char* storageKey = PQCStorageKeyForAlgorithm(algorithm->currentText());
+        if (!walletModel->saveWalletMeta(storageKey, serialized.toStdString())) {
+            result->setPlainText(tr("Failed to store %1 public key in wallet metadata.")
+                                 .arg(algorithm->currentText()));
+            return;
+        }
+        result->setPlainText(tr("Stored %1 public key in wallet metadata.")
+                             .arg(algorithm->currentText()));
+        refreshStoredStatus();
     });
     connect(removeStoredButton, &QPushButton::clicked, [&]() {
         if (!walletModel) {
