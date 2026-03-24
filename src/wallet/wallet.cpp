@@ -3891,19 +3891,25 @@ bool CWallet::InitLoadWallet()
     // Least Authority Audit Issue D: Automatic wallet backup on startup
     if (pwallet->fFileBacked && !GetBoolArg("-disableautobackup", false)) {
         const fs::path backupDir = GetBackupDir();
-        std::string backupFilename = "wallet-startup-backup.dat";
-        fs::path backupPath = backupDir / backupFilename;
-        try {
-            if (!fs::exists(backupDir)) {
-                fs::create_directories(backupDir);
+        if (!backupDir.empty()) {
+            // Use timestamped filename to retain multiple backup points
+            int64_t nTime = GetTime();
+            std::string backupFilename = strprintf("wallet-autobackup-%d.dat", nTime);
+            fs::path backupPath = backupDir / backupFilename;
+            try {
+                if (!fs::exists(backupDir)) {
+                    fs::create_directories(backupDir);
+                }
+                if (pwallet->BackupWallet(backupPath.string())) {
+                    LogPrintf("Automatic wallet backup created: %s\n", backupPath.string());
+                } else {
+                    LogPrintf("WARNING: Failed to create automatic wallet backup at %s\n", backupPath.string());
+                }
+            } catch (const fs::filesystem_error& e) {
+                LogPrintf("WARNING: Failed to create automatic wallet backup: %s\n", e.what());
             }
-            if (pwallet->BackupWallet(backupPath.string())) {
-                LogPrintf("Automatic wallet backup created: %s\n", backupPath.string());
-            } else {
-                LogPrintf("WARNING: Failed to create automatic wallet backup at %s\n", backupPath.string());
-            }
-        } catch (const fs::filesystem_error& e) {
-            LogPrintf("WARNING: Failed to create automatic wallet backup: %s\n", e.what());
+        } else {
+            LogPrintf("WARNING: No backup directory configured, skipping automatic wallet backup.\n");
         }
     }
 
