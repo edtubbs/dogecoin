@@ -52,7 +52,11 @@
 #ifndef WIN32
 #include <signal.h>
 #include <sys/mman.h>
+#include <sys/resource.h>
 #include <unistd.h>
+#ifdef HAVE_SYS_PRCTL_H
+#include <sys/prctl.h>
+#endif
 #endif
 
 #include <boost/algorithm/string/classification.hpp>
@@ -881,6 +885,19 @@ bool AppInitBasicSetup()
             LogPrintf("WARNING: Failed to lock process memory with mlockall(): %s. "
                       "Sensitive data may be written to swap.\n", strerror(errno));
         }
+    }
+
+    // Least Authority Audit Issue B: Disable core dumps to prevent sensitive data leakage
+    {
+        struct rlimit rl = {0, 0};
+        if (setrlimit(RLIMIT_CORE, &rl) == -1) {
+            LogPrintf("WARNING: Failed to disable core dumps with setrlimit(): %s.\n", strerror(errno));
+        }
+#ifdef HAVE_SYS_PRCTL_H
+        if (prctl(PR_SET_DUMPABLE, 0, 0, 0, 0) == -1) {
+            LogPrintf("WARNING: Failed to set non-dumpable with prctl(): %s.\n", strerror(errno));
+        }
+#endif
     }
 
     // Clean shutdown on SIGTERM

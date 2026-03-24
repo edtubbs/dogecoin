@@ -3880,6 +3880,33 @@ bool CWallet::InitLoadWallet()
     }
     pwalletMain = pwallet;
 
+    // Least Authority Audit Issue C: Warn if wallet uses legacy (non-HD) key derivation
+    if (!pwallet->IsHDEnabled()) {
+        InitWarning(_("WARNING: This wallet uses legacy (non-HD) key derivation. "
+                      "Consider creating a new HD wallet for improved key management and recovery."));
+        LogPrintf("WARNING: Wallet does not use HD key derivation (BIP32). "
+                  "Legacy wallets have limited recovery options.\n");
+    }
+
+    // Least Authority Audit Issue D: Automatic wallet backup on startup
+    if (pwallet->fFileBacked && !GetBoolArg("-disableautobackup", false)) {
+        const fs::path backupDir = GetBackupDir();
+        std::string backupFilename = "wallet-startup-backup.dat";
+        fs::path backupPath = backupDir / backupFilename;
+        try {
+            if (!fs::exists(backupDir)) {
+                fs::create_directories(backupDir);
+            }
+            if (pwallet->BackupWallet(backupPath.string())) {
+                LogPrintf("Automatic wallet backup created: %s\n", backupPath.string());
+            } else {
+                LogPrintf("WARNING: Failed to create automatic wallet backup at %s\n", backupPath.string());
+            }
+        } catch (const fs::filesystem_error& e) {
+            LogPrintf("WARNING: Failed to create automatic wallet backup: %s\n", e.what());
+        }
+    }
+
     return true;
 }
 

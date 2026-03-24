@@ -2,7 +2,7 @@
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
-// Unit tests for MITRE ATT&CK mitigations
+// Unit tests for MITRE ATT&CK mitigations and Least Authority audit findings
 
 #if defined(HAVE_CONFIG_H)
 #include "config/bitcoin-config.h"
@@ -14,11 +14,16 @@
 
 #ifdef ENABLE_WALLET
 #include "wallet/crypter.h"
+#include "wallet/wallet.h"
 #endif
 
 #include "test/test_bitcoin.h"
 
 #include <boost/test/unit_test.hpp>
+
+#ifndef WIN32
+#include <sys/resource.h>
+#endif
 
 BOOST_FIXTURE_TEST_SUITE(mitre_mitigation_tests, BasicTestingSetup)
 
@@ -52,6 +57,12 @@ BOOST_AUTO_TEST_CASE(wallet_kdf_encrypt_decrypt)
     BOOST_CHECK(crypter.Decrypt(vchCiphertext, vchDecrypted));
     BOOST_CHECK(vchPlaintext == vchDecrypted);
 }
+
+// LA-S3: Verify wallet RBF is enabled by default
+BOOST_AUTO_TEST_CASE(wallet_rbf_default_enabled)
+{
+    BOOST_CHECK_EQUAL(DEFAULT_WALLET_RBF, true);
+}
 #endif // ENABLE_WALLET
 
 // T1499: Verify message rate limiting constants are reasonable
@@ -65,5 +76,18 @@ BOOST_AUTO_TEST_CASE(peer_message_rate_constants)
     BOOST_CHECK(PEER_MSG_RATE_DOS_SCORE > 0);
     BOOST_CHECK(PEER_MSG_RATE_DOS_SCORE < DEFAULT_BANSCORE_THRESHOLD);
 }
+
+#ifndef WIN32
+// LA-B: Verify core dumps can be disabled via RLIMIT_CORE
+BOOST_AUTO_TEST_CASE(core_dumps_can_be_disabled)
+{
+    struct rlimit rl = {0, 0};
+    // Verify we can set RLIMIT_CORE to 0 (this is what init.cpp does at startup)
+    BOOST_CHECK(setrlimit(RLIMIT_CORE, &rl) == 0);
+    struct rlimit rl_check;
+    BOOST_CHECK(getrlimit(RLIMIT_CORE, &rl_check) == 0);
+    BOOST_CHECK_EQUAL(rl_check.rlim_cur, 0U);
+}
+#endif
 
 BOOST_AUTO_TEST_SUITE_END()
