@@ -517,7 +517,7 @@ void WalletView::backupWalletEncrypted()
 void WalletView::showPQCSignatureDialog()
 {
     QDialog dlg(this);
-    dlg.setWindowTitle(tr("Manage PQC Keys"));
+    dlg.setWindowTitle(tr("Manage PQC Keys..."));
     QVBoxLayout* vbox = new QVBoxLayout(&dlg);
     QFormLayout* form = new QFormLayout();
 
