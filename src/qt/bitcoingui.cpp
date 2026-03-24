@@ -371,8 +371,8 @@ void BitcoinGUI::createActions()
     backupWalletAction->setStatusTip(tr("Backup wallet to another location"));
     backupWalletEncryptedAction = new QAction(platformStyle->TextColorIcon(":/icons/lock_closed"), tr("Backup Wallet (PQC Envelope)..."), this);
     backupWalletEncryptedAction->setStatusTip(tr("Backup wallet and encrypt the backup file with an AES+PQC-labeled envelope"));
-    pqcSignatureDialogAction = new QAction(platformStyle->TextColorIcon(":/icons/edit"), tr("Generate &PQC Commitment..."), this);
-    pqcSignatureDialogAction->setStatusTip(tr("Generate a PQC commitment from algorithm, public key, and signature"));
+    pqcSignatureDialogAction = new QAction(platformStyle->TextColorIcon(":/icons/edit"), tr("Manage &PQC Keys..."), this);
+    pqcSignatureDialogAction->setStatusTip(tr("Manage PQC signature and wallet-export keys"));
     changePassphraseAction = new QAction(platformStyle->TextColorIcon(":/icons/key"), tr("&Change Passphrase..."), this);
     changePassphraseAction->setStatusTip(tr("Change the passphrase used for wallet encryption"));
     signMessageAction = new QAction(platformStyle->TextColorIcon(":/icons/edit"), tr("Sign &message..."), this);
