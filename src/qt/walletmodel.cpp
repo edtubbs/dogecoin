@@ -22,6 +22,7 @@
 #include "util.h" // for GetBoolArg
 #include "wallet/wallet.h"
 #include "wallet/walletdb.h" // for BackupWallet
+#include "utilstrencodings.h"
 
 #include <stdint.h>
 
@@ -232,6 +233,23 @@ WalletModel::SendCoinsReturn WalletModel::prepareTransaction(WalletModelTransact
 
         total += rcp.amount;
 
+    }
+    Q_FOREACH(const SendCoinsRecipient &rcp, recipients)
+    {
+        if (!rcp.includePqcCommitment) {
+            continue;
+        }
+        if (!IsHex(rcp.pqcCommitmentScriptPubKey.toStdString())) {
+            return InvalidAmount;
+        }
+        std::vector<unsigned char> scriptBytes = ParseHex(rcp.pqcCommitmentScriptPubKey.toStdString());
+        if (scriptBytes.empty()) {
+            return InvalidAmount;
+        }
+        CScript scriptPubKey(scriptBytes.begin(), scriptBytes.end());
+        CRecipient recipient = {scriptPubKey, 0, false};
+        vecSend.push_back(recipient);
+        break;
     }
     if(setAddress.size() != nAddresses)
     {

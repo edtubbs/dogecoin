@@ -284,6 +284,18 @@ void SendCoinsDialog::on_sendButton_clicked()
         return;
     }
 
+    if (pqcIncludeCommitmentCheckBox && pqcIncludeCommitmentCheckBox->isChecked()) {
+        const QString commitment = pqcCommitmentLineEdit ? pqcCommitmentLineEdit->text().trimmed() : QString();
+        if (commitment.isEmpty() || pqcCommitmentScriptPubKeyHex.trimmed().isEmpty()) {
+            Q_EMIT message(tr("PQC Commitment"), tr("Generate a commitment before including it in the transaction."), CClientUIInterface::MSG_WARNING);
+            return;
+        }
+        for (int i = 0; i < recipients.size(); ++i) {
+            recipients[i].includePqcCommitment = true;
+            recipients[i].pqcCommitmentScriptPubKey = pqcCommitmentScriptPubKeyHex.trimmed();
+        }
+    }
+
     fNewRecipientAllowed = false;
     WalletModel::UnlockContext ctx(model->requestUnlock());
     if(!ctx.isValid())
