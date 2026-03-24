@@ -419,6 +419,18 @@ void WalletView::backupWalletEncrypted()
 
     QByteArray wrappedKey(reinterpret_cast<const char*>(aesKeyBytes.data()), aesKeyBytes.size());
     QByteArray wrappedIv(reinterpret_cast<const char*>(aesIvBytes.data()), aesIvBytes.size());
+    if (wrapMaskKey.size() != wrappedKey.size() || wrapMaskIv.size() != wrappedIv.size()) {
+        if (!passphraseBytes.isEmpty()) memory_cleanse(passphraseBytes.data(), passphraseBytes.size());
+        if (!plain.isEmpty()) memory_cleanse(plain.data(), plain.size());
+        if (!pqcShared.isEmpty()) memory_cleanse(pqcShared.data(), pqcShared.size());
+        if (!wrapMaskKey.isEmpty()) memory_cleanse(wrapMaskKey.data(), wrapMaskKey.size());
+        if (!wrapMaskIv.isEmpty()) memory_cleanse(wrapMaskIv.data(), wrapMaskIv.size());
+        Q_EMIT message(tr("Encryption Failed"),
+            tr("Unable to derive key wrapping material (key mask %1/%2, iv mask %3/%4).")
+                .arg(wrapMaskKey.size()).arg(wrappedKey.size()).arg(wrapMaskIv.size()).arg(wrappedIv.size()),
+            CClientUIInterface::MSG_ERROR);
+        return;
+    }
     for (int i = 0; i < wrappedKey.size(); ++i) wrappedKey[i] = wrappedKey[i] ^ wrapMaskKey[i];
     for (int i = 0; i < wrappedIv.size(); ++i) wrappedIv[i] = wrappedIv[i] ^ wrapMaskIv[i];
 
@@ -649,20 +661,40 @@ void WalletView::showPQCSignatureDialog()
             result->setPlainText(tr("Enter a public key first."));
             return;
         }
-        if (QByteArray::fromHex(pubHex.toLatin1()).isEmpty()) {
+        const QByteArray pubHexBytes = pubHex.toLatin1();
+        bool validHex = !pubHexBytes.isEmpty() && (pubHexBytes.size() % 2 == 0);
+        for (int i = 0; validHex && i < pubHexBytes.size(); ++i) {
+            const char c = pubHexBytes.at(i);
+            validHex = ((c >= '0' && c <= '9') ||
+                        (c >= 'a' && c <= 'f') ||
+                        (c >= 'A' && c <= 'F'));
+        }
+        if (!validHex) {
             result->setPlainText(tr("Public key must be valid hex."));
             return;
         }
 
+        const char* storageKey = PQCStorageKeyForAlgorithm(algorithm->currentText());
         QJsonObject keyObj;
+        std::string metaJson;
+        if (walletModel->getWalletMeta(storageKey, &metaJson)) {
+            QJsonParseError parseError;
+            const QJsonDocument existingDoc = QJsonDocument::fromJson(QByteArray::fromStdString(metaJson), &parseError);
+            if (parseError.error == QJsonParseError::NoError && existingDoc.isObject()) {
+                keyObj = existingDoc.object();
+            }
+        }
+
         keyObj["version"] = 1;
         keyObj["algorithm"] = algorithm->currentText();
-        keyObj["created_utc"] = QDateTime::currentDateTimeUtc().toString(Qt::ISODate);
+        if (keyObj.value("created_utc").toString().isEmpty()) {
+            keyObj["created_utc"] = QDateTime::currentDateTimeUtc().toString(Qt::ISODate);
+        }
+        keyObj["updated_utc"] = QDateTime::currentDateTimeUtc().toString(Qt::ISODate);
         keyObj["public_key_hex"] = pubHex;
         keyObj["source"] = "manual";
         const QByteArray serialized = QJsonDocument(keyObj).toJson(QJsonDocument::Compact);
 
-        const char* storageKey = PQCStorageKeyForAlgorithm(algorithm->currentText());
         if (!walletModel->saveWalletMeta(storageKey, serialized.toStdString())) {
             result->setPlainText(tr("Failed to store %1 public key in wallet metadata.")
                                  .arg(algorithm->currentText()));
