@@ -261,6 +261,9 @@ Q_SIGNALS:
     // Watch-only address added
     void notifyWatchonlyChanged(bool fHaveWatchonly);
 
+    // Wallet metadata changed for key
+    void walletMetaChanged(const QString &key);
+
 public Q_SLOTS:
     /* Wallet status might have changed */
     void updateStatus();

@@ -699,9 +699,15 @@ bool WalletModel::saveWalletMeta(const std::string &key, const std::string &valu
         return false;
     }
     const CTxDestination dest = wallet->vchDefaultKey.GetID();
+    bool ok = false;
     if (value.empty())
-        return wallet->EraseDestData(dest, key);
-    return wallet->AddDestData(dest, key, value);
+        ok = wallet->EraseDestData(dest, key);
+    else
+        ok = wallet->AddDestData(dest, key, value);
+    if (ok) {
+        Q_EMIT walletMetaChanged(QString::fromStdString(key));
+    }
+    return ok;
 }
 
 bool WalletModel::transactionCanBeAbandoned(uint256 hash) const

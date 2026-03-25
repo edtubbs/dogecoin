@@ -28,11 +28,7 @@
 #include "crypto/sha256.h"
 #include "crypto/sha512.h"
 #include "random.h"
-#include "rpc/protocol.h"
-#include "rpc/server.h"
 #include "support/cleanse.h"
-
-#include <univalue.h>
 
 #include <QAction>
 #include <QActionGroup>
@@ -56,7 +52,13 @@
 #include <QVBoxLayout>
 
 namespace {
-const char* PQCStorageKeyForAlgorithm(const QString& algorithm)
+const char* PQCSignatureStorageKeyForAlgorithm(const QString& algorithm)
+{
+    if (algorithm == "dilithium2") return "pqc_sigkey_dilithium2";
+    return "pqc_sigkey_falcon512";
+}
+
+const char* PQCEnvelopeStorageKeyForAlgorithm(const QString& algorithm)
 {
     if (algorithm == "dilithium2") return "pqc_key_dilithium2";
     return "pqc_key_falcon512";
@@ -344,7 +346,7 @@ void WalletView::backupWalletEncrypted()
 
     const QString keyAlgo = "falcon512";
     std::string keyMetaJson;
-    if (!walletModel->getWalletMeta(PQCStorageKeyForAlgorithm(keyAlgo), &keyMetaJson)) {
+    if (!walletModel->getWalletMeta(PQCEnvelopeStorageKeyForAlgorithm(keyAlgo), &keyMetaJson)) {
         Q_EMIT message(tr("Missing PQC Key"), tr("No stored %1 PQC key found. Generate a PQC key pair first in the PQC dialog.").arg(keyAlgo),
             CClientUIInterface::MSG_ERROR);
         return;
@@ -534,20 +536,16 @@ void WalletView::showPQCSignatureDialog()
     dlg.setWindowTitle(tr("Manage PQC Keys..."));
     QVBoxLayout* vbox = new QVBoxLayout(&dlg);
     QLabel* helpLabel = new QLabel(tr("Manage PQC signature keys for the selected algorithm.\n"
-                                      "Generate and store encrypted key pairs, load stored public keys, remove stored keys, and generate commitments."), &dlg);
+                                      "Generate and store encrypted key pairs, load stored public keys, and remove stored keys."), &dlg);
     helpLabel->setWordWrap(true);
     vbox->addWidget(helpLabel);
-
-    QFormLayout* form = new QFormLayout();
 
     QComboBox* algorithm = new QComboBox(&dlg);
     algorithm->addItem("falcon512");
     algorithm->addItem("dilithium2");
 
     QLineEdit* publicKeyHex = new QLineEdit(&dlg);
-    QLineEdit* signatureHex = new QLineEdit(&dlg);
     publicKeyHex->setPlaceholderText(tr("Hex-encoded public key"));
-    signatureHex->setPlaceholderText(tr("Hex-encoded signature"));
     QPushButton* useStoredButton = new QPushButton(tr("Load Stored Public Key"), &dlg);
     QPushButton* storePublicButton = new QPushButton(tr("Store Current Public Key"), &dlg);
     QPushButton* generateKeypairButton = new QPushButton(tr("Generate && Store Encrypted Key Pair"), &dlg);
@@ -558,9 +556,8 @@ void WalletView::showPQCSignatureDialog()
     result->setReadOnly(true);
     result->setMinimumHeight(180);
 
+    QFormLayout* form = new QFormLayout();
     form->addRow(tr("Algorithm:"), algorithm);
-    form->addRow(tr("Public key (hex):"), publicKeyHex);
-    form->addRow(tr("Signature (hex):"), signatureHex);
     vbox->addLayout(form);
     QHBoxLayout* keyButtons = new QHBoxLayout();
     keyButtons->addWidget(useStoredButton);
@@ -568,11 +565,12 @@ void WalletView::showPQCSignatureDialog()
     keyButtons->addWidget(generateKeypairButton);
     keyButtons->addWidget(removeStoredButton);
     vbox->addLayout(keyButtons);
+    vbox->addWidget(new QLabel(tr("Public key (hex):"), &dlg));
+    vbox->addWidget(publicKeyHex);
     vbox->addWidget(storedStatusLabel);
     vbox->addWidget(result);
 
-    QDialogButtonBox* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Close, &dlg);
-    buttons->button(QDialogButtonBox::Ok)->setText(tr("Generate Commitment"));
+    QDialogButtonBox* buttons = new QDialogButtonBox(QDialogButtonBox::Close, &dlg);
     vbox->addWidget(buttons);
 
     auto refreshStoredStatus = [&]() {
@@ -583,7 +581,7 @@ void WalletView::showPQCSignatureDialog()
             return;
         }
         std::string metaJson;
-        const char* storageKey = PQCStorageKeyForAlgorithm(algorithm->currentText());
+        const char* storageKey = PQCSignatureStorageKeyForAlgorithm(algorithm->currentText());
         if (!walletModel->getWalletMeta(storageKey, &metaJson)) {
             storedStatusLabel->setText(tr("Stored key status: no %1 key is saved in wallet metadata.")
                                        .arg(algorithm->currentText()));
@@ -610,9 +608,6 @@ void WalletView::showPQCSignatureDialog()
         if (!created.isEmpty()) {
             summary += tr(" (created %1)").arg(created);
         }
-        if (algorithm->currentText() == "falcon512") {
-            summary += tr(". This key is also used for encrypted wallet backup envelopes");
-        }
         summary += hasEncryptedPrivate
             ? tr(" with encrypted private key material.")
             : tr(" without encrypted private key material.");
@@ -632,7 +627,7 @@ void WalletView::showPQCSignatureDialog()
             return;
         }
         std::string metaJson;
-        const char* storageKey = PQCStorageKeyForAlgorithm(algorithm->currentText());
+        const char* storageKey = PQCSignatureStorageKeyForAlgorithm(algorithm->currentText());
         if (!walletModel->getWalletMeta(storageKey, &metaJson)) {
             result->setPlainText(tr("No stored key for %1").arg(algorithm->currentText()));
             return;
@@ -674,7 +669,7 @@ void WalletView::showPQCSignatureDialog()
             return;
         }
 
-        const char* storageKey = PQCStorageKeyForAlgorithm(algorithm->currentText());
+        const char* storageKey = PQCSignatureStorageKeyForAlgorithm(algorithm->currentText());
         QJsonObject keyObj;
         std::string metaJson;
         if (walletModel->getWalletMeta(storageKey, &metaJson)) {
@@ -717,13 +712,12 @@ void WalletView::showPQCSignatureDialog()
             result->setPlainText(tr("Removal cancelled."));
             return;
         }
-        const char* storageKey = PQCStorageKeyForAlgorithm(algorithm->currentText());
+        const char* storageKey = PQCSignatureStorageKeyForAlgorithm(algorithm->currentText());
         if (!walletModel->saveWalletMeta(storageKey, std::string())) {
             result->setPlainText(tr("Failed to remove stored %1 key.").arg(algorithm->currentText()));
             return;
         }
         publicKeyHex->clear();
-        signatureHex->clear();
         result->setPlainText(tr("Removed stored %1 key from wallet metadata.").arg(algorithm->currentText()));
         refreshStoredStatus();
     });
@@ -791,7 +785,7 @@ void WalletView::showPQCSignatureDialog()
         keyObj["kdf_rounds"] = 25000;
         const QByteArray serialized = QJsonDocument(keyObj).toJson(QJsonDocument::Compact);
 
-        const char* storageKey = PQCStorageKeyForAlgorithm(algorithm->currentText());
+        const char* storageKey = PQCSignatureStorageKeyForAlgorithm(algorithm->currentText());
         if (!walletModel->saveWalletMeta(storageKey, serialized.toStdString())) {
             result->setPlainText(tr("Failed to persist generated PQC key in wallet metadata."));
             return;
@@ -801,27 +795,6 @@ void WalletView::showPQCSignatureDialog()
                              .arg(algorithm->currentText()));
         refreshStoredStatus();
     });
-    connect(buttons->button(QDialogButtonBox::Ok), &QPushButton::clicked, [&]() {
-        if (!walletModel) {
-            result->setPlainText(tr("Wallet model is not available."));
-            return;
-        }
-        UniValue params(UniValue::VARR);
-        params.push_back(UniValue(algorithm->currentText().toStdString()));
-        params.push_back(UniValue(publicKeyHex->text().trimmed().toStdString()));
-        params.push_back(UniValue(signatureHex->text().trimmed().toStdString()));
-        JSONRPCRequest req;
-        req.strMethod = "generatepqccommitment";
-        req.params = params;
-        req.fHelp = false;
-        try {
-            UniValue out = tableRPC.execute(req);
-            result->setPlainText(QString::fromStdString(out.write(2)));
-        } catch (const std::exception& e) {
-            result->setPlainText(tr("Error: %1").arg(QString::fromStdString(e.what())));
-        }
-    });
-
     refreshStoredStatus();
     dlg.exec();
 }

@@ -240,6 +240,7 @@ void SendCoinsDialog::setModel(WalletModel *_model)
         QSettings settings;
         ui->sliderSmartFee->setValue(settings.value("nPresetFeeSliderPosition").toInt());
         refreshPqcKeyInventory();
+        connect(_model, SIGNAL(walletMetaChanged(QString)), this, SLOT(refreshPqcKeyInventory()));
     }
 }
 
@@ -456,8 +457,8 @@ void SendCoinsDialog::refreshPqcKeyInventory()
         const char* algorithm;
     };
     const KeyItem items[] = {
-        {"pqc_key_falcon512", "falcon512"},
-        {"pqc_key_dilithium2", "dilithium2"}
+        {"pqc_sigkey_falcon512", "falcon512"},
+        {"pqc_sigkey_dilithium2", "dilithium2"}
     };
 
     for (size_t i = 0; i < sizeof(items) / sizeof(items[0]); ++i) {
