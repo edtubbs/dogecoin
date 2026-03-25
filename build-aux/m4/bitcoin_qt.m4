@@ -422,7 +422,12 @@ AC_DEFUN([_BITCOIN_QT_FIND_LIBS_WITHOUT_PKGCONFIG],[
     fi
   ])
 
-  BITCOIN_QT_CHECK([AC_CHECK_HEADER([QtPlugin],,BITCOIN_QT_FAIL(QtCore headers missing))])
+  dnl QtPlugin is Qt5 only, use QObject for Qt6 compatibility
+  if test x$bitcoin_qt_want_version = xqt6; then
+    BITCOIN_QT_CHECK([AC_CHECK_HEADER([QObject],,BITCOIN_QT_FAIL(QtCore headers missing))])
+  else
+    BITCOIN_QT_CHECK([AC_CHECK_HEADER([QtPlugin],,BITCOIN_QT_FAIL(QtCore headers missing))])
+  fi
   BITCOIN_QT_CHECK([AC_CHECK_HEADER([QApplication],, BITCOIN_QT_FAIL(QtGui headers missing))])
   BITCOIN_QT_CHECK([AC_CHECK_HEADER([QLocalSocket],, BITCOIN_QT_FAIL(QtNetwork headers missing))])
 
