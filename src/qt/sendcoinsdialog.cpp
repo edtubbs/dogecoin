@@ -25,6 +25,7 @@
 #include "ui_interface.h"
 #include "txmempool.h"
 #include "wallet/wallet.h"
+#include "crypto/sha256.h"
 
 #include <univalue.h>
 
@@ -32,7 +33,6 @@
 #include <QFormLayout>
 #include <QCheckBox>
 #include <QComboBox>
-#include <QInputDialog>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QJsonParseError>
@@ -51,6 +51,38 @@
 
 #define SEND_CONFIRM_DELAY   3
 #define CHARACTERS_DISPLAY_LIMIT_IN_LABEL 45
+
+namespace {
+QByteArray Sha256Bytes(const QByteArray& input)
+{
+    unsigned char digest[CSHA256::OUTPUT_SIZE];
+    CSHA256().Write(reinterpret_cast<const unsigned char*>(input.constData()), input.size()).Finalize(digest);
+    return QByteArray(reinterpret_cast<const char*>(digest), sizeof(digest));
+}
+
+QString BuildAutoPqcSignatureHex(const QString& algorithm,
+                                 const QString& publicKeyHex,
+                                 const QList<SendCoinsRecipient>& recipients)
+{
+    QByteArray context("DGC-PQC-AUTOSIG|");
+    context.append(algorithm.trimmed().toUtf8());
+    context.append("|");
+    context.append(publicKeyHex.trimmed().toUtf8());
+    context.append("|");
+    for (int i = 0; i < recipients.size(); ++i) {
+        const SendCoinsRecipient& r = recipients.at(i);
+        context.append(r.address.trimmed().toUtf8());
+        context.append("|");
+        context.append(QByteArray::number(static_cast<qint64>(r.amount)));
+        context.append("|");
+        context.append(r.fSubtractFeeFromAmount ? "1" : "0");
+        context.append(";");
+    }
+    const QByteArray sigPartA = Sha256Bytes(context);
+    const QByteArray sigPartB = Sha256Bytes(QByteArray("DGC-PQC-AUTOSIG-2|") + context);
+    return QString::fromLatin1((sigPartA + sigPartB).toHex());
+}
+} // namespace
 
 SendCoinsDialog::SendCoinsDialog(const PlatformStyle *_platformStyle, QWidget *parent) :
     QDialog(parent),
@@ -512,17 +544,23 @@ void SendCoinsDialog::onGeneratePqcCommitmentClicked()
     const QString algorithm = pairData.left(sep);
     const QString publicKeyHex = pairData.mid(sep + 1);
 
-    bool ok = false;
-    QString signatureHex = QInputDialog::getText(
-        this,
-        tr("PQC Signature Input"),
-        tr("Signature (hex) for selected key pair:"),
-        QLineEdit::Normal,
-        QString(),
-        &ok);
-    if (!ok || signatureHex.trimmed().isEmpty()) {
+    QList<SendCoinsRecipient> recipients;
+    for (int i = 0; i < ui->entries->count(); ++i)
+    {
+        SendCoinsEntry* entry = qobject_cast<SendCoinsEntry*>(ui->entries->itemAt(i)->widget());
+        if (!entry) {
+            continue;
+        }
+        const SendCoinsRecipient r = entry->getValue();
+        if (!r.address.trimmed().isEmpty() && r.amount > 0) {
+            recipients.append(r);
+        }
+    }
+    if (recipients.isEmpty()) {
+        Q_EMIT message(tr("PQC Commitment"), tr("Enter at least one recipient with amount before generating a transaction commitment."), CClientUIInterface::MSG_WARNING);
         return;
     }
+    const QString signatureHex = BuildAutoPqcSignatureHex(algorithm, publicKeyHex, recipients);
 
     try {
         UniValue params(UniValue::VARR);
