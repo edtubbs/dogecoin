@@ -240,7 +240,7 @@ void SendCoinsDialog::setModel(WalletModel *_model)
         QSettings settings;
         ui->sliderSmartFee->setValue(settings.value("nPresetFeeSliderPosition").toInt());
         refreshPqcKeyInventory();
-        connect(_model, SIGNAL(walletMetaChanged(QString)), this, SLOT(refreshPqcKeyInventory()));
+        connect(_model, SIGNAL(walletMetaChanged(QString)), this, SLOT(refreshPqcKeyInventory()), Qt::UniqueConnection);
     }
 }
 
