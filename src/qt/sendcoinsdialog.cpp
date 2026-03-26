@@ -577,6 +577,14 @@ void SendCoinsDialog::onGeneratePqcCommitmentClicked()
         pqcGenerateProgressBar->setVisible(true);
         pqcGenerateProgressBar->setValue(5);
     }
+    QProgressDialog progress(tr("Generating and signing PQC transaction commitment..."), QString(), 0, 100, this);
+    progress.setWindowModality(Qt::WindowModal);
+    progress.setCancelButton(nullptr);
+    progress.setMinimumDuration(0);
+    progress.setAutoClose(false);
+    progress.setAutoReset(false);
+    progress.setValue(5);
+    progress.show();
     pqcGenerateButton->setEnabled(false);
     pqcDecodeButton->setEnabled(false);
     qApp->processEvents();
@@ -584,11 +592,15 @@ void SendCoinsDialog::onGeneratePqcCommitmentClicked()
     if (pqcGenerateProgressBar) {
         pqcGenerateProgressBar->setValue(25);
     }
+    progress.setLabelText(tr("Preparing transaction context..."));
+    progress.setValue(25);
     qApp->processEvents();
     const QString signatureHex = BuildAutoPqcSignatureHex(algorithm, publicKeyHex, recipients);
     if (pqcGenerateProgressBar) {
         pqcGenerateProgressBar->setValue(65);
     }
+    progress.setLabelText(tr("Signing and generating commitment..."));
+    progress.setValue(65);
     qApp->processEvents();
 
     try {
@@ -612,13 +624,17 @@ void SendCoinsDialog::onGeneratePqcCommitmentClicked()
         if (pqcGenerateProgressBar) {
             pqcGenerateProgressBar->setValue(100);
         }
+        progress.setLabelText(tr("Finalizing..."));
+        progress.setValue(100);
         qApp->processEvents();
     } catch (const std::exception& e) {
         if (pqcGenerateProgressBar) {
             pqcGenerateProgressBar->setValue(100);
         }
+        progress.setValue(100);
         Q_EMIT message(tr("PQC Commitment"), tr("Error: %1").arg(QString::fromStdString(e.what())), CClientUIInterface::MSG_ERROR);
     }
+    progress.close();
     pqcGenerateButton->setEnabled(true);
     pqcDecodeButton->setEnabled(
         pqcCommitmentLineEdit &&
