@@ -49,7 +49,6 @@
 #include <QMessageBox>
 #include <QProgressDialog>
 #include <QPushButton>
-#include <QTextEdit>
 #include <QVBoxLayout>
 
 namespace {
@@ -535,6 +534,7 @@ void WalletView::showPQCSignatureDialog()
 {
     QDialog dlg(this);
     dlg.setWindowTitle(tr("Manage PQC Keys..."));
+    dlg.resize(780, 460);
     QVBoxLayout* vbox = new QVBoxLayout(&dlg);
     QLabel* helpLabel = new QLabel(tr("Manage PQC signature keys for the selected algorithm.\n"
                                       "Generate and store encrypted key pairs, review stored keys, and remove stored keys."), &dlg);
@@ -548,14 +548,17 @@ void WalletView::showPQCSignatureDialog()
     QLineEdit* publicKeyHex = new QLineEdit(&dlg);
     publicKeyHex->setReadOnly(true);
     publicKeyHex->setPlaceholderText(tr("Hex-encoded public key"));
+    QLineEdit* privateKeyHex = new QLineEdit(&dlg);
+    privateKeyHex->setReadOnly(true);
+    privateKeyHex->setPlaceholderText(tr("Encrypted private key export requires passphrase"));
     QPushButton* generateKeypairButton = new QPushButton(tr("Generate && Store Encrypted Key Pair"), &dlg);
+    QPushButton* exportPrivateKeyButton = new QPushButton(tr("Export Private Key"), &dlg);
     QPushButton* removeStoredButton = new QPushButton(tr("Remove Stored Key"), &dlg);
     QListWidget* keyInventoryList = new QListWidget(&dlg);
     QLabel* storedStatusLabel = new QLabel(&dlg);
     storedStatusLabel->setWordWrap(true);
-    QTextEdit* result = new QTextEdit(&dlg);
-    result->setReadOnly(true);
-    result->setMinimumHeight(180);
+    QLabel* actionStatusLabel = new QLabel(&dlg);
+    actionStatusLabel->setWordWrap(true);
 
     QFormLayout* form = new QFormLayout();
     form->addRow(tr("Algorithm:"), algorithm);
@@ -563,16 +566,20 @@ void WalletView::showPQCSignatureDialog()
 
     QHBoxLayout* keyButtons = new QHBoxLayout();
     keyButtons->addWidget(generateKeypairButton);
+    keyButtons->addWidget(exportPrivateKeyButton);
     keyButtons->addWidget(removeStoredButton);
     vbox->addLayout(keyButtons);
 
     vbox->addWidget(new QLabel(tr("Stored key pairs:"), &dlg));
-    keyInventoryList->setMinimumHeight(120);
+    keyInventoryList->setMinimumHeight(84);
+    keyInventoryList->setMaximumHeight(130);
     vbox->addWidget(keyInventoryList);
     vbox->addWidget(new QLabel(tr("Public key (hex):"), &dlg));
     vbox->addWidget(publicKeyHex);
+    vbox->addWidget(new QLabel(tr("Private key (hex):"), &dlg));
+    vbox->addWidget(privateKeyHex);
     vbox->addWidget(storedStatusLabel);
-    vbox->addWidget(result);
+    vbox->addWidget(actionStatusLabel);
 
     QDialogButtonBox* buttons = new QDialogButtonBox(QDialogButtonBox::Close, &dlg);
     vbox->addWidget(buttons);
@@ -582,7 +589,9 @@ void WalletView::showPQCSignatureDialog()
         if (!walletModel) {
             storedStatusLabel->setText(tr("Wallet model is not available."));
             removeStoredButton->setEnabled(false);
+            exportPrivateKeyButton->setEnabled(false);
             publicKeyHex->clear();
+            privateKeyHex->clear();
             return;
         }
 
@@ -590,7 +599,9 @@ void WalletView::showPQCSignatureDialog()
             storedStatusLabel->setText(tr("Stored key status: no %1 key is saved in wallet metadata.")
                                        .arg(algorithm->currentText()));
             removeStoredButton->setEnabled(false);
+            exportPrivateKeyButton->setEnabled(false);
             publicKeyHex->clear();
+            privateKeyHex->clear();
             return;
         }
         const QString selectedAlgorithm = currentItem->data(Qt::UserRole).toString();
@@ -610,6 +621,7 @@ void WalletView::showPQCSignatureDialog()
         storedStatusLabel->setText(summary);
         publicKeyHex->setText(pubHex);
         removeStoredButton->setEnabled(true);
+        exportPrivateKeyButton->setEnabled(hasEncryptedPrivate);
     };
 
     auto selectStoredItem = [&](const QString& algorithmName, const QString& pubHex) {
@@ -710,12 +722,12 @@ void WalletView::showPQCSignatureDialog()
     });
     connect(removeStoredButton, &QPushButton::clicked, [&]() {
         if (!walletModel) {
-            result->setPlainText(tr("Wallet model is not available."));
+            actionStatusLabel->setText(tr("Wallet model is not available."));
             return;
         }
         QListWidgetItem* selectedItem = keyInventoryList->currentItem();
         if (!selectedItem) {
-            result->setPlainText(tr("Select a stored key pair first."));
+            actionStatusLabel->setText(tr("Select a stored key pair first."));
             return;
         }
         const QString selectedAlgorithm = selectedItem->data(Qt::UserRole).toString();
@@ -725,19 +737,90 @@ void WalletView::showPQCSignatureDialog()
             tr("Remove Stored PQC Key"),
             tr("Remove stored %1 key from wallet metadata?").arg(selectedAlgorithm));
         if (confirm != QMessageBox::Yes) {
-            result->setPlainText(tr("Removal cancelled."));
+            actionStatusLabel->setText(tr("Removal cancelled."));
             return;
         }
         if (!walletModel->saveWalletMeta(storageKey.toStdString(), std::string())) {
-            result->setPlainText(tr("Failed to remove stored %1 key.").arg(selectedAlgorithm));
+            actionStatusLabel->setText(tr("Failed to remove stored %1 key.").arg(selectedAlgorithm));
             return;
         }
-        result->setPlainText(tr("Removed stored %1 key from wallet metadata.").arg(selectedAlgorithm));
+        actionStatusLabel->setText(tr("Removed stored %1 key from wallet metadata.").arg(selectedAlgorithm));
+        privateKeyHex->clear();
         refreshStoredInventory();
+    });
+    connect(exportPrivateKeyButton, &QPushButton::clicked, [&]() {
+        if (!walletModel) {
+            actionStatusLabel->setText(tr("Wallet model is not available."));
+            return;
+        }
+        QListWidgetItem* selectedItem = keyInventoryList->currentItem();
+        if (!selectedItem) {
+            actionStatusLabel->setText(tr("Select a stored key pair first."));
+            return;
+        }
+        std::string metaJson;
+        const QString storageKey = selectedItem->data(Qt::UserRole + 2).toString();
+        if (!walletModel->getWalletMeta(storageKey.toStdString(), &metaJson)) {
+            actionStatusLabel->setText(tr("Failed to load selected stored key."));
+            return;
+        }
+        QJsonParseError parseError;
+        QJsonDocument doc = QJsonDocument::fromJson(QByteArray::fromStdString(metaJson), &parseError);
+        if (parseError.error != QJsonParseError::NoError || !doc.isObject()) {
+            actionStatusLabel->setText(tr("Stored key metadata is invalid."));
+            return;
+        }
+        QJsonObject obj = doc.object();
+        const QString encryptedHex = obj.value("encrypted_private_key_hex").toString().trimmed();
+        const QString saltHex = obj.value("salt_hex").toString().trimmed();
+        const int rounds = obj.value("kdf_rounds").toInt(25000);
+        if (encryptedHex.isEmpty() || saltHex.isEmpty()) {
+            actionStatusLabel->setText(tr("Selected key has no encrypted private key material."));
+            return;
+        }
+        if (!IsHex(encryptedHex.toStdString()) || !IsHex(saltHex.toStdString())) {
+            actionStatusLabel->setText(tr("Stored encrypted private key material is invalid."));
+            return;
+        }
+
+        bool ok = false;
+        QString passphrase = QInputDialog::getText(
+            &dlg,
+            tr("Export PQC Private Key"),
+            tr("Enter passphrase to decrypt the stored private key:"),
+            QLineEdit::Password,
+            QString(),
+            &ok);
+        if (!ok || passphrase.isEmpty()) {
+            actionStatusLabel->setText(tr("Private key export cancelled."));
+            return;
+        }
+
+        std::vector<unsigned char> encryptedPrivate = ParseHex(encryptedHex.toStdString());
+        std::vector<unsigned char> salt = ParseHex(saltHex.toStdString());
+        QByteArray passphraseBytes = passphrase.toUtf8();
+        SecureString pass(passphraseBytes.constData(), passphraseBytes.constData() + passphraseBytes.size());
+        CCrypter keyCrypter;
+        if (!keyCrypter.SetKeyFromPassphrase(pass, salt, rounds, 0)) {
+            if (!passphraseBytes.isEmpty()) memory_cleanse(passphraseBytes.data(), passphraseBytes.size());
+            actionStatusLabel->setText(tr("Failed to derive decryption key from passphrase."));
+            return;
+        }
+        CKeyingMaterial decryptedPrivate;
+        if (!keyCrypter.Decrypt(encryptedPrivate, decryptedPrivate)) {
+            if (!passphraseBytes.isEmpty()) memory_cleanse(passphraseBytes.data(), passphraseBytes.size());
+            actionStatusLabel->setText(tr("Failed to decrypt private key. Check passphrase."));
+            return;
+        }
+        if (!passphraseBytes.isEmpty()) memory_cleanse(passphraseBytes.data(), passphraseBytes.size());
+        const QString privateHex = QString::fromLatin1(QByteArray(reinterpret_cast<const char*>(decryptedPrivate.data()), decryptedPrivate.size()).toHex());
+        privateKeyHex->setText(privateHex);
+        if (!decryptedPrivate.empty()) memory_cleanse(decryptedPrivate.data(), decryptedPrivate.size());
+        actionStatusLabel->setText(tr("Private key exported to field for selected key."));
     });
     connect(generateKeypairButton, &QPushButton::clicked, [&]() {
         if (!walletModel) {
-            result->setPlainText(tr("Wallet model is not available."));
+            actionStatusLabel->setText(tr("Wallet model is not available."));
             return;
         }
         bool ok = false;
@@ -749,7 +832,7 @@ void WalletView::showPQCSignatureDialog()
             QString(),
             &ok);
         if (!ok || passphrase.isEmpty()) {
-            result->setPlainText(tr("PQC key generation cancelled."));
+            actionStatusLabel->setText(tr("PQC key generation cancelled."));
             return;
         }
 
@@ -768,7 +851,7 @@ void WalletView::showPQCSignatureDialog()
             if (!passphraseBytes.isEmpty()) memory_cleanse(passphraseBytes.data(), passphraseBytes.size());
             if (!seed.isEmpty()) memory_cleanse(seed.data(), seed.size());
             if (!privateKey.isEmpty()) memory_cleanse(privateKey.data(), privateKey.size());
-            result->setPlainText(tr("Failed to derive key encryption key."));
+            actionStatusLabel->setText(tr("Failed to derive key encryption key."));
             return;
         }
         CKeyingMaterial privateMaterial(reinterpret_cast<const unsigned char*>(privateKey.constData()),
@@ -779,7 +862,7 @@ void WalletView::showPQCSignatureDialog()
             if (!seed.isEmpty()) memory_cleanse(seed.data(), seed.size());
             if (!privateKey.isEmpty()) memory_cleanse(privateKey.data(), privateKey.size());
             if (!privateMaterial.empty()) memory_cleanse(&privateMaterial[0], privateMaterial.size());
-            result->setPlainText(tr("Failed to encrypt generated private key."));
+            actionStatusLabel->setText(tr("Failed to encrypt generated private key."));
             return;
         }
 
@@ -801,12 +884,13 @@ void WalletView::showPQCSignatureDialog()
 
         const char* storageKey = PQCSignatureStorageKeyForAlgorithm(algorithm->currentText());
         if (!walletModel->saveWalletMeta(storageKey, serialized.toStdString())) {
-            result->setPlainText(tr("Failed to persist generated PQC key in wallet metadata."));
+            actionStatusLabel->setText(tr("Failed to persist generated PQC key in wallet metadata."));
             return;
         }
         const QString generatedPubHex = QString::fromLatin1(publicKey.toHex());
-        result->setPlainText(tr("Generated and stored %1 key pair in wallet metadata (private key encrypted).")
-                             .arg(algorithm->currentText()));
+        actionStatusLabel->setText(tr("Generated and stored %1 key pair in wallet metadata (private key encrypted).")
+                                   .arg(algorithm->currentText()));
+        privateKeyHex->clear();
         refreshStoredInventory();
         selectStoredItem(algorithm->currentText(), generatedPubHex);
         refreshStoredStatus();

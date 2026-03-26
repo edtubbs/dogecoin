@@ -33,15 +33,18 @@
 #include <QFormLayout>
 #include <QCheckBox>
 #include <QComboBox>
+#include <QDialogButtonBox>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QJsonParseError>
 #include <QLabel>
 #include <QLineEdit>
 #include <QMessageBox>
+#include <QProgressDialog>
 #include <QPushButton>
 #include <QScrollBar>
 #include <QSettings>
+#include <QTextEdit>
 #include <QTextDocument>
 #include <QTimer>
 #include <QVBoxLayout>
@@ -139,7 +142,7 @@ SendCoinsDialog::SendCoinsDialog(const PlatformStyle *_platformStyle, QWidget *p
     pqcCommitmentLineEdit->setReadOnly(true);
     pqcCommitmentLineEdit->setPlaceholderText(tr("No commitment generated yet"));
     pqcForm->addRow(tr("Generated commitment:"), pqcCommitmentLineEdit);
-    pqcIncludeCommitmentCheckBox = new QCheckBox(tr("Optionally include commitment in this transaction"), pqcFrame);
+    pqcIncludeCommitmentCheckBox = new QCheckBox(tr("Include commitment in this transaction"), pqcFrame);
     pqcIncludeCommitmentCheckBox->setChecked(false);
     pqcForm->addRow(QString(), pqcIncludeCommitmentCheckBox);
     pqcLayout->addLayout(pqcForm);
@@ -560,6 +563,13 @@ void SendCoinsDialog::onGeneratePqcCommitmentClicked()
         Q_EMIT message(tr("PQC Commitment"), tr("Enter at least one recipient with amount before generating a transaction commitment."), CClientUIInterface::MSG_WARNING);
         return;
     }
+    QProgressDialog progress(tr("Generating and signing PQC transaction commitment..."), QString(), 0, 0, this);
+    progress.setWindowModality(Qt::WindowModal);
+    progress.setCancelButton(nullptr);
+    progress.setMinimumDuration(0);
+    progress.show();
+    qApp->processEvents();
+
     const QString signatureHex = BuildAutoPqcSignatureHex(algorithm, publicKeyHex, recipients);
 
     try {
@@ -580,7 +590,9 @@ void SendCoinsDialog::onGeneratePqcCommitmentClicked()
         pqcCommitmentScriptPubKeyHex = scriptPubKey;
         pqcCommitmentLineEdit->setText(commitment);
         pqcDecodeButton->setEnabled(!commitment.isEmpty() && !pqcCommitmentScriptPubKeyHex.isEmpty());
+        progress.close();
     } catch (const std::exception& e) {
+        progress.close();
         Q_EMIT message(tr("PQC Commitment"), tr("Error: %1").arg(QString::fromStdString(e.what())), CClientUIInterface::MSG_ERROR);
     }
 }
@@ -622,7 +634,20 @@ void SendCoinsDialog::onDecodePqcCommitmentClicked()
     decoded += "\n";
     decoded += tr("Extracted commitment from script: %1").arg(extractedCommitment);
 
-    QMessageBox::information(this, tr("Decoded PQC Commitment"), decoded);
+    QDialog decodeDialog(this);
+    decodeDialog.setWindowTitle(tr("Decoded PQC Commitment"));
+    decodeDialog.resize(760, 360);
+    QVBoxLayout* layout = new QVBoxLayout(&decodeDialog);
+    QLabel* label = new QLabel(tr("Decoded PQC commitment details:"), &decodeDialog);
+    layout->addWidget(label);
+    QTextEdit* decodedText = new QTextEdit(&decodeDialog);
+    decodedText->setReadOnly(true);
+    decodedText->setPlainText(decoded);
+    layout->addWidget(decodedText);
+    QDialogButtonBox* buttons = new QDialogButtonBox(QDialogButtonBox::Close, &decodeDialog);
+    connect(buttons, &QDialogButtonBox::rejected, &decodeDialog, &QDialog::reject);
+    layout->addWidget(buttons);
+    decodeDialog.exec();
 }
 
 void SendCoinsDialog::reject()
