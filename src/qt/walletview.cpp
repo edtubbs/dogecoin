@@ -35,6 +35,7 @@
 #include <QActionGroup>
 #include <QComboBox>
 #include <QFileDialog>
+#include <QGridLayout>
 #include <QHBoxLayout>
 #include <QInputDialog>
 #include <QDialog>
@@ -48,8 +49,10 @@
 #include <QLabel>
 #include <QListWidget>
 #include <QMessageBox>
+#include <QPlainTextEdit>
 #include <QProgressDialog>
 #include <QPushButton>
+#include <QRegularExpression>
 #include <QVBoxLayout>
 
 namespace {
@@ -549,10 +552,15 @@ void WalletView::showPQCSignatureDialog()
     QLineEdit* publicKeyHex = new QLineEdit(&dlg);
     publicKeyHex->setReadOnly(true);
     publicKeyHex->setPlaceholderText(tr("Hex-encoded public key"));
-    QLineEdit* privateKeyHex = new QLineEdit(&dlg);
+    QPlainTextEdit* privateKeyHex = new QPlainTextEdit(&dlg);
     privateKeyHex->setReadOnly(true);
     privateKeyHex->setPlaceholderText(tr("Encrypted private key export requires passphrase"));
+    privateKeyHex->setLineWrapMode(QPlainTextEdit::NoWrap);
+    privateKeyHex->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+    privateKeyHex->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+    privateKeyHex->setFixedHeight(64);
     QPushButton* generateKeypairButton = new QPushButton(tr("Generate && Store Encrypted Key Pair"), &dlg);
+    QPushButton* importKeypairButton = new QPushButton(tr("Import Key Pair"), &dlg);
     QPushButton* exportPrivateKeyButton = new QPushButton(tr("Export Private Key"), &dlg);
     QPushButton* removeStoredButton = new QPushButton(tr("Remove Stored Key"), &dlg);
     QListWidget* keyInventoryList = new QListWidget(&dlg);
@@ -565,10 +573,13 @@ void WalletView::showPQCSignatureDialog()
     form->addRow(tr("Algorithm:"), algorithm);
     vbox->addLayout(form);
 
-    QHBoxLayout* keyButtons = new QHBoxLayout();
-    keyButtons->addWidget(generateKeypairButton);
-    keyButtons->addWidget(exportPrivateKeyButton);
-    keyButtons->addWidget(removeStoredButton);
+    QGridLayout* keyButtons = new QGridLayout();
+    keyButtons->addWidget(generateKeypairButton, 0, 0);
+    keyButtons->addWidget(importKeypairButton, 0, 1);
+    keyButtons->addWidget(exportPrivateKeyButton, 1, 0);
+    keyButtons->addWidget(removeStoredButton, 1, 1);
+    keyButtons->setColumnStretch(0, 0);
+    keyButtons->setColumnStretch(1, 0);
     vbox->addLayout(keyButtons);
 
     vbox->addWidget(new QLabel(tr("Stored key pairs:"), &dlg));
@@ -815,9 +826,128 @@ void WalletView::showPQCSignatureDialog()
         }
         if (!passphraseBytes.isEmpty()) memory_cleanse(passphraseBytes.data(), passphraseBytes.size());
         const QString privateHex = QString::fromLatin1(QByteArray(reinterpret_cast<const char*>(decryptedPrivate.data()), decryptedPrivate.size()).toHex());
-        privateKeyHex->setText(privateHex);
+        privateKeyHex->setPlainText(privateHex);
         if (!decryptedPrivate.empty()) memory_cleanse(decryptedPrivate.data(), decryptedPrivate.size());
         actionStatusLabel->setText(tr("Private key exported to field for selected key."));
+    });
+    connect(importKeypairButton, &QPushButton::clicked, [&]() {
+        if (!walletModel) {
+            actionStatusLabel->setText(tr("Wallet model is not available."));
+            return;
+        }
+        QDialog importDlg(&dlg);
+        importDlg.setWindowTitle(tr("Import PQC Key Pair"));
+        importDlg.resize(720, 320);
+        QVBoxLayout* importVbox = new QVBoxLayout(&importDlg);
+
+        QComboBox* importAlgorithm = new QComboBox(&importDlg);
+        importAlgorithm->addItem("falcon512");
+        importAlgorithm->addItem("dilithium2");
+        importAlgorithm->setCurrentText(algorithm->currentText());
+
+        QLineEdit* importPublicKeyHex = new QLineEdit(&importDlg);
+        importPublicKeyHex->setPlaceholderText(tr("Public key hex"));
+        QPlainTextEdit* importPrivateKeyHex = new QPlainTextEdit(&importDlg);
+        importPrivateKeyHex->setPlaceholderText(tr("Private key hex"));
+        importPrivateKeyHex->setLineWrapMode(QPlainTextEdit::NoWrap);
+        importPrivateKeyHex->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+        importPrivateKeyHex->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+        importPrivateKeyHex->setFixedHeight(84);
+
+        QFormLayout* importForm = new QFormLayout();
+        importForm->addRow(tr("Algorithm:"), importAlgorithm);
+        importForm->addRow(tr("Public key (hex):"), importPublicKeyHex);
+        importForm->addRow(tr("Private key (hex):"), importPrivateKeyHex);
+        importVbox->addLayout(importForm);
+
+        QDialogButtonBox* importButtons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &importDlg);
+        importVbox->addWidget(importButtons);
+        connect(importButtons, &QDialogButtonBox::rejected, &importDlg, &QDialog::reject);
+        connect(importButtons, &QDialogButtonBox::accepted, &importDlg, &QDialog::accept);
+
+        if (importDlg.exec() != QDialog::Accepted) {
+            actionStatusLabel->setText(tr("PQC key import cancelled."));
+            return;
+        }
+
+        const QString selectedAlgorithm = importAlgorithm->currentText();
+        const QString publicHex = importPublicKeyHex->text().trimmed();
+        QString privateHex = importPrivateKeyHex->toPlainText().trimmed();
+        privateHex.remove(QRegularExpression("\\s+"));
+        if (publicHex.isEmpty() || privateHex.isEmpty()) {
+            actionStatusLabel->setText(tr("Both public and private key hex are required."));
+            return;
+        }
+        if (!IsHex(publicHex.toStdString()) || !IsHex(privateHex.toStdString())) {
+            actionStatusLabel->setText(tr("Imported key hex is invalid."));
+            return;
+        }
+
+        bool ok = false;
+        QString passphrase = QInputDialog::getText(
+            &dlg,
+            tr("Encrypt Imported PQC Private Key"),
+            tr("Enter passphrase to encrypt imported private key:"),
+            QLineEdit::Password,
+            QString(),
+            &ok);
+        if (!ok || passphrase.isEmpty()) {
+            actionStatusLabel->setText(tr("PQC key import cancelled."));
+            return;
+        }
+
+        std::vector<unsigned char> rawPrivateKey = ParseHex(privateHex.toStdString());
+        if (rawPrivateKey.empty()) {
+            actionStatusLabel->setText(tr("Imported private key is empty."));
+            return;
+        }
+        std::vector<unsigned char> salt(WALLET_CRYPTO_SALT_SIZE);
+        GetStrongRandBytes(salt.data(), salt.size());
+        QByteArray passphraseBytes = passphrase.toUtf8();
+        SecureString pass(passphraseBytes.constData(), passphraseBytes.constData() + passphraseBytes.size());
+        CCrypter keyCrypter;
+        if (!keyCrypter.SetKeyFromPassphrase(pass, salt, 25000, 0)) {
+            if (!passphraseBytes.isEmpty()) memory_cleanse(passphraseBytes.data(), passphraseBytes.size());
+            if (!rawPrivateKey.empty()) memory_cleanse(rawPrivateKey.data(), rawPrivateKey.size());
+            actionStatusLabel->setText(tr("Failed to derive key encryption key."));
+            return;
+        }
+        CKeyingMaterial privateMaterial(rawPrivateKey.begin(), rawPrivateKey.end());
+        std::vector<unsigned char> encryptedPrivateKey;
+        if (!keyCrypter.Encrypt(privateMaterial, encryptedPrivateKey)) {
+            if (!passphraseBytes.isEmpty()) memory_cleanse(passphraseBytes.data(), passphraseBytes.size());
+            if (!rawPrivateKey.empty()) memory_cleanse(rawPrivateKey.data(), rawPrivateKey.size());
+            if (!privateMaterial.empty()) memory_cleanse(&privateMaterial[0], privateMaterial.size());
+            actionStatusLabel->setText(tr("Failed to encrypt imported private key."));
+            return;
+        }
+
+        if (!passphraseBytes.isEmpty()) memory_cleanse(passphraseBytes.data(), passphraseBytes.size());
+        if (!rawPrivateKey.empty()) memory_cleanse(rawPrivateKey.data(), rawPrivateKey.size());
+        if (!privateMaterial.empty()) memory_cleanse(&privateMaterial[0], privateMaterial.size());
+
+        QJsonObject keyObj;
+        keyObj["version"] = 1;
+        keyObj["algorithm"] = selectedAlgorithm;
+        keyObj["created_utc"] = QDateTime::currentDateTimeUtc().toString(Qt::ISODate);
+        keyObj["public_key_hex"] = publicHex;
+        keyObj["encrypted_private_key_hex"] = QString::fromLatin1(QByteArray(reinterpret_cast<const char*>(encryptedPrivateKey.data()), encryptedPrivateKey.size()).toHex());
+        keyObj["salt_hex"] = QString::fromLatin1(QByteArray(reinterpret_cast<const char*>(salt.data()), salt.size()).toHex());
+        keyObj["kdf"] = "sha512-aes256cbc";
+        keyObj["kdf_rounds"] = 25000;
+        const QByteArray serialized = QJsonDocument(keyObj).toJson(QJsonDocument::Compact);
+
+        const char* storageKey = PQCSignatureStorageKeyForAlgorithm(selectedAlgorithm);
+        if (!walletModel->saveWalletMeta(storageKey, serialized.toStdString())) {
+            actionStatusLabel->setText(tr("Failed to persist imported PQC key pair."));
+            return;
+        }
+        actionStatusLabel->setText(tr("Imported and stored %1 key pair in wallet metadata (private key encrypted).")
+                                   .arg(selectedAlgorithm));
+        privateKeyHex->clear();
+        refreshStoredInventory();
+        selectStoredItem(selectedAlgorithm, publicHex);
+        refreshStoredStatus();
     });
     connect(generateKeypairButton, &QPushButton::clicked, [&]() {
         if (!walletModel) {
