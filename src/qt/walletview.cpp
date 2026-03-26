@@ -22,6 +22,7 @@
 #include "walletmodel.h"
 #include "utilitydialog.h"
 
+#include "utilstrencodings.h"
 #include "ui_interface.h"
 #include "wallet/crypter.h"
 
