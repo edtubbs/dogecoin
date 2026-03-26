@@ -11,6 +11,7 @@
 #include <QDialog>
 #include <QLineEdit>
 #include <QMessageBox>
+#include <QPointer>
 #include <QString>
 #include <QTimer>
 
@@ -21,6 +22,8 @@ class OptionsModel;
 class PlatformStyle;
 class QPushButton;
 class QProgressBar;
+class QProgressDialog;
+class QThread;
 class SendCoinsEntry;
 class SendCoinsRecipient;
 
@@ -75,6 +78,9 @@ private:
     QPushButton *pqcGenerateButton;
     QPushButton *pqcDecodeButton;
     QProgressBar *pqcGenerateProgressBar;
+    QPointer<QProgressDialog> pqcGenerateProgressDialog;
+    QPointer<QThread> pqcGenerateThread;
+    bool pqcGenerateInProgress;
     QString pqcSelectedAlgorithm;
     QString pqcSelectedPublicKeyHex;
     QString pqcCommitmentScriptPubKeyHex;
