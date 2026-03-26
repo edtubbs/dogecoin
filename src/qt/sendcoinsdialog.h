@@ -118,6 +118,9 @@ private Q_SLOTS:
     void refreshPqcKeyInventory();
     void onUseStoredPqcKeyClicked();
     void onGeneratePqcCommitmentClicked();
+    void onPqcGenerateProgressPrepare();
+    void onPqcGenerateProgressSign();
+    void onPqcGenerateFinished(const QString& algorithm, const QString& publicKeyHex, const QString& commitment, const QString& scriptPubKey, const QString& error);
     void onDecodePqcCommitmentClicked();
 
 Q_SIGNALS:
