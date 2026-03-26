@@ -611,11 +611,6 @@ void SendCoinsDialog::onGeneratePqcCommitmentClicked()
     workerContext->moveToThread(thread);
     connect(thread, &QThread::finished, workerContext, &QObject::deleteLater);
     connect(thread, &QThread::finished, thread, &QObject::deleteLater);
-    connect(thread, &QObject::destroyed, this, [this](QObject* obj) {
-        if (pqcGenerateThread && pqcGenerateThread.data() == obj) {
-            pqcGenerateThread = nullptr;
-        }
-    });
     connect(this, &QObject::destroyed, thread, &QThread::quit);
     connect(thread, &QThread::started, workerContext, [this, thread, algorithm, publicKeyHex, recipients]() {
         QMetaObject::invokeMethod(this, [this]() {
