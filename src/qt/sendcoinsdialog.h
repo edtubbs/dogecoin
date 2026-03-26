@@ -20,6 +20,7 @@ class QComboBox;
 class OptionsModel;
 class PlatformStyle;
 class QPushButton;
+class QProgressBar;
 class SendCoinsEntry;
 class SendCoinsRecipient;
 
@@ -73,6 +74,7 @@ private:
     QPushButton *pqcLoadStoredKeyButton;
     QPushButton *pqcGenerateButton;
     QPushButton *pqcDecodeButton;
+    QProgressBar *pqcGenerateProgressBar;
     QString pqcSelectedAlgorithm;
     QString pqcSelectedPublicKeyHex;
     QString pqcCommitmentScriptPubKeyHex;
