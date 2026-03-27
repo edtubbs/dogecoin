@@ -101,6 +101,8 @@ public Q_SLOTS:
     void backupWallet();
     /** Backup and encrypt the wallet file */
     void backupWalletEncrypted();
+    /** Decrypt and restore a PQC envelope backup */
+    void restoreWalletEncrypted();
     /** Show PQC signature commitment dialog */
     void showPQCSignatureDialog();
     /** Change encrypted wallet passphrase */

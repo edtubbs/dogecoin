@@ -109,6 +109,7 @@ BitcoinGUI::BitcoinGUI(const PlatformStyle *_platformStyle, const NetworkStyle *
     encryptWalletAction(0),
     backupWalletAction(0),
     backupWalletEncryptedAction(0),
+    restoreWalletEncryptedAction(0),
     pqcSignatureDialogAction(0),
     changePassphraseAction(0),
     aboutQtAction(0),
@@ -371,6 +372,8 @@ void BitcoinGUI::createActions()
     backupWalletAction->setStatusTip(tr("Backup wallet to another location"));
     backupWalletEncryptedAction = new QAction(platformStyle->TextColorIcon(":/icons/lock_closed"), tr("Backup Wallet (PQC Envelope)..."), this);
     backupWalletEncryptedAction->setStatusTip(tr("Backup wallet and encrypt the backup file with an AES+PQC-labeled envelope"));
+    restoreWalletEncryptedAction = new QAction(platformStyle->TextColorIcon(":/icons/open"), tr("Restore Wallet (PQC Envelope)..."), this);
+    restoreWalletEncryptedAction->setStatusTip(tr("Decrypt and restore a PQC envelope wallet backup"));
     pqcSignatureDialogAction = new QAction(platformStyle->TextColorIcon(":/icons/edit"), tr("Manage &PQC Keys..."), this);
     pqcSignatureDialogAction->setStatusTip(tr("Manage PQC signature and wallet-export keys"));
     changePassphraseAction = new QAction(platformStyle->TextColorIcon(":/icons/key"), tr("&Change Passphrase..."), this);
@@ -418,6 +421,7 @@ void BitcoinGUI::createActions()
         connect(encryptWalletAction, SIGNAL(triggered(bool)), walletFrame, SLOT(encryptWallet(bool)));
         connect(backupWalletAction, SIGNAL(triggered()), walletFrame, SLOT(backupWallet()));
         connect(backupWalletEncryptedAction, SIGNAL(triggered()), walletFrame, SLOT(backupWalletEncrypted()));
+        connect(restoreWalletEncryptedAction, SIGNAL(triggered()), walletFrame, SLOT(restoreWalletEncrypted()));
         connect(pqcSignatureDialogAction, SIGNAL(triggered()), walletFrame, SLOT(showPQCSignatureDialog()));
         connect(changePassphraseAction, SIGNAL(triggered()), walletFrame, SLOT(changePassphrase()));
         connect(signMessageAction, SIGNAL(triggered()), this, SLOT(gotoSignMessageTab()));
@@ -451,6 +455,7 @@ void BitcoinGUI::createMenuBar()
         file->addAction(openAction);
         file->addAction(backupWalletAction);
         file->addAction(backupWalletEncryptedAction);
+        file->addAction(restoreWalletEncryptedAction);
         file->addAction(pqcSignatureDialogAction);
         file->addAction(signMessageAction);
         file->addAction(verifyMessageAction);
@@ -596,6 +601,7 @@ void BitcoinGUI::setWalletActionsEnabled(bool enabled)
     encryptWalletAction->setEnabled(enabled);
     backupWalletAction->setEnabled(enabled);
     backupWalletEncryptedAction->setEnabled(enabled);
+    restoreWalletEncryptedAction->setEnabled(enabled);
     pqcSignatureDialogAction->setEnabled(enabled);
     changePassphraseAction->setEnabled(enabled);
     signMessageAction->setEnabled(enabled);

@@ -173,6 +173,13 @@ void WalletFrame::backupWalletEncrypted()
         walletView->backupWalletEncrypted();
 }
 
+void WalletFrame::restoreWalletEncrypted()
+{
+    WalletView *walletView = currentWalletView();
+    if (walletView)
+        walletView->restoreWalletEncrypted();
+}
+
 void WalletFrame::showPQCSignatureDialog()
 {
     WalletView *walletView = currentWalletView();

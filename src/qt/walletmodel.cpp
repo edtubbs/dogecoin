@@ -710,6 +710,11 @@ bool WalletModel::saveWalletMeta(const std::string &key, const std::string &valu
     return ok;
 }
 
+QString WalletModel::getWalletFilePath() const
+{
+    return QString::fromStdString((GetDataDir() / wallet->strWalletFile).string());
+}
+
 bool WalletModel::transactionCanBeAbandoned(uint256 hash) const
 {
     LOCK2(cs_main, wallet->cs_wallet);

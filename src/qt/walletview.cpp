@@ -30,6 +30,7 @@
 #include "crypto/sha512.h"
 #include "random.h"
 #include "support/cleanse.h"
+#include "shutdown.h"
 
 #include <QAction>
 #include <QActionGroup>
@@ -62,17 +63,6 @@ const char* PQCSignatureStorageKeyForAlgorithm(const QString& algorithm)
     return "pqc_sigkey_falcon512";
 }
 
-const char* PQCEnvelopeStorageKeyForAlgorithm(const QString& algorithm)
-{
-    if (algorithm == "dilithium2") return "pqc_key_dilithium2";
-    return "pqc_key_falcon512";
-}
-
-QByteArray PqcTagForAlgorithm(const QString& algorithm)
-{
-    return algorithm == "dilithium2" ? QByteArray("DIL2") : QByteArray("FLC1");
-}
-
 QByteArray Sha256Bytes(const QByteArray& input)
 {
     unsigned char digest[CSHA256::OUTPUT_SIZE];
@@ -89,6 +79,21 @@ QByteArray DeriveKeyMaterial(const QByteArray& secret, const QByteArray& context
     while (out.size() < outLen) {
         QByteArray blockInput = secret + context + QByteArray::number(counter++);
         out.append(Sha256Bytes(blockInput));
+    }
+    out.truncate(outLen);
+    return out;
+}
+
+QByteArray DerivePasswordMaterial(const QByteArray& passphrase, const QByteArray& salt, const QByteArray& context, int rounds, int outLen)
+{
+    QByteArray out;
+    int counter = 0;
+    while (out.size() < outLen) {
+        QByteArray state = Sha256Bytes(passphrase + salt + context + QByteArray::number(counter++));
+        for (int i = 1; i < rounds; ++i) {
+            state = Sha256Bytes(state + passphrase + salt + context);
+        }
+        out.append(state);
     }
     out.truncate(outLen);
     return out;
@@ -348,28 +353,6 @@ void WalletView::backupWalletEncrypted()
     if (!outFilename.endsWith(".pqce"))
         outFilename += ".pqce";
 
-    const QString keyAlgo = "falcon512";
-    std::string keyMetaJson;
-    if (!walletModel->getWalletMeta(PQCEnvelopeStorageKeyForAlgorithm(keyAlgo), &keyMetaJson)) {
-        Q_EMIT message(tr("Missing PQC Key"), tr("No stored %1 PQC key found. Generate a PQC key pair first in the PQC dialog.").arg(keyAlgo),
-            CClientUIInterface::MSG_ERROR);
-        return;
-    }
-    QJsonParseError keyParseError;
-    QJsonDocument keyDoc = QJsonDocument::fromJson(QByteArray::fromStdString(keyMetaJson), &keyParseError);
-    if (keyParseError.error != QJsonParseError::NoError || !keyDoc.isObject()) {
-        Q_EMIT message(tr("Invalid PQC Key"), tr("Stored PQC key metadata is invalid."),
-            CClientUIInterface::MSG_ERROR);
-        return;
-    }
-    const QString publicKeyHex = keyDoc.object().value("public_key_hex").toString();
-    QByteArray publicKey = QByteArray::fromHex(publicKeyHex.toUtf8());
-    if (publicKey.isEmpty()) {
-        Q_EMIT message(tr("Invalid PQC Key"), tr("Stored PQC key is missing a usable public key."),
-            CClientUIInterface::MSG_ERROR);
-        return;
-    }
-
     const QString tempWalletFilename = outFilename + ".wallet.tmp.dat";
     if (!walletModel->backupWallet(tempWalletFilename)) {
         Q_EMIT message(tr("Backup Failed"), tr("There was an error trying to save the wallet data to %1.").arg(tempWalletFilename),
@@ -377,15 +360,28 @@ void WalletView::backupWalletEncrypted()
         return;
     }
 
-    bool ok = false;
-    QString passphrase = QInputDialog::getText(
+    bool okAes = false;
+    QString aesPassphrase = QInputDialog::getText(
         this,
-        tr("PQC Envelope Passphrase"),
+        tr("AES Backup Passphrase"),
         tr("Enter passphrase for AES layer:"),
         QLineEdit::Password,
         QString(),
-        &ok);
-    if (!ok || passphrase.isEmpty()) {
+        &okAes);
+    if (!okAes || aesPassphrase.isEmpty()) {
+        QFile::remove(tempWalletFilename);
+        return;
+    }
+
+    bool okPqc = false;
+    QString pqcPassphrase = QInputDialog::getText(
+        this,
+        tr("PQC Backup Passphrase"),
+        tr("Enter passphrase for PQC layer:"),
+        QLineEdit::Password,
+        QString(),
+        &okPqc);
+    if (!okPqc || pqcPassphrase.isEmpty()) {
         QFile::remove(tempWalletFilename);
         return;
     }
@@ -406,99 +402,79 @@ void WalletView::backupWalletEncrypted()
         return;
     }
 
-    std::vector<unsigned char> passSalt(WALLET_CRYPTO_SALT_SIZE);
-    GetStrongRandBytes(passSalt.data(), WALLET_CRYPTO_SALT_SIZE);
-    QByteArray passphraseBytes = passphrase.toUtf8();
-    SecureString pass(passphraseBytes.constData(), passphraseBytes.constData() + passphraseBytes.size());
+    std::vector<unsigned char> aesSalt(WALLET_CRYPTO_SALT_SIZE);
+    GetStrongRandBytes(aesSalt.data(), WALLET_CRYPTO_SALT_SIZE);
+    QByteArray aesPassphraseBytes = aesPassphrase.toUtf8();
+    SecureString aesPass(aesPassphraseBytes.constData(), aesPassphraseBytes.constData() + aesPassphraseBytes.size());
 
-    std::vector<unsigned char> aesKeyBytes(WALLET_CRYPTO_KEY_SIZE);
-    std::vector<unsigned char> aesIvBytes(WALLET_CRYPTO_IV_SIZE);
-    GetStrongRandBytes(aesKeyBytes.data(), aesKeyBytes.size());
-    GetStrongRandBytes(aesIvBytes.data(), aesIvBytes.size());
-
-    QByteArray algoTag = PqcTagForAlgorithm(keyAlgo);
-    QByteArray pqcEphemeral(32, 0);
-    GetStrongRandBytes(reinterpret_cast<unsigned char*>(pqcEphemeral.data()), pqcEphemeral.size());
-    QByteArray pqcShared = Sha256Bytes(pqcEphemeral + publicKey + algoTag);
-    QByteArray wrapMaskKey = DeriveKeyMaterial(pqcShared, "wallet-pqc-wrap-key", WALLET_CRYPTO_KEY_SIZE);
-    QByteArray wrapMaskIv = DeriveKeyMaterial(pqcShared, "wallet-pqc-wrap-iv", WALLET_CRYPTO_IV_SIZE);
-
-    QByteArray wrappedKey(reinterpret_cast<const char*>(aesKeyBytes.data()), aesKeyBytes.size());
-    QByteArray wrappedIv(reinterpret_cast<const char*>(aesIvBytes.data()), aesIvBytes.size());
-    if (wrapMaskKey.size() != wrappedKey.size() || wrapMaskIv.size() != wrappedIv.size()) {
-        if (!passphraseBytes.isEmpty()) memory_cleanse(passphraseBytes.data(), passphraseBytes.size());
+    CCrypter aesCrypter;
+    if (!aesCrypter.SetKeyFromPassphrase(aesPass, aesSalt, 25000, 0)) {
+        if (!aesPassphraseBytes.isEmpty()) memory_cleanse(aesPassphraseBytes.data(), aesPassphraseBytes.size());
         if (!plain.isEmpty()) memory_cleanse(plain.data(), plain.size());
-        if (!pqcShared.isEmpty()) memory_cleanse(pqcShared.data(), pqcShared.size());
-        if (!wrapMaskKey.isEmpty()) memory_cleanse(wrapMaskKey.data(), wrapMaskKey.size());
-        if (!wrapMaskIv.isEmpty()) memory_cleanse(wrapMaskIv.data(), wrapMaskIv.size());
-        Q_EMIT message(tr("Encryption Failed"),
-            tr("Unable to derive key wrapping material (key mask %1/%2, iv mask %3/%4).")
-                .arg(wrapMaskKey.size()).arg(wrappedKey.size()).arg(wrapMaskIv.size()).arg(wrappedIv.size()),
-            CClientUIInterface::MSG_ERROR);
-        return;
-    }
-    for (int i = 0; i < wrappedKey.size(); ++i) wrappedKey[i] = wrappedKey[i] ^ wrapMaskKey[i];
-    for (int i = 0; i < wrappedIv.size(); ++i) wrappedIv[i] = wrappedIv[i] ^ wrapMaskIv[i];
-
-    CCrypter keyCrypter;
-    if (!keyCrypter.SetKeyFromPassphrase(pass, passSalt, 25000, 0)) {
-        if (!passphraseBytes.isEmpty()) memory_cleanse(passphraseBytes.data(), passphraseBytes.size());
-        if (!plain.isEmpty()) memory_cleanse(plain.data(), plain.size());
-        Q_EMIT message(tr("Encryption Failed"), tr("Unable to derive passphrase key."),
+        Q_EMIT message(tr("Encryption Failed"), tr("Unable to derive AES passphrase key."),
             CClientUIInterface::MSG_ERROR);
         return;
     }
 
-    CKeyingMaterial aesKeyMaterial(aesKeyBytes.begin(), aesKeyBytes.end());
-    std::vector<unsigned char> encryptedAesKey;
-    if (!keyCrypter.Encrypt(aesKeyMaterial, encryptedAesKey)) {
-        if (!passphraseBytes.isEmpty()) memory_cleanse(passphraseBytes.data(), passphraseBytes.size());
-        if (!plain.isEmpty()) memory_cleanse(plain.data(), plain.size());
-        if (!aesKeyMaterial.empty()) memory_cleanse(&aesKeyMaterial[0], aesKeyMaterial.size());
-        Q_EMIT message(tr("Encryption Failed"), tr("Unable to encrypt AES key material."),
-            CClientUIInterface::MSG_ERROR);
-        return;
-    }
-    if (!aesKeyMaterial.empty()) memory_cleanse(&aesKeyMaterial[0], aesKeyMaterial.size());
-
-    CCrypter dataCrypter;
-    CKeyingMaterial dataAesKey(aesKeyBytes.begin(), aesKeyBytes.end());
-    if (!dataCrypter.SetKey(dataAesKey, aesIvBytes)) {
-        if (!passphraseBytes.isEmpty()) memory_cleanse(passphraseBytes.data(), passphraseBytes.size());
-        if (!plain.isEmpty()) memory_cleanse(plain.data(), plain.size());
-        if (!dataAesKey.empty()) memory_cleanse(&dataAesKey[0], dataAesKey.size());
-        Q_EMIT message(tr("Encryption Failed"), tr("Unable to initialize AES layer."),
-            CClientUIInterface::MSG_ERROR);
-        return;
-    }
     CKeyingMaterial plainMaterial(reinterpret_cast<const unsigned char*>(plain.constData()),
                                   reinterpret_cast<const unsigned char*>(plain.constData()) + plain.size());
-    std::vector<unsigned char> cipher;
-    if (!dataCrypter.Encrypt(plainMaterial, cipher)) {
-        if (!passphraseBytes.isEmpty()) memory_cleanse(passphraseBytes.data(), passphraseBytes.size());
-        if (!plain.isEmpty()) memory_cleanse(plain.data(), plain.size());
-        if (!dataAesKey.empty()) memory_cleanse(&dataAesKey[0], dataAesKey.size());
+    std::vector<unsigned char> aesCipher;
+    if (!aesCrypter.Encrypt(plainMaterial, aesCipher)) {
+        if (!aesPassphraseBytes.isEmpty()) memory_cleanse(aesPassphraseBytes.data(), aesPassphraseBytes.size());
         if (!plainMaterial.empty()) memory_cleanse(&plainMaterial[0], plainMaterial.size());
-        Q_EMIT message(tr("Encryption Failed"), tr("Unable to encrypt wallet backup data."),
+        if (!plain.isEmpty()) memory_cleanse(plain.data(), plain.size());
+        Q_EMIT message(tr("Encryption Failed"), tr("Unable to encrypt wallet backup data with AES layer."),
             CClientUIInterface::MSG_ERROR);
         return;
     }
-
-    if (!passphraseBytes.isEmpty()) memory_cleanse(passphraseBytes.data(), passphraseBytes.size());
-    if (!plain.isEmpty()) memory_cleanse(plain.data(), plain.size());
-    if (!dataAesKey.empty()) memory_cleanse(&dataAesKey[0], dataAesKey.size());
     if (!plainMaterial.empty()) memory_cleanse(&plainMaterial[0], plainMaterial.size());
-    memory_cleanse(aesKeyBytes.data(), aesKeyBytes.size());
-    memory_cleanse(aesIvBytes.data(), aesIvBytes.size());
-    if (!pqcShared.isEmpty()) memory_cleanse(pqcShared.data(), pqcShared.size());
-    if (!wrapMaskKey.isEmpty()) memory_cleanse(wrapMaskKey.data(), wrapMaskKey.size());
-    if (!wrapMaskIv.isEmpty()) memory_cleanse(wrapMaskIv.data(), wrapMaskIv.size());
 
-    const QByteArray envelopeAlgo = "AES256-CBC+PQC-CASCADE";
+    std::vector<unsigned char> pqcSalt(WALLET_CRYPTO_SALT_SIZE);
+    GetStrongRandBytes(pqcSalt.data(), WALLET_CRYPTO_SALT_SIZE);
+    QByteArray pqcPassphraseBytes = pqcPassphrase.toUtf8();
+    QByteArray pqcSaltBytes(reinterpret_cast<const char*>(pqcSalt.data()), pqcSalt.size());
+    const int pqcRounds = 50000;
+    QByteArray pqcKey = DerivePasswordMaterial(pqcPassphraseBytes, pqcSaltBytes, "wallet-pqc-pass-key", pqcRounds, WALLET_CRYPTO_KEY_SIZE);
+    QByteArray pqcIv = DerivePasswordMaterial(pqcPassphraseBytes, pqcSaltBytes, "wallet-pqc-pass-iv", pqcRounds, WALLET_CRYPTO_IV_SIZE);
+
+    std::vector<unsigned char> pqcKeyBytes(pqcKey.begin(), pqcKey.end());
+    std::vector<unsigned char> pqcIvBytes(pqcIv.begin(), pqcIv.end());
+    CCrypter pqcCrypter;
+    CKeyingMaterial pqcKeyMaterial(pqcKeyBytes.begin(), pqcKeyBytes.end());
+    if (!pqcCrypter.SetKey(pqcKeyMaterial, pqcIvBytes)) {
+        if (!aesPassphraseBytes.isEmpty()) memory_cleanse(aesPassphraseBytes.data(), aesPassphraseBytes.size());
+        if (!pqcPassphraseBytes.isEmpty()) memory_cleanse(pqcPassphraseBytes.data(), pqcPassphraseBytes.size());
+        if (!plain.isEmpty()) memory_cleanse(plain.data(), plain.size());
+        if (!pqcKeyMaterial.empty()) memory_cleanse(&pqcKeyMaterial[0], pqcKeyMaterial.size());
+        Q_EMIT message(tr("Encryption Failed"), tr("Unable to initialize PQC password layer."),
+            CClientUIInterface::MSG_ERROR);
+        return;
+    }
+    CKeyingMaterial aesCipherMaterial(aesCipher.begin(), aesCipher.end());
+    std::vector<unsigned char> cipher;
+    if (!pqcCrypter.Encrypt(aesCipherMaterial, cipher)) {
+        if (!aesPassphraseBytes.isEmpty()) memory_cleanse(aesPassphraseBytes.data(), aesPassphraseBytes.size());
+        if (!pqcPassphraseBytes.isEmpty()) memory_cleanse(pqcPassphraseBytes.data(), pqcPassphraseBytes.size());
+        if (!plain.isEmpty()) memory_cleanse(plain.data(), plain.size());
+        if (!pqcKeyMaterial.empty()) memory_cleanse(&pqcKeyMaterial[0], pqcKeyMaterial.size());
+        if (!aesCipherMaterial.empty()) memory_cleanse(&aesCipherMaterial[0], aesCipherMaterial.size());
+        Q_EMIT message(tr("Encryption Failed"), tr("Unable to encrypt AES layer with PQC password layer."),
+            CClientUIInterface::MSG_ERROR);
+        return;
+    }
+    if (!aesCipherMaterial.empty()) memory_cleanse(&aesCipherMaterial[0], aesCipherMaterial.size());
+
+    if (!aesPassphraseBytes.isEmpty()) memory_cleanse(aesPassphraseBytes.data(), aesPassphraseBytes.size());
+    if (!pqcPassphraseBytes.isEmpty()) memory_cleanse(pqcPassphraseBytes.data(), pqcPassphraseBytes.size());
+    if (!plain.isEmpty()) memory_cleanse(plain.data(), plain.size());
+    if (!pqcKeyMaterial.empty()) memory_cleanse(&pqcKeyMaterial[0], pqcKeyMaterial.size());
+    if (!pqcKey.isEmpty()) memory_cleanse(pqcKey.data(), pqcKey.size());
+    if (!pqcIv.isEmpty()) memory_cleanse(pqcIv.data(), pqcIv.size());
+
+    const QByteArray envelopeAlgo = "AES256-CBC+PQC-PASS-CASCADE";
     unsigned char digest[CSHA256::OUTPUT_SIZE];
     CSHA256 hasher;
     hasher.Write(reinterpret_cast<const unsigned char*>(envelopeAlgo.constData()), envelopeAlgo.size());
-    hasher.Write(reinterpret_cast<const unsigned char*>(algoTag.constData()), algoTag.size());
     hasher.Write(reinterpret_cast<const unsigned char*>(cipher.data()), cipher.size());
     hasher.Finalize(digest);
 
@@ -509,29 +485,258 @@ void WalletView::backupWalletEncrypted()
             CClientUIInterface::MSG_ERROR);
         return;
     }
-    outFile.write("DGC-PQCE2\n");
+    outFile.write("DGC-PQCE3\n");
     outFile.write("ALGO:" + envelopeAlgo + "\n");
-    outFile.write("PQC_ALGO:" + keyAlgo.toUtf8() + "\n");
-    outFile.write("PQC_TAG:" + algoTag.toHex() + "\n");
-    outFile.write("PQC_EPH:" + pqcEphemeral.toHex() + "\n");
-    outFile.write("PQC_PUB:" + publicKey.toHex() + "\n");
-    outFile.write("WRAPPED_AES_KEY:" + wrappedKey.toHex() + "\n");
-    outFile.write("WRAPPED_AES_IV:" + wrappedIv.toHex() + "\n");
-    outFile.write("PASS_KDF:sha512-aes256cbc\n");
-    outFile.write("PASS_SALT:" + QByteArray(reinterpret_cast<const char*>(passSalt.data()), passSalt.size()).toHex() + "\n");
-    outFile.write("PASS_ROUNDS:25000\n");
-    outFile.write("ENC_AES_KEY:" + QByteArray(reinterpret_cast<const char*>(encryptedAesKey.data()), encryptedAesKey.size()).toHex() + "\n");
+    outFile.write("AES_KDF:sha512-aes256cbc\n");
+    outFile.write("AES_SALT:" + QByteArray(reinterpret_cast<const char*>(aesSalt.data()), aesSalt.size()).toHex() + "\n");
+    outFile.write("AES_ROUNDS:25000\n");
+    outFile.write("PQC_KDF:sha256-iter\n");
+    outFile.write("PQC_SALT:" + QByteArray(reinterpret_cast<const char*>(pqcSalt.data()), pqcSalt.size()).toHex() + "\n");
+    outFile.write("PQC_ROUNDS:" + QByteArray::number(pqcRounds) + "\n");
     outFile.write("DATA_SHA256:" + QByteArray(reinterpret_cast<const char*>(digest), sizeof(digest)).toHex() + "\n");
     outFile.write("DATA_B64:" + QByteArray(reinterpret_cast<const char*>(cipher.data()), cipher.size()).toBase64() + "\n");
     outFile.close();
     memory_cleanse(digest, sizeof(digest));
 
-    if (!pqcEphemeral.isEmpty()) memory_cleanse(pqcEphemeral.data(), pqcEphemeral.size());
-    if (!wrappedKey.isEmpty()) memory_cleanse(wrappedKey.data(), wrappedKey.size());
-    if (!wrappedIv.isEmpty()) memory_cleanse(wrappedIv.data(), wrappedIv.size());
-
-    Q_EMIT message(tr("Backup Successful"), tr("PQC cascade encrypted wallet backup was successfully saved to %1.").arg(outFilename),
+    Q_EMIT message(tr("Backup Successful"), tr("Double password-encrypted (AES + PQC) wallet backup was successfully saved to %1.").arg(outFilename),
         CClientUIInterface::MSG_INFORMATION);
+}
+
+void WalletView::restoreWalletEncrypted()
+{
+    if (!walletModel) {
+        return;
+    }
+
+    QString inFilename = GUIUtil::getOpenFileName(this,
+        tr("Restore Wallet (PQC Envelope)"), QString(),
+        tr("PQC Envelope (*.pqce)"), NULL);
+    if (inFilename.isEmpty()) {
+        return;
+    }
+
+    QFile inFile(inFilename);
+    if (!inFile.open(QIODevice::ReadOnly)) {
+        Q_EMIT message(tr("Restore Failed"), tr("Unable to open envelope file %1.").arg(inFilename),
+            CClientUIInterface::MSG_ERROR);
+        return;
+    }
+    const QList<QByteArray> lines = inFile.readAll().split('\n');
+    inFile.close();
+
+    QMap<QByteArray, QByteArray> fields;
+    QByteArray header;
+    for (int i = 0; i < lines.size(); ++i) {
+        QByteArray line = lines.at(i).trimmed();
+        if (line.isEmpty()) continue;
+        if (i == 0 && !line.contains(':')) {
+            header = line;
+            continue;
+        }
+        int sep = line.indexOf(':');
+        if (sep <= 0) continue;
+        fields.insert(line.left(sep), line.mid(sep + 1));
+    }
+    if (header != "DGC-PQCE3") {
+        Q_EMIT message(tr("Restore Failed"), tr("Unsupported envelope format: %1").arg(QString::fromLatin1(header)),
+            CClientUIInterface::MSG_ERROR);
+        return;
+    }
+    if (fields.value("ALGO") != "AES256-CBC+PQC-PASS-CASCADE") {
+        Q_EMIT message(tr("Restore Failed"), tr("Unsupported envelope algorithm."),
+            CClientUIInterface::MSG_ERROR);
+        return;
+    }
+
+    const QByteArray aesSaltHex = fields.value("AES_SALT");
+    const QByteArray aesRoundsRaw = fields.value("AES_ROUNDS");
+    const QByteArray pqcSaltHex = fields.value("PQC_SALT");
+    const QByteArray pqcRoundsRaw = fields.value("PQC_ROUNDS");
+    const QByteArray expectedDigestHex = fields.value("DATA_SHA256");
+    const QByteArray dataB64 = fields.value("DATA_B64");
+    if (aesSaltHex.isEmpty() || aesRoundsRaw.isEmpty() || pqcSaltHex.isEmpty() || pqcRoundsRaw.isEmpty() ||
+        expectedDigestHex.isEmpty() || dataB64.isEmpty()) {
+        Q_EMIT message(tr("Restore Failed"), tr("Envelope is missing required fields."),
+            CClientUIInterface::MSG_ERROR);
+        return;
+    }
+
+    const QByteArray aesSalt = QByteArray::fromHex(aesSaltHex);
+    const QByteArray pqcSalt = QByteArray::fromHex(pqcSaltHex);
+    bool okAesRounds = false;
+    bool okPqcRounds = false;
+    const int aesRounds = QString::fromLatin1(aesRoundsRaw).toInt(&okAesRounds);
+    const int pqcRounds = QString::fromLatin1(pqcRoundsRaw).toInt(&okPqcRounds);
+    if (!okAesRounds || !okPqcRounds || aesRounds <= 0 || pqcRounds <= 0 ||
+        aesSalt.isEmpty() || pqcSalt.isEmpty()) {
+        Q_EMIT message(tr("Restore Failed"), tr("Envelope KDF parameters are invalid."),
+            CClientUIInterface::MSG_ERROR);
+        return;
+    }
+
+    std::vector<unsigned char> outerCipher = DecodeBase64(dataB64.toStdString().c_str(), NULL);
+    if (outerCipher.empty()) {
+        Q_EMIT message(tr("Restore Failed"), tr("Envelope encrypted payload is invalid."),
+            CClientUIInterface::MSG_ERROR);
+        return;
+    }
+
+    const QByteArray envelopeAlgo = "AES256-CBC+PQC-PASS-CASCADE";
+    unsigned char digest[CSHA256::OUTPUT_SIZE];
+    CSHA256 hasher;
+    hasher.Write(reinterpret_cast<const unsigned char*>(envelopeAlgo.constData()), envelopeAlgo.size());
+    hasher.Write(reinterpret_cast<const unsigned char*>(outerCipher.data()), outerCipher.size());
+    hasher.Finalize(digest);
+    const QByteArray digestHex(reinterpret_cast<const char*>(digest), sizeof(digest));
+    const QByteArray digestHexAscii = digestHex.toHex();
+    memory_cleanse(digest, sizeof(digest));
+    if (expectedDigestHex.compare(digestHexAscii, Qt::CaseInsensitive) != 0) {
+        Q_EMIT message(tr("Restore Failed"), tr("Envelope digest check failed."),
+            CClientUIInterface::MSG_ERROR);
+        return;
+    }
+
+    bool okAes = false;
+    const QString aesPassphrase = QInputDialog::getText(
+        this,
+        tr("AES Backup Passphrase"),
+        tr("Enter passphrase for AES layer:"),
+        QLineEdit::Password,
+        QString(),
+        &okAes);
+    if (!okAes || aesPassphrase.isEmpty()) {
+        return;
+    }
+    bool okPqc = false;
+    const QString pqcPassphrase = QInputDialog::getText(
+        this,
+        tr("PQC Backup Passphrase"),
+        tr("Enter passphrase for PQC layer:"),
+        QLineEdit::Password,
+        QString(),
+        &okPqc);
+    if (!okPqc || pqcPassphrase.isEmpty()) {
+        return;
+    }
+
+    QByteArray aesPassphraseBytes = aesPassphrase.toUtf8();
+    QByteArray pqcPassphraseBytes = pqcPassphrase.toUtf8();
+    QByteArray pqcKey = DerivePasswordMaterial(pqcPassphraseBytes, pqcSalt, "wallet-pqc-pass-key", pqcRounds, WALLET_CRYPTO_KEY_SIZE);
+    QByteArray pqcIv = DerivePasswordMaterial(pqcPassphraseBytes, pqcSalt, "wallet-pqc-pass-iv", pqcRounds, WALLET_CRYPTO_IV_SIZE);
+    std::vector<unsigned char> pqcKeyBytes(pqcKey.begin(), pqcKey.end());
+    std::vector<unsigned char> pqcIvBytes(pqcIv.begin(), pqcIv.end());
+    CCrypter pqcCrypter;
+    CKeyingMaterial pqcKeyMaterial(pqcKeyBytes.begin(), pqcKeyBytes.end());
+    if (!pqcCrypter.SetKey(pqcKeyMaterial, pqcIvBytes)) {
+        if (!aesPassphraseBytes.isEmpty()) memory_cleanse(aesPassphraseBytes.data(), aesPassphraseBytes.size());
+        if (!pqcPassphraseBytes.isEmpty()) memory_cleanse(pqcPassphraseBytes.data(), pqcPassphraseBytes.size());
+        if (!pqcKeyMaterial.empty()) memory_cleanse(&pqcKeyMaterial[0], pqcKeyMaterial.size());
+        Q_EMIT message(tr("Restore Failed"), tr("Unable to initialize PQC password layer."),
+            CClientUIInterface::MSG_ERROR);
+        return;
+    }
+
+    CKeyingMaterial outerCipherMaterial(outerCipher.begin(), outerCipher.end());
+    CKeyingMaterial aesCipherMaterial;
+    if (!pqcCrypter.Decrypt(outerCipherMaterial, aesCipherMaterial)) {
+        if (!aesPassphraseBytes.isEmpty()) memory_cleanse(aesPassphraseBytes.data(), aesPassphraseBytes.size());
+        if (!pqcPassphraseBytes.isEmpty()) memory_cleanse(pqcPassphraseBytes.data(), pqcPassphraseBytes.size());
+        if (!pqcKeyMaterial.empty()) memory_cleanse(&pqcKeyMaterial[0], pqcKeyMaterial.size());
+        if (!outerCipherMaterial.empty()) memory_cleanse(&outerCipherMaterial[0], outerCipherMaterial.size());
+        Q_EMIT message(tr("Restore Failed"), tr("PQC password decryption failed."),
+            CClientUIInterface::MSG_ERROR);
+        return;
+    }
+    if (!outerCipherMaterial.empty()) memory_cleanse(&outerCipherMaterial[0], outerCipherMaterial.size());
+
+    SecureString aesPass(aesPassphraseBytes.constData(), aesPassphraseBytes.constData() + aesPassphraseBytes.size());
+    CCrypter aesCrypter;
+    std::vector<unsigned char> aesSaltBytes(aesSalt.begin(), aesSalt.end());
+    if (!aesCrypter.SetKeyFromPassphrase(aesPass, aesSaltBytes, aesRounds, 0)) {
+        if (!aesPassphraseBytes.isEmpty()) memory_cleanse(aesPassphraseBytes.data(), aesPassphraseBytes.size());
+        if (!pqcPassphraseBytes.isEmpty()) memory_cleanse(pqcPassphraseBytes.data(), pqcPassphraseBytes.size());
+        if (!pqcKeyMaterial.empty()) memory_cleanse(&pqcKeyMaterial[0], pqcKeyMaterial.size());
+        if (!aesCipherMaterial.empty()) memory_cleanse(&aesCipherMaterial[0], aesCipherMaterial.size());
+        Q_EMIT message(tr("Restore Failed"), tr("Unable to derive AES passphrase key."),
+            CClientUIInterface::MSG_ERROR);
+        return;
+    }
+
+    CKeyingMaterial plainMaterial;
+    if (!aesCrypter.Decrypt(aesCipherMaterial, plainMaterial)) {
+        if (!aesPassphraseBytes.isEmpty()) memory_cleanse(aesPassphraseBytes.data(), aesPassphraseBytes.size());
+        if (!pqcPassphraseBytes.isEmpty()) memory_cleanse(pqcPassphraseBytes.data(), pqcPassphraseBytes.size());
+        if (!pqcKeyMaterial.empty()) memory_cleanse(&pqcKeyMaterial[0], pqcKeyMaterial.size());
+        if (!aesCipherMaterial.empty()) memory_cleanse(&aesCipherMaterial[0], aesCipherMaterial.size());
+        Q_EMIT message(tr("Restore Failed"), tr("AES password decryption failed."),
+            CClientUIInterface::MSG_ERROR);
+        return;
+    }
+
+    if (!aesPassphraseBytes.isEmpty()) memory_cleanse(aesPassphraseBytes.data(), aesPassphraseBytes.size());
+    if (!pqcPassphraseBytes.isEmpty()) memory_cleanse(pqcPassphraseBytes.data(), pqcPassphraseBytes.size());
+    if (!pqcKeyMaterial.empty()) memory_cleanse(&pqcKeyMaterial[0], pqcKeyMaterial.size());
+    if (!pqcKey.isEmpty()) memory_cleanse(pqcKey.data(), pqcKey.size());
+    if (!pqcIv.isEmpty()) memory_cleanse(pqcIv.data(), pqcIv.size());
+    if (!aesCipherMaterial.empty()) memory_cleanse(&aesCipherMaterial[0], aesCipherMaterial.size());
+
+    if (plainMaterial.empty()) {
+        Q_EMIT message(tr("Restore Failed"), tr("Decrypted wallet backup is empty."),
+            CClientUIInterface::MSG_ERROR);
+        return;
+    }
+
+    const QString tempWalletOut = inFilename + ".decrypted.wallet.dat";
+    QFile outWallet(tempWalletOut);
+    if (!outWallet.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+        if (!plainMaterial.empty()) memory_cleanse(&plainMaterial[0], plainMaterial.size());
+        Q_EMIT message(tr("Restore Failed"), tr("Unable to write decrypted wallet data."),
+            CClientUIInterface::MSG_ERROR);
+        return;
+    }
+    outWallet.write(reinterpret_cast<const char*>(plainMaterial.data()), plainMaterial.size());
+    outWallet.close();
+    if (!plainMaterial.empty()) memory_cleanse(&plainMaterial[0], plainMaterial.size());
+
+    const QMessageBox::StandardButton answer = QMessageBox::question(
+        this,
+        tr("Restore Wallet"),
+        tr("Replace current wallet file with decrypted backup and restart now?\n\nCurrent wallet file: %1\nDecrypted backup: %2")
+            .arg(walletModel->getWalletFilePath(), tempWalletOut),
+        QMessageBox::Yes | QMessageBox::No,
+        QMessageBox::No);
+
+    if (answer != QMessageBox::Yes) {
+        Q_EMIT message(tr("Restore Complete"), tr("Decrypted wallet written to %1").arg(tempWalletOut),
+            CClientUIInterface::MSG_INFORMATION);
+        return;
+    }
+
+    const QString walletPath = walletModel->getWalletFilePath();
+    if (walletPath.isEmpty()) {
+        Q_EMIT message(tr("Restore Failed"), tr("Unable to resolve current wallet file path."),
+            CClientUIInterface::MSG_ERROR);
+        return;
+    }
+    if (QFile::exists(walletPath)) {
+        const QString backupCurrent = walletPath + ".before-pqce-restore.bak";
+        QFile::remove(backupCurrent);
+        if (!QFile::rename(walletPath, backupCurrent)) {
+            Q_EMIT message(tr("Restore Failed"), tr("Unable to backup current wallet file %1").arg(walletPath),
+                CClientUIInterface::MSG_ERROR);
+            return;
+        }
+    }
+    if (!QFile::copy(tempWalletOut, walletPath)) {
+        Q_EMIT message(tr("Restore Failed"), tr("Unable to copy decrypted wallet into active wallet file."),
+            CClientUIInterface::MSG_ERROR);
+        return;
+    }
+    QFile::remove(tempWalletOut);
+
+    Q_EMIT message(tr("Restore Successful"), tr("Wallet file was restored from PQC envelope. Client will now restart."),
+        CClientUIInterface::MSG_INFORMATION);
+    StartShutdown();
 }
 
 void WalletView::showPQCSignatureDialog()
