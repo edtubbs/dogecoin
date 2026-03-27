@@ -84,20 +84,6 @@ QByteArray DeriveKeyMaterial(const QByteArray& secret, const QByteArray& context
     return out;
 }
 
-QByteArray DerivePasswordMaterial(const QByteArray& passphrase, const QByteArray& salt, const QByteArray& context, int rounds, int outLen)
-{
-    QByteArray out;
-    int counter = 0;
-    while (out.size() < outLen) {
-        QByteArray state = Sha256Bytes(passphrase + salt + context + QByteArray::number(counter++));
-        for (int i = 1; i < rounds; ++i) {
-            state = Sha256Bytes(state + passphrase + salt + context);
-        }
-        out.append(state);
-    }
-    out.truncate(outLen);
-    return out;
-}
 } // namespace
 
 WalletView::WalletView(const PlatformStyle *_platformStyle, QWidget *parent):
@@ -432,13 +418,20 @@ void WalletView::backupWalletEncrypted()
     std::vector<unsigned char> pqcSalt(WALLET_CRYPTO_SALT_SIZE);
     GetStrongRandBytes(pqcSalt.data(), WALLET_CRYPTO_SALT_SIZE);
     QByteArray pqcPassphraseBytes = pqcPassphrase.toUtf8();
-    QByteArray pqcSaltBytes(reinterpret_cast<const char*>(pqcSalt.data()), pqcSalt.size());
+    SecureString pqcPass(pqcPassphraseBytes.constData(), pqcPassphraseBytes.constData() + pqcPassphraseBytes.size());
     const int pqcRounds = 50000;
-    QByteArray pqcKey = DerivePasswordMaterial(pqcPassphraseBytes, pqcSaltBytes, "wallet-pqc-pass-key", pqcRounds, WALLET_CRYPTO_KEY_SIZE);
-    QByteArray pqcIv = DerivePasswordMaterial(pqcPassphraseBytes, pqcSaltBytes, "wallet-pqc-pass-iv", pqcRounds, WALLET_CRYPTO_IV_SIZE);
+    CCrypter pqcPassCrypter;
+    if (!pqcPassCrypter.SetKeyFromPassphrase(pqcPass, pqcSalt, pqcRounds, 0)) {
+        if (!aesPassphraseBytes.isEmpty()) memory_cleanse(aesPassphraseBytes.data(), aesPassphraseBytes.size());
+        if (!pqcPassphraseBytes.isEmpty()) memory_cleanse(pqcPassphraseBytes.data(), pqcPassphraseBytes.size());
+        if (!plain.isEmpty()) memory_cleanse(plain.data(), plain.size());
+        Q_EMIT message(tr("Encryption Failed"), tr("Unable to derive PQC passphrase key."),
+            CClientUIInterface::MSG_ERROR);
+        return;
+    }
 
-    std::vector<unsigned char> pqcKeyBytes(pqcKey.begin(), pqcKey.end());
-    std::vector<unsigned char> pqcIvBytes(pqcIv.begin(), pqcIv.end());
+    std::vector<unsigned char> pqcKeyBytes(pqcPassCrypter.vchKey.begin(), pqcPassCrypter.vchKey.end());
+    std::vector<unsigned char> pqcIvBytes(pqcPassCrypter.vchIV.begin(), pqcPassCrypter.vchIV.end());
     CCrypter pqcCrypter;
     CKeyingMaterial pqcKeyMaterial(pqcKeyBytes.begin(), pqcKeyBytes.end());
     if (!pqcCrypter.SetKey(pqcKeyMaterial, pqcIvBytes)) {
@@ -468,8 +461,6 @@ void WalletView::backupWalletEncrypted()
     if (!pqcPassphraseBytes.isEmpty()) memory_cleanse(pqcPassphraseBytes.data(), pqcPassphraseBytes.size());
     if (!plain.isEmpty()) memory_cleanse(plain.data(), plain.size());
     if (!pqcKeyMaterial.empty()) memory_cleanse(&pqcKeyMaterial[0], pqcKeyMaterial.size());
-    if (!pqcKey.isEmpty()) memory_cleanse(pqcKey.data(), pqcKey.size());
-    if (!pqcIv.isEmpty()) memory_cleanse(pqcIv.data(), pqcIv.size());
 
     const QByteArray envelopeAlgo = "AES256-CBC+PQC-PASS-CASCADE";
     unsigned char digest[CSHA256::OUTPUT_SIZE];
@@ -490,7 +481,7 @@ void WalletView::backupWalletEncrypted()
     outFile.write("AES_KDF:sha512-aes256cbc\n");
     outFile.write("AES_SALT:" + QByteArray(reinterpret_cast<const char*>(aesSalt.data()), aesSalt.size()).toHex() + "\n");
     outFile.write("AES_ROUNDS:25000\n");
-    outFile.write("PQC_KDF:sha256-iter\n");
+    outFile.write("PQC_KDF:sha512-aes256cbc\n");
     outFile.write("PQC_SALT:" + QByteArray(reinterpret_cast<const char*>(pqcSalt.data()), pqcSalt.size()).toHex() + "\n");
     outFile.write("PQC_ROUNDS:" + QByteArray::number(pqcRounds) + "\n");
     outFile.write("DATA_SHA256:" + QByteArray(reinterpret_cast<const char*>(digest), sizeof(digest)).toHex() + "\n");
@@ -550,6 +541,7 @@ void WalletView::restoreWalletEncrypted()
 
     const QByteArray aesSaltHex = fields.value("AES_SALT");
     const QByteArray aesRoundsRaw = fields.value("AES_ROUNDS");
+    const QByteArray pqcKdf = fields.value("PQC_KDF");
     const QByteArray pqcSaltHex = fields.value("PQC_SALT");
     const QByteArray pqcRoundsRaw = fields.value("PQC_ROUNDS");
     const QByteArray expectedDigestHex = fields.value("DATA_SHA256");
@@ -557,6 +549,11 @@ void WalletView::restoreWalletEncrypted()
     if (aesSaltHex.isEmpty() || aesRoundsRaw.isEmpty() || pqcSaltHex.isEmpty() || pqcRoundsRaw.isEmpty() ||
         expectedDigestHex.isEmpty() || dataB64.isEmpty()) {
         Q_EMIT message(tr("Restore Failed"), tr("Envelope is missing required fields."),
+            CClientUIInterface::MSG_ERROR);
+        return;
+    }
+    if (pqcKdf != "sha512-aes256cbc") {
+        Q_EMIT message(tr("Restore Failed"), tr("Unsupported PQC password KDF in envelope."),
             CClientUIInterface::MSG_ERROR);
         return;
     }
@@ -621,10 +618,18 @@ void WalletView::restoreWalletEncrypted()
 
     QByteArray aesPassphraseBytes = aesPassphrase.toUtf8();
     QByteArray pqcPassphraseBytes = pqcPassphrase.toUtf8();
-    QByteArray pqcKey = DerivePasswordMaterial(pqcPassphraseBytes, pqcSalt, "wallet-pqc-pass-key", pqcRounds, WALLET_CRYPTO_KEY_SIZE);
-    QByteArray pqcIv = DerivePasswordMaterial(pqcPassphraseBytes, pqcSalt, "wallet-pqc-pass-iv", pqcRounds, WALLET_CRYPTO_IV_SIZE);
-    std::vector<unsigned char> pqcKeyBytes(pqcKey.begin(), pqcKey.end());
-    std::vector<unsigned char> pqcIvBytes(pqcIv.begin(), pqcIv.end());
+    SecureString pqcPass(pqcPassphraseBytes.constData(), pqcPassphraseBytes.constData() + pqcPassphraseBytes.size());
+    CCrypter pqcPassCrypter;
+    std::vector<unsigned char> pqcSaltBytes(pqcSalt.begin(), pqcSalt.end());
+    if (!pqcPassCrypter.SetKeyFromPassphrase(pqcPass, pqcSaltBytes, pqcRounds, 0)) {
+        if (!aesPassphraseBytes.isEmpty()) memory_cleanse(aesPassphraseBytes.data(), aesPassphraseBytes.size());
+        if (!pqcPassphraseBytes.isEmpty()) memory_cleanse(pqcPassphraseBytes.data(), pqcPassphraseBytes.size());
+        Q_EMIT message(tr("Restore Failed"), tr("Unable to derive PQC passphrase key."),
+            CClientUIInterface::MSG_ERROR);
+        return;
+    }
+    std::vector<unsigned char> pqcKeyBytes(pqcPassCrypter.vchKey.begin(), pqcPassCrypter.vchKey.end());
+    std::vector<unsigned char> pqcIvBytes(pqcPassCrypter.vchIV.begin(), pqcPassCrypter.vchIV.end());
     CCrypter pqcCrypter;
     CKeyingMaterial pqcKeyMaterial(pqcKeyBytes.begin(), pqcKeyBytes.end());
     if (!pqcCrypter.SetKey(pqcKeyMaterial, pqcIvBytes)) {
@@ -676,8 +681,6 @@ void WalletView::restoreWalletEncrypted()
     if (!aesPassphraseBytes.isEmpty()) memory_cleanse(aesPassphraseBytes.data(), aesPassphraseBytes.size());
     if (!pqcPassphraseBytes.isEmpty()) memory_cleanse(pqcPassphraseBytes.data(), pqcPassphraseBytes.size());
     if (!pqcKeyMaterial.empty()) memory_cleanse(&pqcKeyMaterial[0], pqcKeyMaterial.size());
-    if (!pqcKey.isEmpty()) memory_cleanse(pqcKey.data(), pqcKey.size());
-    if (!pqcIv.isEmpty()) memory_cleanse(pqcIv.data(), pqcIv.size());
     if (!aesCipherMaterial.empty()) memory_cleanse(&aesCipherMaterial[0], aesCipherMaterial.size());
 
     if (plainMaterial.empty()) {

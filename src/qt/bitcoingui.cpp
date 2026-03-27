@@ -616,7 +616,7 @@ void BitcoinGUI::createTrayIcon(const NetworkStyle *networkStyle)
 {
 #ifndef Q_OS_MAC
     if (!QSystemTrayIcon::isSystemTrayAvailable()) {
-        trayIcon = 0;
+        trayIcon = nullptr;
     } else {
     trayIcon = new QSystemTrayIcon(this);
     QString toolTip = tr("%1 client").arg(tr(PACKAGE_NAME)) + " " + networkStyle->getTitleAddText();
