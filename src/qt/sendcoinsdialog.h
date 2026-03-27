@@ -11,7 +11,6 @@
 #include <QDialog>
 #include <QLineEdit>
 #include <QMessageBox>
-#include <QPointer>
 #include <QString>
 #include <QTimer>
 
@@ -21,9 +20,6 @@ class QComboBox;
 class OptionsModel;
 class PlatformStyle;
 class QPushButton;
-class QProgressBar;
-class QProgressDialog;
-class QThread;
 class SendCoinsEntry;
 class SendCoinsRecipient;
 
@@ -77,10 +73,6 @@ private:
     QPushButton *pqcLoadStoredKeyButton;
     QPushButton *pqcGenerateButton;
     QPushButton *pqcDecodeButton;
-    QProgressBar *pqcGenerateProgressBar;
-    QPointer<QProgressDialog> pqcGenerateProgressDialog;
-    QPointer<QThread> pqcGenerateThread;
-    bool pqcGenerateInProgress;
     QString pqcSelectedAlgorithm;
     QString pqcSelectedPublicKeyHex;
     QString pqcCommitmentScriptPubKeyHex;
@@ -118,9 +110,6 @@ private Q_SLOTS:
     void refreshPqcKeyInventory();
     void onUseStoredPqcKeyClicked();
     void onGeneratePqcCommitmentClicked();
-    void onPqcGenerateProgressPrepare();
-    void onPqcGenerateProgressSign();
-    void onPqcGenerateFinished(const QString& algorithm, const QString& publicKeyHex, const QString& commitment, const QString& scriptPubKey, const QString& error);
     void onDecodePqcCommitmentClicked();
 
 Q_SIGNALS:

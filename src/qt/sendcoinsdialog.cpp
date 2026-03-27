@@ -40,15 +40,12 @@
 #include <QLabel>
 #include <QLineEdit>
 #include <QMessageBox>
-#include <QProgressDialog>
-#include <QProgressBar>
 #include <QPushButton>
 #include <QScrollBar>
 #include <QSettings>
 #include <QSizePolicy>
 #include <QTextEdit>
 #include <QTextDocument>
-#include <QThread>
 #include <QTimer>
 #include <QVBoxLayout>
 
@@ -90,13 +87,6 @@ QString BuildAutoPqcSignatureHex(const QString& algorithm,
 }
 } // namespace
 
-struct PqcCommitmentGenerateResult
-{
-    QString commitment;
-    QString scriptPubKey;
-    QString error;
-};
-
 SendCoinsDialog::SendCoinsDialog(const PlatformStyle *_platformStyle, QWidget *parent) :
     QDialog(parent),
     ui(new Ui::SendCoinsDialog),
@@ -104,8 +94,7 @@ SendCoinsDialog::SendCoinsDialog(const PlatformStyle *_platformStyle, QWidget *p
     model(0),
     fNewRecipientAllowed(true),
     fFeeMinimized(true),
-    platformStyle(_platformStyle),
-    pqcGenerateInProgress(false)
+    platformStyle(_platformStyle)
 {
     ui->setupUi(this);
 
@@ -135,14 +124,6 @@ SendCoinsDialog::SendCoinsDialog(const PlatformStyle *_platformStyle, QWidget *p
     pqcGenerateButton = new QPushButton(tr("Generate for transaction"), pqcFrame);
     pqcDecodeButton = new QPushButton(tr("Decode Commitment"), pqcFrame);
     pqcDecodeButton->setEnabled(false);
-    pqcGenerateProgressBar = new QProgressBar(pqcFrame);
-    pqcGenerateProgressBar->setRange(0, 100);
-    pqcGenerateProgressBar->setValue(0);
-    pqcGenerateProgressBar->setTextVisible(false);
-    pqcGenerateProgressBar->setVisible(false);
-    pqcGenerateProgressBar->setMinimumHeight(pqcGenerateButton->sizeHint().height());
-    pqcGenerateProgressBar->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
-    pqcHeaderLayout->addWidget(pqcGenerateProgressBar, 1);
     pqcHeaderLayout->addWidget(pqcGenerateButton);
     pqcHeaderLayout->addWidget(pqcDecodeButton);
     pqcLayout->addLayout(pqcHeaderLayout);
@@ -300,10 +281,6 @@ void SendCoinsDialog::setModel(WalletModel *_model)
 
 SendCoinsDialog::~SendCoinsDialog()
 {
-    if (pqcGenerateThread) {
-        pqcGenerateThread->quit();
-        pqcGenerateThread->wait();
-    }
     QSettings settings;
     settings.setValue("fFeeSectionMinimized", fFeeMinimized);
     settings.setValue("nFeeRadio", ui->groupFee->checkedId());
@@ -552,9 +529,6 @@ void SendCoinsDialog::onUseStoredPqcKeyClicked()
 
 void SendCoinsDialog::onGeneratePqcCommitmentClicked()
 {
-    if (pqcGenerateInProgress) {
-        return;
-    }
     if (!model) {
         Q_EMIT message(tr("PQC Commitment"), tr("Wallet model is not available."), CClientUIInterface::MSG_ERROR);
         return;
@@ -589,68 +563,30 @@ void SendCoinsDialog::onGeneratePqcCommitmentClicked()
         Q_EMIT message(tr("PQC Commitment"), tr("Enter at least one recipient with amount before generating a transaction commitment."), CClientUIInterface::MSG_WARNING);
         return;
     }
-    if (pqcGenerateProgressBar) {
-        pqcGenerateProgressBar->setVisible(true);
-        pqcGenerateProgressBar->setValue(5);
+    const QString signatureHex = BuildAutoPqcSignatureHex(algorithm, publicKeyHex, recipients);
+
+    try {
+        UniValue params(UniValue::VARR);
+        params.push_back(UniValue(algorithm.trimmed().toStdString()));
+        params.push_back(UniValue(publicKeyHex.trimmed().toStdString()));
+        params.push_back(UniValue(signatureHex.trimmed().toStdString()));
+        JSONRPCRequest req;
+        req.strMethod = "generatepqccommitment";
+        req.params = params;
+        req.fHelp = false;
+        UniValue out = tableRPC.execute(req);
+        const UniValue& outObj = out.get_obj();
+        const QString commitment = QString::fromStdString(find_value(outObj, "commitment").get_str());
+        const QString scriptPubKey = QString::fromStdString(find_value(outObj, "scriptPubKey").get_str());
+
+        pqcSelectedAlgorithm = algorithm;
+        pqcSelectedPublicKeyHex = publicKeyHex;
+        pqcCommitmentScriptPubKeyHex = scriptPubKey;
+        pqcCommitmentLineEdit->setText(commitment);
+        pqcDecodeButton->setEnabled(!commitment.isEmpty() && !pqcCommitmentScriptPubKeyHex.isEmpty());
+    } catch (const std::exception& e) {
+        Q_EMIT message(tr("PQC Commitment"), tr("Error: %1").arg(QString::fromStdString(e.what())), CClientUIInterface::MSG_ERROR);
     }
-    pqcGenerateProgressDialog = new QProgressDialog(tr("Generating and signing PQC transaction commitment..."), QString(), 0, 100, this);
-    pqcGenerateProgressDialog->setWindowModality(Qt::WindowModal);
-    pqcGenerateProgressDialog->setCancelButton(nullptr);
-    pqcGenerateProgressDialog->setMinimumDuration(0);
-    pqcGenerateProgressDialog->setAutoClose(false);
-    pqcGenerateProgressDialog->setAutoReset(false);
-    pqcGenerateProgressDialog->setValue(5);
-    pqcGenerateProgressDialog->show();
-    pqcGenerateButton->setEnabled(false);
-    pqcDecodeButton->setEnabled(false);
-    pqcGenerateInProgress = true;
-
-    QThread* thread = new QThread(this);
-    pqcGenerateThread = thread;
-    QObject* workerContext = new QObject();
-    workerContext->moveToThread(thread);
-    connect(thread, &QThread::finished, workerContext, &QObject::deleteLater);
-    connect(thread, &QThread::finished, thread, &QObject::deleteLater);
-    connect(this, &QObject::destroyed, thread, &QThread::quit);
-    connect(thread, &QThread::started, workerContext, [this, thread, algorithm, publicKeyHex, recipients]() {
-        QMetaObject::invokeMethod(this, "onPqcGenerateProgressPrepare", Qt::QueuedConnection);
-
-        const QString signatureHex = BuildAutoPqcSignatureHex(algorithm, publicKeyHex, recipients);
-
-        QMetaObject::invokeMethod(this, "onPqcGenerateProgressSign", Qt::QueuedConnection);
-
-        PqcCommitmentGenerateResult result;
-        try {
-            UniValue params(UniValue::VARR);
-            params.push_back(UniValue(algorithm.trimmed().toStdString()));
-            params.push_back(UniValue(publicKeyHex.trimmed().toStdString()));
-            params.push_back(UniValue(signatureHex.trimmed().toStdString()));
-            JSONRPCRequest req;
-            req.strMethod = "generatepqccommitment";
-            req.params = params;
-            req.fHelp = false;
-            UniValue out = tableRPC.execute(req);
-            const UniValue& outObj = out.get_obj();
-            result.commitment = QString::fromStdString(find_value(outObj, "commitment").get_str());
-            result.scriptPubKey = QString::fromStdString(find_value(outObj, "scriptPubKey").get_str());
-        } catch (const std::exception& e) {
-            result.error = QString::fromStdString(e.what());
-        }
-
-        QMetaObject::invokeMethod(
-            this,
-            "onPqcGenerateFinished",
-            Qt::QueuedConnection,
-            Q_ARG(QString, algorithm),
-            Q_ARG(QString, publicKeyHex),
-            Q_ARG(QString, result.commitment),
-            Q_ARG(QString, result.scriptPubKey),
-            Q_ARG(QString, result.error));
-
-        QMetaObject::invokeMethod(thread, "quit", Qt::QueuedConnection);
-    }, Qt::QueuedConnection);
-
-    thread->start();
 }
 
 void SendCoinsDialog::onDecodePqcCommitmentClicked()
@@ -704,61 +640,6 @@ void SendCoinsDialog::onDecodePqcCommitmentClicked()
     connect(buttons, &QDialogButtonBox::rejected, &decodeDialog, &QDialog::reject);
     layout->addWidget(buttons);
     decodeDialog.exec();
-}
-
-void SendCoinsDialog::onPqcGenerateProgressPrepare()
-{
-    if (pqcGenerateProgressBar) {
-        pqcGenerateProgressBar->setValue(25);
-    }
-    if (pqcGenerateProgressDialog) {
-        pqcGenerateProgressDialog->setLabelText(tr("Preparing transaction context..."));
-        pqcGenerateProgressDialog->setValue(25);
-    }
-}
-
-void SendCoinsDialog::onPqcGenerateProgressSign()
-{
-    if (pqcGenerateProgressBar) {
-        pqcGenerateProgressBar->setValue(65);
-    }
-    if (pqcGenerateProgressDialog) {
-        pqcGenerateProgressDialog->setLabelText(tr("Signing and generating commitment..."));
-        pqcGenerateProgressDialog->setValue(65);
-    }
-}
-
-void SendCoinsDialog::onPqcGenerateFinished(const QString& algorithm, const QString& publicKeyHex, const QString& commitment, const QString& scriptPubKey, const QString& error)
-{
-    pqcGenerateInProgress = false;
-    if (error.isEmpty()) {
-        pqcSelectedAlgorithm = algorithm;
-        pqcSelectedPublicKeyHex = publicKeyHex;
-        pqcCommitmentScriptPubKeyHex = scriptPubKey;
-        pqcCommitmentLineEdit->setText(commitment);
-        pqcDecodeButton->setEnabled(!commitment.isEmpty() && !pqcCommitmentScriptPubKeyHex.isEmpty());
-    } else {
-        Q_EMIT message(tr("PQC Commitment"), tr("Error: %1").arg(error), CClientUIInterface::MSG_ERROR);
-    }
-    if (pqcGenerateProgressBar) {
-        pqcGenerateProgressBar->setValue(100);
-    }
-    if (pqcGenerateProgressDialog) {
-        pqcGenerateProgressDialog->setLabelText(tr("Finalizing..."));
-        pqcGenerateProgressDialog->setValue(100);
-        pqcGenerateProgressDialog->close();
-        pqcGenerateProgressDialog->deleteLater();
-        pqcGenerateProgressDialog = nullptr;
-    }
-    pqcGenerateButton->setEnabled(true);
-    pqcDecodeButton->setEnabled(
-        pqcCommitmentLineEdit &&
-        !pqcCommitmentLineEdit->text().trimmed().isEmpty() &&
-        !pqcCommitmentScriptPubKeyHex.trimmed().isEmpty());
-    if (pqcGenerateProgressBar) {
-        pqcGenerateProgressBar->setVisible(false);
-        pqcGenerateProgressBar->setValue(0);
-    }
 }
 
 void SendCoinsDialog::reject()
