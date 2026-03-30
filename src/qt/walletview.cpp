@@ -572,7 +572,7 @@ void WalletView::restoreWalletEncrypted()
     const QByteArray digestHex(reinterpret_cast<const char*>(digest), sizeof(digest));
     const QByteArray digestHexAscii = digestHex.toHex();
     memory_cleanse(digest, sizeof(digest));
-    if (expectedDigestHex.compare(digestHexAscii, Qt::CaseInsensitive) != 0) {
+    if (QString::compare(QString::fromLatin1(expectedDigestHex), QString::fromLatin1(digestHexAscii), Qt::CaseInsensitive) != 0) {
         Q_EMIT message(tr("Restore Failed"), tr("Envelope digest check failed."),
             CClientUIInterface::MSG_ERROR);
         return;
