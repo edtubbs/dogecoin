@@ -165,6 +165,12 @@ AC_ARG_WITH([qrencode],
   [use_qr=$withval],
   [use_qr=auto])
 
+AC_ARG_WITH([liboqs],
+  [AS_HELP_STRING([--with-liboqs],
+  [enable liboqs support (default is auto: enabled if liboqs is found)])],
+  [use_liboqs=$withval],
+  [use_liboqs=auto])
+
 AC_ARG_ENABLE([hardening],
   [AS_HELP_STRING([--disable-hardening],
   [do not attempt to harden the resulting executables (default is to harden)])],
@@ -883,6 +889,10 @@ if test x$use_pkgconfig = xyes; then
         fi
       fi
 
+      if test "x$use_liboqs" != "xno"; then
+        PKG_CHECK_MODULES([LIBOQS], [liboqs], [have_liboqs=yes], [have_liboqs=no])
+      fi
+
       if test "x$use_zmq" = "xyes"; then
         PKG_CHECK_MODULES([ZMQ],[libzmq >= 4],
           [AC_DEFINE([ENABLE_ZMQ],[1],[Define to 1 to enable ZMQ functions])],
@@ -907,6 +917,12 @@ else
     if test x$TARGET_OS != xwindows; then
       AC_CHECK_LIB([event_pthreads],[main],EVENT_PTHREADS_LIBS=-levent_pthreads,AC_MSG_ERROR(libevent_pthreads missing))
     fi
+  fi
+
+  if test "x$use_liboqs" != "xno"; then
+    AC_CHECK_HEADER([oqs/oqs.h],[
+      AC_CHECK_LIB([oqs], [OQS_init], [LIBOQS_LIBS=-loqs; have_liboqs=yes], [have_liboqs=no])
+    ], [have_liboqs=no])
   fi
 
   if test "x$use_zmq" = "xyes"; then
@@ -936,6 +952,19 @@ else
     BITCOIN_QT_CHECK([AC_CHECK_LIB([qrencode], [main],[QR_LIBS=-lqrencode], [have_qrencode=no])])
     BITCOIN_QT_CHECK([AC_CHECK_HEADER([qrencode.h],, have_qrencode=no)])
   fi
+fi
+
+if test "x$use_liboqs" = "xno"; then
+  AC_DEFINE([ENABLE_LIBOQS],[0],[Define to 1 to enable liboqs support])
+elif test "x$have_liboqs" = "xyes"; then
+  use_liboqs=yes
+  AC_DEFINE([ENABLE_LIBOQS],[1],[Define to 1 to enable liboqs support])
+else
+  if test "x$use_liboqs" = "xyes"; then
+    AC_MSG_ERROR([liboqs support requested but liboqs was not found])
+  fi
+  use_liboqs=no
+  AC_DEFINE([ENABLE_LIBOQS],[0],[Define to 1 to enable liboqs support])
 fi
 
 if test x$intel_avx2 = xyes; then
@@ -1181,6 +1210,7 @@ AM_CONDITIONAL([ENABLE_QT],[test x$bitcoin_enable_qt = xyes])
 AM_CONDITIONAL([ENABLE_QT_TESTS],[test x$BUILD_TEST_QT = xyes])
 AM_CONDITIONAL([ENABLE_BENCH],[test x$use_bench = xyes])
 AM_CONDITIONAL([USE_QRCODE], [test x$use_qr = xyes])
+AM_CONDITIONAL([ENABLE_LIBOQS], [test x$use_liboqs = xyes])
 AM_CONDITIONAL([USE_LCOV],[test x$use_lcov = xyes])
 AM_CONDITIONAL([GLIBC_BACK_COMPAT],[test x$use_glibc_compat = xyes])
 AM_CONDITIONAL([HARDEN],[test x$use_hardening = xyes])
@@ -1234,6 +1264,8 @@ AC_SUBST(CRYPTO_LIBS)
 AC_SUBST(SSL_LIBS)
 AC_SUBST(EVENT_LIBS)
 AC_SUBST(EVENT_PTHREADS_LIBS)
+AC_SUBST(LIBOQS_CFLAGS)
+AC_SUBST(LIBOQS_LIBS)
 AC_SUBST(ZMQ_LIBS)
 AC_SUBST(QR_LIBS)
 AC_SUBST(HAVE_FDATASYNC)
@@ -1304,6 +1336,7 @@ if test x$bitcoin_enable_qt != xno; then
     echo "    with qr     = $use_qr"
 fi
 echo "  with zmq      = $use_zmq"
+echo "  with liboqs   = $use_liboqs"
 echo "  with test     = $use_tests"
 echo "  with bench    = $use_bench"
 echo "  with upnp     = $use_upnp"
