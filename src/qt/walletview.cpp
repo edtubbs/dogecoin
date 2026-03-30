@@ -430,26 +430,12 @@ void WalletView::backupWalletEncrypted()
         return;
     }
 
-    std::vector<unsigned char> pqcKeyBytes(pqcPassCrypter.vchKey.begin(), pqcPassCrypter.vchKey.end());
-    std::vector<unsigned char> pqcIvBytes(pqcPassCrypter.vchIV.begin(), pqcPassCrypter.vchIV.end());
-    CCrypter pqcCrypter;
-    CKeyingMaterial pqcKeyMaterial(pqcKeyBytes.begin(), pqcKeyBytes.end());
-    if (!pqcCrypter.SetKey(pqcKeyMaterial, pqcIvBytes)) {
-        if (!aesPassphraseBytes.isEmpty()) memory_cleanse(aesPassphraseBytes.data(), aesPassphraseBytes.size());
-        if (!pqcPassphraseBytes.isEmpty()) memory_cleanse(pqcPassphraseBytes.data(), pqcPassphraseBytes.size());
-        if (!plain.isEmpty()) memory_cleanse(plain.data(), plain.size());
-        if (!pqcKeyMaterial.empty()) memory_cleanse(&pqcKeyMaterial[0], pqcKeyMaterial.size());
-        Q_EMIT message(tr("Encryption Failed"), tr("Unable to initialize PQC password layer."),
-            CClientUIInterface::MSG_ERROR);
-        return;
-    }
     CKeyingMaterial aesCipherMaterial(aesCipher.begin(), aesCipher.end());
     std::vector<unsigned char> cipher;
-    if (!pqcCrypter.Encrypt(aesCipherMaterial, cipher)) {
+    if (!pqcPassCrypter.Encrypt(aesCipherMaterial, cipher)) {
         if (!aesPassphraseBytes.isEmpty()) memory_cleanse(aesPassphraseBytes.data(), aesPassphraseBytes.size());
         if (!pqcPassphraseBytes.isEmpty()) memory_cleanse(pqcPassphraseBytes.data(), pqcPassphraseBytes.size());
         if (!plain.isEmpty()) memory_cleanse(plain.data(), plain.size());
-        if (!pqcKeyMaterial.empty()) memory_cleanse(&pqcKeyMaterial[0], pqcKeyMaterial.size());
         if (!aesCipherMaterial.empty()) memory_cleanse(&aesCipherMaterial[0], aesCipherMaterial.size());
         Q_EMIT message(tr("Encryption Failed"), tr("Unable to encrypt AES layer with PQC password layer."),
             CClientUIInterface::MSG_ERROR);
@@ -460,7 +446,6 @@ void WalletView::backupWalletEncrypted()
     if (!aesPassphraseBytes.isEmpty()) memory_cleanse(aesPassphraseBytes.data(), aesPassphraseBytes.size());
     if (!pqcPassphraseBytes.isEmpty()) memory_cleanse(pqcPassphraseBytes.data(), pqcPassphraseBytes.size());
     if (!plain.isEmpty()) memory_cleanse(plain.data(), plain.size());
-    if (!pqcKeyMaterial.empty()) memory_cleanse(&pqcKeyMaterial[0], pqcKeyMaterial.size());
 
     const QByteArray envelopeAlgo = "AES256-CBC+PQC-PASS-CASCADE";
     unsigned char digest[CSHA256::OUTPUT_SIZE];
@@ -628,31 +613,14 @@ void WalletView::restoreWalletEncrypted()
             CClientUIInterface::MSG_ERROR);
         return;
     }
-    std::vector<unsigned char> pqcKeyBytes(pqcPassCrypter.vchKey.begin(), pqcPassCrypter.vchKey.end());
-    std::vector<unsigned char> pqcIvBytes(pqcPassCrypter.vchIV.begin(), pqcPassCrypter.vchIV.end());
-    CCrypter pqcCrypter;
-    CKeyingMaterial pqcKeyMaterial(pqcKeyBytes.begin(), pqcKeyBytes.end());
-    if (!pqcCrypter.SetKey(pqcKeyMaterial, pqcIvBytes)) {
-        if (!aesPassphraseBytes.isEmpty()) memory_cleanse(aesPassphraseBytes.data(), aesPassphraseBytes.size());
-        if (!pqcPassphraseBytes.isEmpty()) memory_cleanse(pqcPassphraseBytes.data(), pqcPassphraseBytes.size());
-        if (!pqcKeyMaterial.empty()) memory_cleanse(&pqcKeyMaterial[0], pqcKeyMaterial.size());
-        Q_EMIT message(tr("Restore Failed"), tr("Unable to initialize PQC password layer."),
-            CClientUIInterface::MSG_ERROR);
-        return;
-    }
-
-    CKeyingMaterial outerCipherMaterial(outerCipher.begin(), outerCipher.end());
     CKeyingMaterial aesCipherMaterial;
-    if (!pqcCrypter.Decrypt(outerCipherMaterial, aesCipherMaterial)) {
+    if (!pqcPassCrypter.Decrypt(outerCipher, aesCipherMaterial)) {
         if (!aesPassphraseBytes.isEmpty()) memory_cleanse(aesPassphraseBytes.data(), aesPassphraseBytes.size());
         if (!pqcPassphraseBytes.isEmpty()) memory_cleanse(pqcPassphraseBytes.data(), pqcPassphraseBytes.size());
-        if (!pqcKeyMaterial.empty()) memory_cleanse(&pqcKeyMaterial[0], pqcKeyMaterial.size());
-        if (!outerCipherMaterial.empty()) memory_cleanse(&outerCipherMaterial[0], outerCipherMaterial.size());
         Q_EMIT message(tr("Restore Failed"), tr("PQC password decryption failed."),
             CClientUIInterface::MSG_ERROR);
         return;
     }
-    if (!outerCipherMaterial.empty()) memory_cleanse(&outerCipherMaterial[0], outerCipherMaterial.size());
 
     SecureString aesPass(aesPassphraseBytes.constData(), aesPassphraseBytes.constData() + aesPassphraseBytes.size());
     CCrypter aesCrypter;
@@ -660,7 +628,6 @@ void WalletView::restoreWalletEncrypted()
     if (!aesCrypter.SetKeyFromPassphrase(aesPass, aesSaltBytes, aesRounds, 0)) {
         if (!aesPassphraseBytes.isEmpty()) memory_cleanse(aesPassphraseBytes.data(), aesPassphraseBytes.size());
         if (!pqcPassphraseBytes.isEmpty()) memory_cleanse(pqcPassphraseBytes.data(), pqcPassphraseBytes.size());
-        if (!pqcKeyMaterial.empty()) memory_cleanse(&pqcKeyMaterial[0], pqcKeyMaterial.size());
         if (!aesCipherMaterial.empty()) memory_cleanse(&aesCipherMaterial[0], aesCipherMaterial.size());
         Q_EMIT message(tr("Restore Failed"), tr("Unable to derive AES passphrase key."),
             CClientUIInterface::MSG_ERROR);
@@ -668,10 +635,10 @@ void WalletView::restoreWalletEncrypted()
     }
 
     CKeyingMaterial plainMaterial;
-    if (!aesCrypter.Decrypt(aesCipherMaterial, plainMaterial)) {
+    std::vector<unsigned char> aesCipher(aesCipherMaterial.begin(), aesCipherMaterial.end());
+    if (!aesCrypter.Decrypt(aesCipher, plainMaterial)) {
         if (!aesPassphraseBytes.isEmpty()) memory_cleanse(aesPassphraseBytes.data(), aesPassphraseBytes.size());
         if (!pqcPassphraseBytes.isEmpty()) memory_cleanse(pqcPassphraseBytes.data(), pqcPassphraseBytes.size());
-        if (!pqcKeyMaterial.empty()) memory_cleanse(&pqcKeyMaterial[0], pqcKeyMaterial.size());
         if (!aesCipherMaterial.empty()) memory_cleanse(&aesCipherMaterial[0], aesCipherMaterial.size());
         Q_EMIT message(tr("Restore Failed"), tr("AES password decryption failed."),
             CClientUIInterface::MSG_ERROR);
@@ -680,7 +647,6 @@ void WalletView::restoreWalletEncrypted()
 
     if (!aesPassphraseBytes.isEmpty()) memory_cleanse(aesPassphraseBytes.data(), aesPassphraseBytes.size());
     if (!pqcPassphraseBytes.isEmpty()) memory_cleanse(pqcPassphraseBytes.data(), pqcPassphraseBytes.size());
-    if (!pqcKeyMaterial.empty()) memory_cleanse(&pqcKeyMaterial[0], pqcKeyMaterial.size());
     if (!aesCipherMaterial.empty()) memory_cleanse(&aesCipherMaterial[0], aesCipherMaterial.size());
 
     if (plainMaterial.empty()) {
