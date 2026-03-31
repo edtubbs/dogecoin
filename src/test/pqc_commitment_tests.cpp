@@ -106,4 +106,49 @@ BOOST_AUTO_TEST_CASE(pqc_parse_commitment_type_aliases)
     BOOST_CHECK(!ParsePQCCommitmentType("unknown", type));
 }
 
+BOOST_AUTO_TEST_CASE(pqc_verify_commitment_from_witness_pair_success)
+{
+    const std::vector<unsigned char> public_key = ParseHex("02112233445566");
+    const std::vector<unsigned char> signature = ParseHex("3045022100aabbccddeeff");
+    uint256 commitment;
+    BOOST_CHECK(PQCComputeCommitment(public_key, signature, commitment));
+
+    CMutableTransaction mtx;
+    mtx.vin.resize(1);
+    mtx.vout.resize(1);
+    mtx.vin[0].scriptWitness.stack.push_back(ParseHex("aa"));
+    mtx.vin[0].scriptWitness.stack.push_back(public_key);
+    mtx.vin[0].scriptWitness.stack.push_back(signature);
+    mtx.vin[0].scriptWitness.stack.push_back(ParseHex("bbcc"));
+    const CTransaction tx(mtx);
+
+    uint32_t input_index = 0;
+    uint32_t pubkey_item_index = 0;
+    uint32_t signature_item_index = 0;
+    BOOST_CHECK(PQCVerifyCommitmentFromWitness(tx, commitment, input_index, pubkey_item_index, signature_item_index));
+    BOOST_CHECK_EQUAL(input_index, 0U);
+    BOOST_CHECK_EQUAL(pubkey_item_index, 1U);
+    BOOST_CHECK_EQUAL(signature_item_index, 2U);
+}
+
+BOOST_AUTO_TEST_CASE(pqc_verify_commitment_from_witness_pair_failure)
+{
+    const std::vector<unsigned char> public_key = ParseHex("02112233445566");
+    const std::vector<unsigned char> signature = ParseHex("3045022100aabbccddeeff");
+    uint256 commitment;
+    BOOST_CHECK(PQCComputeCommitment(public_key, signature, commitment));
+
+    CMutableTransaction mtx;
+    mtx.vin.resize(1);
+    mtx.vout.resize(1);
+    mtx.vin[0].scriptWitness.stack.push_back(ParseHex("deadbeef"));
+    mtx.vin[0].scriptWitness.stack.push_back(ParseHex("cafebabe"));
+    const CTransaction tx(mtx);
+
+    uint32_t input_index = 0;
+    uint32_t pubkey_item_index = 0;
+    uint32_t signature_item_index = 0;
+    BOOST_CHECK(!PQCVerifyCommitmentFromWitness(tx, commitment, input_index, pubkey_item_index, signature_item_index));
+}
+
 BOOST_AUTO_TEST_SUITE_END()
