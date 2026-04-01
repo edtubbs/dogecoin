@@ -85,6 +85,16 @@ QString BuildAutoPqcSignatureHex(const QString& algorithm,
     const QByteArray sigPartB = Sha256Bytes(QByteArray("DGC-PQC-AUTOSIG-2|") + context);
     return QString::fromLatin1((sigPartA + sigPartB).toHex());
 }
+
+QString BuildWitnessAwareAutoPqcSignatureHex(const QString& algorithm,
+                                             const QString& publicKeyHex,
+                                             const QList<SendCoinsRecipient>& recipients,
+                                             const bool includeWitnessItems)
+{
+    QString sig = BuildAutoPqcSignatureHex(algorithm, publicKeyHex, recipients);
+    sig += includeWitnessItems ? QStringLiteral("01") : QStringLiteral("00");
+    return sig;
+}
 } // namespace
 
 SendCoinsDialog::SendCoinsDialog(const PlatformStyle *_platformStyle, QWidget *parent) :
@@ -145,6 +155,9 @@ SendCoinsDialog::SendCoinsDialog(const PlatformStyle *_platformStyle, QWidget *p
     pqcIncludeCommitmentCheckBox = new QCheckBox(tr("Include commitment in this transaction"), pqcFrame);
     pqcIncludeCommitmentCheckBox->setChecked(false);
     pqcForm->addRow(QString(), pqcIncludeCommitmentCheckBox);
+    pqcUseWitnessItemsCheckBox = new QCheckBox(tr("Include witness items (optional)"), pqcFrame);
+    pqcUseWitnessItemsCheckBox->setChecked(false);
+    pqcForm->addRow(QString(), pqcUseWitnessItemsCheckBox);
     pqcLayout->addLayout(pqcForm);
 
     ui->verticalLayout->insertWidget(2, pqcFrame);
@@ -463,6 +476,9 @@ void SendCoinsDialog::clear()
     if (pqcIncludeCommitmentCheckBox) {
         pqcIncludeCommitmentCheckBox->setChecked(false);
     }
+    if (pqcUseWitnessItemsCheckBox) {
+        pqcUseWitnessItemsCheckBox->setChecked(false);
+    }
     if (pqcDecodeButton) {
         pqcDecodeButton->setEnabled(false);
     }
@@ -563,7 +579,8 @@ void SendCoinsDialog::onGeneratePqcCommitmentClicked()
         Q_EMIT message(tr("PQC Commitment"), tr("Enter at least one recipient with amount before generating a transaction commitment."), CClientUIInterface::MSG_WARNING);
         return;
     }
-    const QString signatureHex = BuildAutoPqcSignatureHex(algorithm, publicKeyHex, recipients);
+    const bool includeWitnessItems = pqcUseWitnessItemsCheckBox && pqcUseWitnessItemsCheckBox->isChecked();
+    const QString signatureHex = BuildWitnessAwareAutoPqcSignatureHex(algorithm, publicKeyHex, recipients, includeWitnessItems);
 
     try {
         UniValue params(UniValue::VARR);

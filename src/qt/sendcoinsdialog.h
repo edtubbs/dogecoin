@@ -70,6 +70,7 @@ private:
     QComboBox *pqcKeyPairComboBox;
     QLineEdit *pqcCommitmentLineEdit;
     QCheckBox *pqcIncludeCommitmentCheckBox;
+    QCheckBox *pqcUseWitnessItemsCheckBox;
     QPushButton *pqcLoadStoredKeyButton;
     QPushButton *pqcGenerateButton;
     QPushButton *pqcDecodeButton;

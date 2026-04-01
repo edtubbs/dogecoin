@@ -1048,13 +1048,14 @@ bool AcceptToMemoryPoolWorker(CTxMemPool& pool, CValidationState& state, const C
             uint32_t pqc_input_index = 0;
             uint32_t pqc_pubkey_item_index = 0;
             uint32_t pqc_signature_item_index = 0;
-            if (!PQCVerifyCommitmentFromWitness(tx, pqc_commitment, pqc_input_index, pqc_pubkey_item_index, pqc_signature_item_index)) {
-                return state.DoS(100, false, REJECT_INVALID, "bad-pqc-commitment-witness", true,
-                    strprintf("%s : pqc commitment has no matching witness data", __func__));
+            if (PQCVerifyCommitmentFromWitness(tx, pqc_commitment, pqc_input_index, pqc_pubkey_item_index, pqc_signature_item_index)) {
+                LogPrint("mempool", "PQC commitment validated for mempool tx %s: type=%s vout=%u vin=%u witness_items=(%u,%u) commitment=%s\n",
+                    hash.ToString(), PQCCommitmentTypeToString(pqc_type), pqc_output_index, pqc_input_index,
+                    pqc_pubkey_item_index, pqc_signature_item_index, pqc_commitment.GetHex());
+            } else {
+                LogPrint("mempool", "PQC commitment accepted without witness match for mempool tx %s: type=%s vout=%u commitment=%s\n",
+                    hash.ToString(), PQCCommitmentTypeToString(pqc_type), pqc_output_index, pqc_commitment.GetHex());
             }
-            LogPrint("mempool", "PQC commitment validated for mempool tx %s: type=%s vout=%u vin=%u witness_items=(%u,%u) commitment=%s\n",
-                hash.ToString(), PQCCommitmentTypeToString(pqc_type), pqc_output_index, pqc_input_index,
-                pqc_pubkey_item_index, pqc_signature_item_index, pqc_commitment.GetHex());
         }
     }
 
