@@ -15,6 +15,7 @@
 #include "merkleblock.h"
 #include "net.h"
 #include "policy/policy.h"
+#include "pqc/pqc_commitment.h"
 #include "primitives/transaction.h"
 #include "rpc/server.h"
 #include "script/script.h"
@@ -107,6 +108,28 @@ void TxToJSON(const CTransaction& tx, const uint256 hashBlock, UniValue& entry)
         vout.push_back(out);
     }
     entry.pushKV("vout", vout);
+
+    PQCCommitmentType pqcType;
+    uint256 pqcCommitment;
+    uint32_t pqcOutputIndex = 0;
+    if (PQCExtractCommitmentFromTx(tx, pqcType, pqcCommitment, pqcOutputIndex)) {
+        UniValue pqc(UniValue::VOBJ);
+        pqc.pushKV("detected", true);
+        pqc.pushKV("type", PQCCommitmentTypeToString(pqcType));
+        pqc.pushKV("commitment", pqcCommitment.GetHex());
+        pqc.pushKV("output_index", (int64_t)pqcOutputIndex);
+        uint32_t pqcInputIndex = 0;
+        uint32_t pqcPubkeyItemIndex = 0;
+        uint32_t pqcSignatureItemIndex = 0;
+        const bool witnessValidated = PQCVerifyCommitmentFromWitness(tx, pqcCommitment, pqcInputIndex, pqcPubkeyItemIndex, pqcSignatureItemIndex);
+        pqc.pushKV("witness_validated", witnessValidated);
+        if (witnessValidated) {
+            pqc.pushKV("witness_input_index", (int64_t)pqcInputIndex);
+            pqc.pushKV("witness_pubkey_item_index", (int64_t)pqcPubkeyItemIndex);
+            pqc.pushKV("witness_signature_item_index", (int64_t)pqcSignatureItemIndex);
+        }
+        entry.pushKV("pqc_commitment", pqc);
+    }
 
     if (!hashBlock.IsNull()) {
         entry.pushKV("blockhash", hashBlock.GetHex());
