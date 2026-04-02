@@ -60,6 +60,22 @@ BOOST_AUTO_TEST_CASE(pqc_build_extract_dilithium_commitment_roundtrip)
     BOOST_CHECK(parsed_commitment == commitment);
 }
 
+BOOST_AUTO_TEST_CASE(pqc_build_extract_raccoong_commitment_roundtrip)
+{
+    const std::vector<unsigned char> bytes = ParseHex("1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef");
+    const uint256 commitment(bytes);
+
+    CScript script;
+    BOOST_CHECK(PQCBuildCommitmentScript(PQCCommitmentType::RACCOONG44, commitment, script));
+    BOOST_CHECK_EQUAL(HexStr(script.begin(), script.end()), "6a24524347341234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef");
+
+    PQCCommitmentType parsed_type;
+    uint256 parsed_commitment;
+    BOOST_CHECK(PQCExtractCommitment(script, parsed_type, parsed_commitment));
+    BOOST_CHECK(parsed_type == PQCCommitmentType::RACCOONG44);
+    BOOST_CHECK(parsed_commitment == commitment);
+}
+
 BOOST_AUTO_TEST_CASE(pqc_extract_rejects_noncanonical_script)
 {
     CScript script = CScript() << OP_RETURN << std::vector<unsigned char>(36, 0x00);
@@ -103,6 +119,10 @@ BOOST_AUTO_TEST_CASE(pqc_parse_commitment_type_aliases)
     BOOST_CHECK(type == PQCCommitmentType::DILITHIUM2);
     BOOST_CHECK(ParsePQCCommitmentType("dil2", type));
     BOOST_CHECK(type == PQCCommitmentType::DILITHIUM2);
+    BOOST_CHECK(ParsePQCCommitmentType("raccoong44", type));
+    BOOST_CHECK(type == PQCCommitmentType::RACCOONG44);
+    BOOST_CHECK(ParsePQCCommitmentType("RCG4", type));
+    BOOST_CHECK(type == PQCCommitmentType::RACCOONG44);
     BOOST_CHECK(!ParsePQCCommitmentType("unknown", type));
 }
 

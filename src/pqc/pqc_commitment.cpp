@@ -13,6 +13,7 @@ static const unsigned char PQC_COMMITMENT_OP_RETURN = OP_RETURN;
 static const unsigned char PQC_COMMITMENT_PUSH_LEN = 36;
 static const unsigned char PQC_TAG_FALCON[4] = {'F', 'L', 'C', '1'};
 static const unsigned char PQC_TAG_DILITHIUM[4] = {'D', 'I', 'L', '2'};
+static const unsigned char PQC_TAG_RACCOON[4] = {'R', 'C', 'G', '4'};
 static const unsigned int PQC_TAG_BYTES = 4;
 static const unsigned int PQC_SCRIPT_BYTES = 2 + PQC_TAG_BYTES + PQC_COMMITMENT_BYTES;
 
@@ -23,6 +24,8 @@ static const unsigned char* GetTagForType(PQCCommitmentType type)
         return PQC_TAG_FALCON;
     case PQCCommitmentType::DILITHIUM2:
         return PQC_TAG_DILITHIUM;
+    case PQCCommitmentType::RACCOONG44:
+        return PQC_TAG_RACCOON;
     default:
         return nullptr;
     }
@@ -78,6 +81,8 @@ bool PQCExtractCommitment(const CScript& script,
         type_out = PQCCommitmentType::FALCON512;
     } else if (memcmp(data, PQC_TAG_DILITHIUM, PQC_TAG_BYTES) == 0) {
         type_out = PQCCommitmentType::DILITHIUM2;
+    } else if (memcmp(data, PQC_TAG_RACCOON, PQC_TAG_BYTES) == 0) {
+        type_out = PQCCommitmentType::RACCOONG44;
     } else {
         return false;
     }
@@ -95,6 +100,8 @@ const char* PQCCommitmentTypeToString(PQCCommitmentType type)
         return "FALCON512/FLC1";
     case PQCCommitmentType::DILITHIUM2:
         return "DILITHIUM2/DIL2";
+    case PQCCommitmentType::RACCOONG44:
+        return "RACCOONG44/RCG4";
     default:
         return "UNKNOWN";
     }
@@ -108,6 +115,10 @@ bool ParsePQCCommitmentType(const std::string& type, PQCCommitmentType& type_out
     }
     if (type == "dilithium2" || type == "DILITHIUM2" || type == "dil2" || type == "DIL2") {
         type_out = PQCCommitmentType::DILITHIUM2;
+        return true;
+    }
+    if (type == "raccoong44" || type == "RACCOONG44" || type == "raccoong" || type == "RACCOONG" || type == "rcg4" || type == "RCG4") {
+        type_out = PQCCommitmentType::RACCOONG44;
         return true;
     }
     return false;

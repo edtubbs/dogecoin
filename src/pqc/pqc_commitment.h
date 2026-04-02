@@ -16,6 +16,7 @@
 enum class PQCCommitmentType {
     FALCON512,
     DILITHIUM2,
+    RACCOONG44,
 };
 
 static const unsigned int PQC_COMMITMENT_BYTES = 32;
