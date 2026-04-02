@@ -86,15 +86,6 @@ QString BuildAutoPqcSignatureHex(const QString& algorithm,
     return QString::fromLatin1((sigPartA + sigPartB).toHex());
 }
 
-QString BuildWitnessAwareAutoPqcSignatureHex(const QString& algorithm,
-                                             const QString& publicKeyHex,
-                                             const QList<SendCoinsRecipient>& recipients,
-                                             const bool includeWitnessItems)
-{
-    QString sig = BuildAutoPqcSignatureHex(algorithm, publicKeyHex, recipients);
-    sig += includeWitnessItems ? QStringLiteral("01") : QStringLiteral("00");
-    return sig;
-}
 } // namespace
 
 SendCoinsDialog::SendCoinsDialog(const PlatformStyle *_platformStyle, QWidget *parent) :
@@ -579,8 +570,7 @@ void SendCoinsDialog::onGeneratePqcCommitmentClicked()
         Q_EMIT message(tr("PQC Commitment"), tr("Enter at least one recipient with amount before generating a transaction commitment."), CClientUIInterface::MSG_WARNING);
         return;
     }
-    const bool includeWitnessItems = pqcUseWitnessItemsCheckBox && pqcUseWitnessItemsCheckBox->isChecked();
-    const QString signatureHex = BuildWitnessAwareAutoPqcSignatureHex(algorithm, publicKeyHex, recipients, includeWitnessItems);
+    const QString signatureHex = BuildAutoPqcSignatureHex(algorithm, publicKeyHex, recipients);
 
     try {
         UniValue params(UniValue::VARR);
