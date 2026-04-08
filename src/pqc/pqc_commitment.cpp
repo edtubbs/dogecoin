@@ -6,6 +6,7 @@
 
 #include "crypto/sha256.h"
 #include "hash.h"
+#include "pubkey.h"
 #include "script/script.h"
 #include "script/standard.h"
 

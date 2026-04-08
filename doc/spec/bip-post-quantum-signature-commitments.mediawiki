@@ -354,6 +354,15 @@ Current end-to-end script behavior is aligned across mainnet and testnet flows:
 * SPV scanning validates on-chain PQC commitments using carrier scriptSig data, logs pk_len/sig_len/prefix details; and
 * all transaction change outputs are sent back to the same funded address to enable chained testing.
 
+Dogecoin Core (Qt) reference implementation includes:
+
+* ''Such Send'' PQC Commitment panel with carrier mode toggle: generates TX_C with OP_RETURN commitment and optional P2SH carrier output(s);
+* carrier mode validation in RPC: <code>getrawtransaction</code> / <code>decoderawtransaction</code> surfaces <code>carrier_validated</code>, <code>carrier_pk_len</code>, <code>carrier_sig_len</code> alongside existing witness validation fields;
+* carrier mode validation in mempool acceptance: logs carrier-validated commitments during <code>AcceptToMemoryPool</code>;
+* Qt transaction detail view surfaces carrier validation status (pk_len, sig_len, carrier input index) alongside witness validation;
+* core carrier primitives in <code>pqc_commitment.h/cpp</code>: <code>PQCBuildCarrierRedeemScript</code>, <code>PQCBuildCarrierScriptPubKey</code>, <code>PQCBuildCarrierPartScriptSig</code>, <code>PQCParseCarrierPartScriptSig</code>, <code>PQCValidateCommitmentFromCarrier</code>; and
+* unit tests covering carrier redeemScript, scriptPubKey, single-part/multi-part roundtrip, tag detection, and commitment validation (success and failure).
+
 ==Mainnet Examples==
 
 The following examples are from confirmed mainnet transactions demonstrating Phase 1 PQC commitment publication and SPV validation.
@@ -429,6 +438,20 @@ Height   TxPos  Algorithm   Source              Commitment (first 16 hex)
 </source>
 
 Note: Commitments at heights 6156389, 6156425, and 6156450 appear as both op_return_only (TX_C) and carrier_scriptsig (TX_R), demonstrating the two-transaction carrier pattern where TX_R reveals the full PQC verification material and the SPV scanner cross-validates the commitment.
+
+===Confirmed TX_R Carrier Transactions===
+
+The following TX_R transactions are confirmed on mainnet and demonstrate the carrier P2SH reveal pattern:
+
+<source>
+TX_R txid: 77fc29fd9e5124fa85bcc62bb9ab49b8b95b4f4544b521e7589ca980dd1725b4  (mined)
+TX_R txid: 238fb58b352a7a2bbcd7eac7565f894ebeba020410b74cc76277f9336041b477  (mined)
+TX_R txid: 6551ccceeceb32b77b5930efeaeedea3d6d7a05040f7a84ce2c652ed9fe4c51c  (mined)
+TX_R txid: c32635aafa32abf9c89b5e366d647231c143b3fb1b925e51b51a67b6133e7924  (mined)
+TX_R txid: a9f2f84b3f2dff84c4505ac680ea6932224eb69c0960d00a5ad8f49df18b4e1e  (mined)
+</source>
+
+Each TX_R spends one or more P2SH carrier outputs from its corresponding TX_C. The carrier scriptSig includes the 8-byte tag (e.g., <code>FLC1FULL</code>), the 8-byte HDR8 header, up to three 520-byte data chunks containing the full PQC public key and signature, and the 6-byte carrier redeemScript. Validators can extract the verification material and recompute <code>SHA256(pk || sig)</code> to match against the OP_RETURN commitment in TX_C.
 
 ==Deployment==
 
