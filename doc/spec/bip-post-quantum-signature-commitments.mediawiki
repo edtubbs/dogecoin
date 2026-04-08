@@ -357,9 +357,9 @@ Current end-to-end script behavior is aligned across mainnet and testnet flows:
 Dogecoin Core (Qt) reference implementation includes:
 
 * ''Such Send'' PQC Commitment panel with carrier mode toggle: generates TX_C with OP_RETURN commitment and optional P2SH carrier output(s);
-* carrier mode validation in RPC: <code>getrawtransaction</code> / <code>decoderawtransaction</code> surfaces <code>carrier_validated</code>, <code>carrier_pk_len</code>, <code>carrier_sig_len</code> alongside existing witness validation fields;
+* carrier mode validation in RPC: <code>getrawtransaction</code> / <code>decoderawtransaction</code> surfaces <code>carrier_validated</code>, <code>carrier_pk_len</code>, <code>carrier_sig_len</code>;
 * carrier mode validation in mempool acceptance: logs carrier-validated commitments during <code>AcceptToMemoryPool</code>;
-* Qt transaction detail view surfaces carrier validation status (pk_len, sig_len, carrier input index) alongside witness validation;
+* Qt transaction detail view surfaces carrier validation status (pk_len, sig_len, carrier input index);
 * core carrier primitives in <code>pqc_commitment.h/cpp</code>: <code>PQCBuildCarrierRedeemScript</code>, <code>PQCBuildCarrierScriptPubKey</code>, <code>PQCBuildCarrierPartScriptSig</code>, <code>PQCParseCarrierPartScriptSig</code>, <code>PQCValidateCommitmentFromCarrier</code>; and
 * unit tests covering carrier redeemScript, scriptPubKey, single-part/multi-part roundtrip, tag detection, and commitment validation (success and failure).
 

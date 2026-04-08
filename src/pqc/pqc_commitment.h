@@ -48,16 +48,6 @@ bool PQCExtractCommitmentFromTx(const CTransaction& tx,
                                 uint256& commitment_out,
                                 uint32_t& output_index_out);
 
-/** Verify a commitment can be reconstructed from witness items in the transaction.
- *  This searches witness stacks for any ordered pair (item_i, item_j), i < j,
- *  such that SHA256(item_i || item_j) == commitment.
- */
-bool PQCVerifyCommitmentFromWitness(const CTransaction& tx,
-                                    const uint256& commitment,
-                                    uint32_t& input_index_out,
-                                    uint32_t& public_key_item_index_out,
-                                    uint32_t& signature_item_index_out);
-
 // --- P2SH Data-Carrier (Carrier Mode) ---
 
 /** Maximum bytes per individual scriptSig push element (Bitcoin P2SH limit). */

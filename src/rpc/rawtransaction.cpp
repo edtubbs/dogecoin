@@ -118,16 +118,6 @@ void TxToJSON(const CTransaction& tx, const uint256 hashBlock, UniValue& entry)
         pqc.pushKV("type", PQCCommitmentTypeToString(pqcType));
         pqc.pushKV("commitment", pqcCommitment.GetHex());
         pqc.pushKV("output_index", (int64_t)pqcOutputIndex);
-        uint32_t pqcInputIndex = 0;
-        uint32_t pqcPubkeyItemIndex = 0;
-        uint32_t pqcSignatureItemIndex = 0;
-        const bool witnessValidated = PQCVerifyCommitmentFromWitness(tx, pqcCommitment, pqcInputIndex, pqcPubkeyItemIndex, pqcSignatureItemIndex);
-        pqc.pushKV("witness_validated", witnessValidated);
-        if (witnessValidated) {
-            pqc.pushKV("witness_input_index", (int64_t)pqcInputIndex);
-            pqc.pushKV("witness_pubkey_item_index", (int64_t)pqcPubkeyItemIndex);
-            pqc.pushKV("witness_signature_item_index", (int64_t)pqcSignatureItemIndex);
-        }
 
         // Carrier mode validation: extract PQC pubkey+sig from P2SH carrier scriptSig
         PQCCommitmentType carrierType;

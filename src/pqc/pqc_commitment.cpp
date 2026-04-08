@@ -142,37 +142,6 @@ bool PQCExtractCommitmentFromTx(const CTransaction& tx,
     return false;
 }
 
-bool PQCVerifyCommitmentFromWitness(const CTransaction& tx,
-                                    const uint256& commitment,
-                                    uint32_t& input_index_out,
-                                    uint32_t& public_key_item_index_out,
-                                    uint32_t& signature_item_index_out)
-{
-    for (uint32_t input_index = 0; input_index < tx.vin.size(); ++input_index) {
-        const CScriptWitness& witness = tx.vin[input_index].scriptWitness;
-        const std::vector<std::vector<unsigned char> >& stack = witness.stack;
-        if (stack.size() < 2) {
-            continue;
-        }
-
-        for (uint32_t pub_idx = 0; pub_idx + 1 < stack.size(); ++pub_idx) {
-            for (uint32_t sig_idx = pub_idx + 1; sig_idx < stack.size(); ++sig_idx) {
-                uint256 candidate;
-                if (!PQCComputeCommitment(stack[pub_idx], stack[sig_idx], candidate)) {
-                    continue;
-                }
-                if (candidate == commitment) {
-                    input_index_out = input_index;
-                    public_key_item_index_out = pub_idx;
-                    signature_item_index_out = sig_idx;
-                    return true;
-                }
-            }
-        }
-    }
-    return false;
-}
-
 // --- P2SH Data-Carrier (Carrier Mode) Implementation ---
 
 /** Carrier redeemScript: OP_DROP OP_DROP OP_DROP OP_DROP OP_DROP OP_TRUE (6 bytes).

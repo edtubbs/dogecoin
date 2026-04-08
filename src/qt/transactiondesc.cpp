@@ -246,17 +246,6 @@ QString TransactionDesc::toHTML(CWallet *wallet, CWalletTx &wtx, TransactionReco
         strHTML += "<b>" + tr("PQC commitment") + ":</b> " + QString::fromStdString(pqcCommitment.GetHex()) + "<br>";
         strHTML += "<b>" + tr("PQC output index") + ":</b> " + QString::number(pqcOutputIndex) + "<br>";
 
-        // Check witness validation
-        uint32_t pqcInputIndex = 0;
-        uint32_t pqcPubkeyItemIndex = 0;
-        uint32_t pqcSignatureItemIndex = 0;
-        const bool witnessValidated = PQCVerifyCommitmentFromWitness(*wtx.tx, pqcCommitment, pqcInputIndex, pqcPubkeyItemIndex, pqcSignatureItemIndex);
-        strHTML += "<b>" + tr("PQC witness validation") + ":</b> " + (witnessValidated ? tr("matched witness items") : tr("no witness match")) + "<br>";
-        if (witnessValidated) {
-            strHTML += "<b>" + tr("PQC witness input index") + ":</b> " + QString::number(pqcInputIndex) + "<br>";
-            strHTML += "<b>" + tr("PQC witness item indexes") + ":</b> (" + QString::number(pqcPubkeyItemIndex) + ", " + QString::number(pqcSignatureItemIndex) + ")<br>";
-        }
-
         // Check carrier mode validation (P2SH data carrier)
         PQCCommitmentType carrierType;
         uint32_t carrierInputIndex = 0;
