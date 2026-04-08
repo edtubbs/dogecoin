@@ -68,6 +68,10 @@ def infer_algo(raw_type: str) -> Optional[str]:
     normalized = raw_type.strip().lower()
     if normalized in ("falcon512", "flc1", "falcon-512"):
         return "falcon512"
+    if normalized in ("dilithium2", "dil2", "dilithium-2"):
+        return "dilithium2"
+    if normalized in ("raccoong44", "rcg4", "raccoong", "raccoon-g-44"):
+        return "raccoong44"
     return None
 
 
@@ -87,9 +91,14 @@ def compute_pqc_script(algo: str, pubkey_hex: str, signature_hex: str) -> str:
     pubkey = normalize_hex(pubkey_hex)
     signature = normalize_hex(signature_hex)
     commitment = hashlib.sha256(pubkey + signature).digest()
-    if algo != "falcon512":
+    tag_map = {
+        "falcon512": b"FLC1",
+        "dilithium2": b"DIL2",
+        "raccoong44": b"RCG4",
+    }
+    tag = tag_map.get(algo)
+    if tag is None:
         raise ValueError(f"unsupported pqc algorithm for script tag: {algo}")
-    tag = b"FLC1"
     return (bytes([0x6A, 0x24]) + tag + commitment).hex()
 
 
