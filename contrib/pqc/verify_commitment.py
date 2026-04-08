@@ -36,6 +36,8 @@ def infer_algo(raw_type: str) -> Optional[str]:
         return "falcon512"
     if normalized in ("dilithium2", "dil2", "dilithium-2"):
         return "dilithium2"
+    if normalized in ("raccoong44", "rcg4", "raccoong", "raccoon-g-44"):
+        return "raccoong44"
     return None
 
 
@@ -43,7 +45,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(
         description="Verify libdogecoin-compatible PQC commitment and emit canonical script."
     )
-    parser.add_argument("--algo", choices=["falcon512", "dilithium2"])
+    parser.add_argument("--algo", choices=["falcon512", "dilithium2", "raccoong44"])
     parser.add_argument("--pubkey", help="PQC public key hex")
     parser.add_argument("--signature", help="PQC signature hex")
     parser.add_argument("--log-file", help="Path to E2E validation log template file")
@@ -72,7 +74,12 @@ def main() -> int:
     signature = normalize_hex(signature_hex)
 
     commitment = hashlib.sha256(pubkey + signature).digest()
-    tag = b"FLC1" if algo == "falcon512" else b"DIL2"
+    tag_map = {
+        "falcon512": b"FLC1",
+        "dilithium2": b"DIL2",
+        "raccoong44": b"RCG4",
+    }
+    tag = tag_map[algo]
     script = bytes([0x6A, 0x24]) + tag + commitment
 
     print(f"tag: {tag.decode('ascii')}")

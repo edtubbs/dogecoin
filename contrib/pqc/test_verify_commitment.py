@@ -63,6 +63,34 @@ signature_hex: bb66
         self.assertNotEqual(proc.returncode, 0)
         self.assertIn("does not match expected commitment", proc.stderr)
 
+    def test_raccoong44_log_file_input_and_match(self) -> None:
+        log_content = """date_utc: 2026-04-08T00:00:00Z
+network: mainnet
+txid: 5678
+commitment_type: RCG4
+script_pub_key_hex: 6a245243473461cbd3c9530ff2e4f3941fb7a757f19ff55347cb0534537ebbf78996f509ea5c
+commitment_hex: 61cbd3c9530ff2e4f3941fb7a757f19ff55347cb0534537ebbf78996f509ea5c
+pubkey_hex: cc77
+signature_hex: dd88
+"""
+        with tempfile.NamedTemporaryFile(mode="w", delete=False) as tmp:
+            tmp.write(log_content)
+            log_path = tmp.name
+
+        try:
+            proc = subprocess.run(
+                ["python3", SCRIPT_PATH, "--log-file", log_path],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+        finally:
+            os.unlink(log_path)
+
+        self.assertEqual(proc.returncode, 0, msg=proc.stderr)
+        self.assertIn("match_commitment: true", proc.stdout)
+        self.assertIn("match_script: true", proc.stdout)
+
 
 if __name__ == "__main__":
     unittest.main()
