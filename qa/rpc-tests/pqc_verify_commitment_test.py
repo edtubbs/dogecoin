@@ -5,12 +5,13 @@
 
 import os
 import subprocess
+import sys
 import tempfile
 import unittest
 
 
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
-SCRIPT_PATH = os.path.join(REPO_ROOT, "contrib", "pqc", "verify_commitment.py")
+SCRIPT_PATH = os.path.join(REPO_ROOT, "qa", "rpc-tests", "pqc_verify_commitment.py")
 
 
 class VerifyCommitmentTests(unittest.TestCase):
@@ -93,4 +94,6 @@ signature_hex: dd88
 
 
 if __name__ == "__main__":
+    # Strip unknown test runner args (--srcdir, --cachedir, --portseed, etc.)
+    sys.argv = [sys.argv[0]]
     unittest.main()

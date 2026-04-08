@@ -51,7 +51,7 @@ def main() -> int:
     parser.add_argument("--log-file", help="Path to E2E validation log template file")
     parser.add_argument("--expected-commitment", help="Expected commitment hex (optional)")
     parser.add_argument("--expected-script", help="Expected scriptPubKey hex (optional)")
-    args = parser.parse_args()
+    args, _ = parser.parse_known_args()
 
     log_values: Dict[str, str] = {}
     if args.log_file:

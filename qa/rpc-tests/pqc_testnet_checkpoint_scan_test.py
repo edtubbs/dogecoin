@@ -5,6 +5,7 @@
 
 import importlib.util
 import os
+import sys
 import tempfile
 import unittest
 
@@ -111,4 +112,6 @@ wallet_address: nXBQ8M5xFf7f8sM2jQY5q2f2uvvE4nStQd
 
 
 if __name__ == "__main__":
+    # Strip unknown test runner args (--srcdir, --cachedir, --portseed, etc.)
+    sys.argv = [sys.argv[0]]
     unittest.main()

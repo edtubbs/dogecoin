@@ -181,6 +181,9 @@ testScripts = [
     'getmocktime.py',
     'uptime.py',
     'p2p-getdata.py',
+    'pqc_carrier_validation.py',
+    'pqc_verify_commitment_test.py',
+    'pqc_testnet_checkpoint_scan_test.py',
 ]
 if ENABLE_ZMQ:
     testScripts.append('zmq_test.py')

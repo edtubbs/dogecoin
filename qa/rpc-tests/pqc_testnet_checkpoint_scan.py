@@ -189,7 +189,7 @@ def main() -> int:
     parser.add_argument("--output-log", help="Write end-to-end run log to this file path")
     parser.add_argument("--console-log", help="Write captured dogecoind console output to this file path")
     parser.add_argument("--nocleanup", action="store_true", help="Do not clean temporary datadir on exit")
-    args = parser.parse_args()
+    args, _ = parser.parse_known_args()
 
     log_values: Dict[str, str] = {}
     if args.log_file:
