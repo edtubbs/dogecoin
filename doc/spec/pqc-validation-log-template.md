@@ -6,7 +6,7 @@ commitment OP_RETURN outputs.
 Quick validation from an end-to-end log file:
 
 ```
-python3 contrib/pqc/verify_commitment.py --log-file /path/to/log.txt
+python3 qa/rpc-tests/pqc_verify_commitment.py --log-file /path/to/log.txt
 ```
 
 The command recomputes `SHA256(pubkey || signature)`, rebuilds the canonical
