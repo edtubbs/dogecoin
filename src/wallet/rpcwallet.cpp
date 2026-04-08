@@ -553,7 +553,7 @@ UniValue generatepqccommitment(const JSONRPCRequest& request)
             "generatepqccommitment \"algorithm\" \"public_key_hex\" \"signature_hex\"\n"
             "\nGenerate a PQC OP_RETURN commitment artifact from a PQC public key and signature.\n"
             "\nArguments:\n"
-            "1. \"algorithm\"         (string, required) PQC algorithm: falcon512|flc1 or dilithium2|dil2.\n"
+            "1. \"algorithm\"         (string, required) PQC algorithm: falcon512|flc1, dilithium2|dil2, or raccoong44|rcg4.\n"
             "2. \"public_key_hex\"    (string, required) PQC public key bytes, hex encoded.\n"
             "3. \"signature_hex\"     (string, required) PQC signature bytes, hex encoded.\n"
             "\nResult:\n"
@@ -573,7 +573,7 @@ UniValue generatepqccommitment(const JSONRPCRequest& request)
 
     PQCCommitmentType type;
     if (!ParsePQCCommitmentType(algo, type)) {
-        throw JSONRPCError(RPC_INVALID_PARAMETER, "Unknown PQC algorithm. Use falcon512|flc1 or dilithium2|dil2.");
+        throw JSONRPCError(RPC_INVALID_PARAMETER, "Unknown PQC algorithm. Use falcon512|flc1, dilithium2|dil2, or raccoong44|rcg4.");
     }
     if (!IsHex(pubkey_hex) || !IsHex(sig_hex)) {
         throw JSONRPCError(RPC_INVALID_PARAMETER, "public_key_hex and signature_hex must be valid hex strings.");

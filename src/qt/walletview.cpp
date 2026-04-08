@@ -60,6 +60,7 @@ namespace {
 const char* PQCSignatureStorageKeyForAlgorithm(const QString& algorithm)
 {
     if (algorithm == "dilithium2") return "pqc_sigkey_dilithium2";
+    if (algorithm == "raccoong44") return "pqc_sigkey_raccoong44";
     return "pqc_sigkey_falcon512";
 }
 
@@ -722,6 +723,7 @@ void WalletView::showPQCSignatureDialog()
     QComboBox* algorithm = new QComboBox(&dlg);
     algorithm->addItem("falcon512");
     algorithm->addItem("dilithium2");
+    algorithm->addItem("raccoong44");
 
     QLineEdit* publicKeyHex = new QLineEdit(&dlg);
     publicKeyHex->setReadOnly(true);
@@ -835,7 +837,8 @@ void WalletView::showPQCSignatureDialog()
         };
         const KeyItem items[] = {
             {"pqc_sigkey_falcon512", "falcon512"},
-            {"pqc_sigkey_dilithium2", "dilithium2"}
+            {"pqc_sigkey_dilithium2", "dilithium2"},
+            {"pqc_sigkey_raccoong44", "raccoong44"}
         };
 
         for (size_t i = 0; i < sizeof(items) / sizeof(items[0]); ++i) {
@@ -1017,6 +1020,7 @@ void WalletView::showPQCSignatureDialog()
         QComboBox* importAlgorithm = new QComboBox(&importDlg);
         importAlgorithm->addItem("falcon512");
         importAlgorithm->addItem("dilithium2");
+        importAlgorithm->addItem("raccoong44");
         importAlgorithm->setCurrentText(algorithm->currentText());
 
         QLineEdit* importPublicKeyHex = new QLineEdit(&importDlg);

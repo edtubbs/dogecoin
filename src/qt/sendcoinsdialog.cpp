@@ -500,7 +500,8 @@ void SendCoinsDialog::refreshPqcKeyInventory()
     };
     const KeyItem items[] = {
         {"pqc_sigkey_falcon512", "falcon512"},
-        {"pqc_sigkey_dilithium2", "dilithium2"}
+        {"pqc_sigkey_dilithium2", "dilithium2"},
+        {"pqc_sigkey_raccoong44", "raccoong44"}
     };
 
     for (size_t i = 0; i < sizeof(items) / sizeof(items[0]); ++i) {
