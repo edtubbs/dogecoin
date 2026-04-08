@@ -23,7 +23,7 @@ python3 qa/rpc-tests/pqc_testnet_checkpoint_scan.py \
   --srcdir /path/to/dogecoin/src \
   --txid <txid> \
   --height <height> \
-  --commitment-type FLC1 \
+  --commitment-type FLC1|DIL2|RCG4 \
   --pubkey-hex <pubkey_hex> \
   --signature-hex <signature_hex> \
   --wallet-address <optional_testnet_address> \
@@ -51,7 +51,7 @@ date_utc:
 network:
 txid:
 height:
-commitment_type: FLC1
+commitment_type: FLC1|DIL2|RCG4
 script_pub_key_hex:
 commitment_hex:
 pubkey_hex:
@@ -59,7 +59,7 @@ signature_hex:
 recomputed_commitment_hex:
 match: true|false
 txis:
-tag: FLC1
+tag: FLC1|DIL2|RCG4
 dogecoin_testnet_wallet_address:
 checkpoints_enabled: true|false
 checkpoint_sync_target_height:
