@@ -20,6 +20,8 @@
 #include "chainparams.h"
 #include "dogecoin-fees.h"
 #include "pqc/pqc_commitment.h"
+#include "script/standard.h"
+#include "utilstrencodings.h"
 #include "wallet/coincontrol.h"
 #include "validation.h" // mempool and minRelayTxFeeRate
 #include "ui_interface.h"
@@ -612,6 +614,8 @@ void SendCoinsDialog::onDecodePqcCommitmentClicked()
 
     QString algorithmTag = tr("Unknown");
     QString extractedCommitment = tr("n/a");
+    PQCCommitmentType detectedType = PQCCommitmentType::FALCON512;
+    bool commitmentExtracted = false;
     if (IsHex(scriptPubKey.toStdString())) {
         const std::vector<unsigned char> scriptBytes = ParseHex(scriptPubKey.toStdString());
         CScript script(scriptBytes.begin(), scriptBytes.end());
@@ -620,35 +624,92 @@ void SendCoinsDialog::onDecodePqcCommitmentClicked()
         if (PQCExtractCommitment(script, pqcType, extracted)) {
             algorithmTag = QString::fromLatin1(PQCCommitmentTypeToString(pqcType));
             extractedCommitment = QString::fromStdString(extracted.GetHex());
+            detectedType = pqcType;
+            commitmentExtracted = true;
         }
     }
 
-    QString decoded;
-    decoded += tr("Selected key algorithm: %1").arg(pqcSelectedAlgorithm.isEmpty() ? tr("unknown") : pqcSelectedAlgorithm);
-    decoded += "\n";
-    decoded += tr("Selected public key: %1").arg(pqcSelectedPublicKeyHex.isEmpty() ? tr("n/a") : (pqcSelectedPublicKeyHex.left(16) + "..." + pqcSelectedPublicKeyHex.right(16)));
-    decoded += "\n";
-    decoded += tr("Commitment: %1").arg(commitment);
-    decoded += "\n";
-    decoded += tr("Script details are hidden in Such Send UI (decoded here): %1").arg(scriptPubKey);
-    decoded += "\n";
-    decoded += tr("Script starts with OP_RETURN: %1").arg(scriptPubKey.startsWith("6a24", Qt::CaseInsensitive) ? tr("yes") : tr("no"));
-    decoded += "\n";
-    decoded += tr("Algorithm tag: %1").arg(algorithmTag);
-    decoded += "\n";
-    decoded += tr("Extracted commitment from script: %1").arg(extractedCommitment);
-    decoded += "\n";
-    decoded += tr("Carrier mode: %1").arg((pqcCarrierModeCheckBox && pqcCarrierModeCheckBox->isChecked()) ? tr("enabled (TX_C + TX_R P2SH data carrier)") : tr("disabled (commitment-only)"));
+    const bool carrierEnabled = pqcCarrierModeCheckBox && pqcCarrierModeCheckBox->isChecked();
+
+    // Build HTML matching the transaction details style (<b>Label:</b> value<br>)
+    QString html;
+    html += "<html><body>";
+    html += "<b>" + tr("Selected key algorithm") + ":</b> " + GUIUtil::HtmlEscape(pqcSelectedAlgorithm.isEmpty() ? tr("unknown") : pqcSelectedAlgorithm) + "<br>";
+    html += "<b>" + tr("Selected public key") + ":</b> " + GUIUtil::HtmlEscape(pqcSelectedPublicKeyHex.isEmpty() ? tr("n/a") : (pqcSelectedPublicKeyHex.left(16) + "..." + pqcSelectedPublicKeyHex.right(16))) + "<br>";
+    html += "<b>" + tr("Commitment") + ":</b> " + GUIUtil::HtmlEscape(commitment) + "<br>";
+    html += "<b>" + tr("OP_RETURN scriptPubKey") + ":</b> " + GUIUtil::HtmlEscape(scriptPubKey) + "<br>";
+    html += "<b>" + tr("Script starts with OP_RETURN") + ":</b> " + (scriptPubKey.startsWith("6a24", Qt::CaseInsensitive) ? tr("yes") : tr("no")) + "<br>";
+    html += "<b>" + tr("Algorithm tag") + ":</b> " + GUIUtil::HtmlEscape(algorithmTag) + "<br>";
+    html += "<b>" + tr("Extracted commitment from script") + ":</b> " + GUIUtil::HtmlEscape(extractedCommitment) + "<br>";
+    html += "<b>" + tr("Carrier mode") + ":</b> " + (carrierEnabled ? tr("enabled (TX_C + TX_R P2SH data carrier)") : tr("disabled (commitment-only)")) + "<br>";
+
+    // Decode TX_C and TX_R carrier details when carrier mode is enabled
+    if (carrierEnabled && commitmentExtracted) {
+        html += "<br>";
+        html += "<b>" + tr("TX_C (Commitment Transaction)") + ":</b><br>";
+        html += "<b>" + tr("TX_C OP_RETURN output") + ":</b> " + GUIUtil::HtmlEscape(scriptPubKey) + "<br>";
+
+        // Compute carrier P2SH scriptPubKey
+        CScript carrierScriptPubKey;
+        if (PQCBuildCarrierScriptPubKey(carrierScriptPubKey)) {
+            const std::string carrierSpkHex = HexStr(carrierScriptPubKey.begin(), carrierScriptPubKey.end());
+            html += "<b>" + tr("TX_C carrier P2SH scriptPubKey") + ":</b> " + GUIUtil::HtmlEscape(QString::fromStdString(carrierSpkHex)) + "<br>";
+
+            // Extract the P2SH address from the scriptPubKey
+            CTxDestination dest;
+            if (ExtractDestination(carrierScriptPubKey, dest)) {
+                html += "<b>" + tr("TX_C carrier P2SH address") + ":</b> " + GUIUtil::HtmlEscape(QString::fromStdString(CBitcoinAddress(dest).ToString())) + "<br>";
+            }
+        }
+
+        // Show carrier redeemScript
+        CScript redeemScript;
+        if (PQCBuildCarrierRedeemScript(redeemScript)) {
+            const std::string redeemHex = HexStr(redeemScript.begin(), redeemScript.end());
+            html += "<b>" + tr("TX_C carrier redeemScript") + ":</b> " + GUIUtil::HtmlEscape(QString::fromStdString(redeemHex)) + " (OP_DROP×5 OP_TRUE)<br>";
+        }
+
+        // Compute carrier parts needed based on selected public key size
+        size_t pkLen = 0;
+        if (!pqcSelectedPublicKeyHex.isEmpty() && IsHex(pqcSelectedPublicKeyHex.toStdString())) {
+            pkLen = ParseHex(pqcSelectedPublicKeyHex.toStdString()).size();
+        }
+        // Estimate sig size based on algorithm (auto-generated signature is 64 bytes)
+        const size_t sigLen = 64;
+        const size_t payloadSize = pkLen + sigLen;
+        const uint8_t partsNeeded = PQCCarrierPartsNeeded(payloadSize);
+
+        html += "<b>" + tr("Estimated carrier payload") + ":</b> " + QString::number(payloadSize) + " " + tr("bytes") + " (" + tr("pk") + "=" + QString::number(pkLen) + " + " + tr("sig") + "=" + QString::number(sigLen) + ")<br>";
+        html += "<b>" + tr("Carrier parts needed") + ":</b> " + QString::number(partsNeeded) + "<br>";
+
+        // Determine carrier tag
+        QString carrierTag;
+        switch (detectedType) {
+            case PQCCommitmentType::FALCON512:  carrierTag = "FLC1FULL"; break;
+            case PQCCommitmentType::DILITHIUM2: carrierTag = "DIL2FULL"; break;
+            case PQCCommitmentType::RACCOONG44: carrierTag = "RCG4FULL"; break;
+        }
+        html += "<b>" + tr("Carrier tag (8-byte)") + ":</b> " + GUIUtil::HtmlEscape(carrierTag) + "<br>";
+
+        html += "<br>";
+        html += "<b>" + tr("TX_R (Reveal Transaction)") + ":</b><br>";
+        html += "<b>" + tr("TX_R spends") + ":</b> " + tr("TX_C carrier P2SH output(s)") + "<br>";
+        html += "<b>" + tr("TX_R scriptSig format") + ":</b> " + tr("TAG8 + HDR8 + CHUNK0..2 + redeemScript") + "<br>";
+        html += "<b>" + tr("TX_R reveals") + ":</b> " + tr("full PQC public key + signature on-chain") + "<br>";
+        html += "<b>" + tr("TX_R validation") + ":</b> " + tr("SHA256(pk || sig) must match TX_C OP_RETURN commitment") + "<br>";
+    }
+
+    html += "</body></html>";
 
     QDialog decodeDialog(this);
     decodeDialog.setWindowTitle(tr("Decoded PQC Commitment"));
-    decodeDialog.resize(760, 360);
+    decodeDialog.resize(760, 420);
     QVBoxLayout* layout = new QVBoxLayout(&decodeDialog);
     QLabel* label = new QLabel(tr("Decoded PQC commitment details:"), &decodeDialog);
     layout->addWidget(label);
     QTextEdit* decodedText = new QTextEdit(&decodeDialog);
     decodedText->setReadOnly(true);
-    decodedText->setPlainText(decoded);
+    decodedText->setHtml(html);
     layout->addWidget(decodedText);
     QDialogButtonBox* buttons = new QDialogButtonBox(QDialogButtonBox::Close, &decodeDialog);
     connect(buttons, &QDialogButtonBox::rejected, &decodeDialog, &QDialog::reject);
