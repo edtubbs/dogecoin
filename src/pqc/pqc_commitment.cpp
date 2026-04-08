@@ -5,9 +5,12 @@
 #include "pqc/pqc_commitment.h"
 
 #include "crypto/sha256.h"
+#include "hash.h"
 #include "script/script.h"
+#include "script/standard.h"
 
 #include <string.h>
+#include <algorithm>
 
 static const unsigned char PQC_COMMITMENT_OP_RETURN = OP_RETURN;
 static const unsigned char PQC_COMMITMENT_PUSH_LEN = 36;
@@ -167,4 +170,292 @@ bool PQCVerifyCommitmentFromWitness(const CTransaction& tx,
         }
     }
     return false;
+}
+
+// --- P2SH Data-Carrier (Carrier Mode) Implementation ---
+
+/** Carrier redeemScript: OP_DROP OP_DROP OP_DROP OP_DROP OP_DROP OP_TRUE (6 bytes).
+ *  Cleans TAG8, HDR8, CHUNK0, CHUNK1, CHUNK2 from stack and pushes true.
+ */
+bool PQCBuildCarrierRedeemScript(CScript& script_out)
+{
+    script_out = CScript();
+    script_out << OP_DROP << OP_DROP << OP_DROP << OP_DROP << OP_DROP << OP_TRUE;
+    return true;
+}
+
+bool PQCBuildCarrierScriptPubKey(CScript& script_out)
+{
+    CScript redeemScript;
+    if (!PQCBuildCarrierRedeemScript(redeemScript)) {
+        return false;
+    }
+    script_out = GetScriptForDestination(CScriptID(redeemScript));
+    return true;
+}
+
+uint8_t PQCCarrierPartsNeeded(size_t payload_size)
+{
+    if (payload_size == 0) return 0;
+    return static_cast<uint8_t>((payload_size + PQC_CARRIER_PAYLOAD_PER_PART - 1) / PQC_CARRIER_PAYLOAD_PER_PART);
+}
+
+static const unsigned char* GetCarrierTagForType(PQCCommitmentType type)
+{
+    switch (type) {
+    case PQCCommitmentType::FALCON512:
+        return PQC_CARRIER_TAG_FALCON;
+    case PQCCommitmentType::DILITHIUM2:
+        return PQC_CARRIER_TAG_DILITHIUM;
+    case PQCCommitmentType::RACCOONG44:
+        return PQC_CARRIER_TAG_RACCOON;
+    default:
+        return nullptr;
+    }
+}
+
+static void EncodeCarrierHeader(const PQCCarrierHeader& hdr, unsigned char out[8])
+{
+    out[0] = hdr.version;
+    out[1] = hdr.part_index;
+    out[2] = hdr.part_total;
+    out[3] = hdr.reserved;
+    out[4] = static_cast<unsigned char>((hdr.pk_len >> 8) & 0xFF);
+    out[5] = static_cast<unsigned char>(hdr.pk_len & 0xFF);
+    out[6] = static_cast<unsigned char>((hdr.full_len >> 8) & 0xFF);
+    out[7] = static_cast<unsigned char>(hdr.full_len & 0xFF);
+}
+
+static bool DecodeCarrierHeader(const unsigned char data[8], PQCCarrierHeader& hdr)
+{
+    hdr.version = data[0];
+    if (hdr.version != 0x01) return false;
+    hdr.part_index = data[1];
+    hdr.part_total = data[2];
+    hdr.reserved = data[3];
+    hdr.pk_len = (static_cast<uint16_t>(data[4]) << 8) | data[5];
+    hdr.full_len = (static_cast<uint16_t>(data[6]) << 8) | data[7];
+    if (hdr.part_total == 0 || hdr.part_index >= hdr.part_total) return false;
+    return true;
+}
+
+bool PQCBuildCarrierPartScriptSig(PQCCommitmentType type,
+                                   const std::vector<unsigned char>& pubkey,
+                                   const std::vector<unsigned char>& signature,
+                                   uint8_t part_index,
+                                   CScript& script_sig_out)
+{
+    const unsigned char* carrier_tag = GetCarrierTagForType(type);
+    if (carrier_tag == nullptr) return false;
+    if (pubkey.empty() || signature.empty()) return false;
+
+    // Build full payload: pubkey || signature
+    std::vector<unsigned char> full_payload;
+    full_payload.reserve(pubkey.size() + signature.size());
+    full_payload.insert(full_payload.end(), pubkey.begin(), pubkey.end());
+    full_payload.insert(full_payload.end(), signature.begin(), signature.end());
+
+    uint8_t parts_needed = PQCCarrierPartsNeeded(full_payload.size());
+    if (parts_needed == 0 || part_index >= parts_needed) return false;
+    if (full_payload.size() > 0xFFFF || pubkey.size() > 0xFFFF) return false;
+
+    // Build HDR8
+    PQCCarrierHeader hdr;
+    hdr.version = 0x01;
+    hdr.part_index = part_index;
+    hdr.part_total = parts_needed;
+    hdr.reserved = 0x00;
+    hdr.pk_len = static_cast<uint16_t>(pubkey.size());
+    hdr.full_len = static_cast<uint16_t>(full_payload.size());
+
+    unsigned char hdr_bytes[8];
+    EncodeCarrierHeader(hdr, hdr_bytes);
+
+    // Extract this part's payload slice
+    size_t part_offset = static_cast<size_t>(part_index) * PQC_CARRIER_PAYLOAD_PER_PART;
+    size_t part_remaining = (part_offset < full_payload.size()) ? (full_payload.size() - part_offset) : 0;
+    size_t part_len = std::min(part_remaining, static_cast<size_t>(PQC_CARRIER_PAYLOAD_PER_PART));
+
+    // Split into up to 3 chunks of max 520 bytes each
+    std::vector<unsigned char> chunks[PQC_CARRIER_CHUNKS_PER_PART];
+    size_t consumed = 0;
+    for (unsigned int c = 0; c < PQC_CARRIER_CHUNKS_PER_PART; ++c) {
+        if (consumed < part_len) {
+            size_t chunk_len = std::min(part_len - consumed, static_cast<size_t>(PQC_CARRIER_MAX_CHUNK_BYTES));
+            chunks[c].assign(full_payload.begin() + part_offset + consumed,
+                             full_payload.begin() + part_offset + consumed + chunk_len);
+            consumed += chunk_len;
+        }
+        // Empty chunks left as empty vectors
+    }
+
+    // Build scriptSig: TAG8 HDR8 CHUNK0 CHUNK1 CHUNK2 redeemScript
+    CScript redeemScript;
+    if (!PQCBuildCarrierRedeemScript(redeemScript)) return false;
+
+    std::vector<unsigned char> tag_vec(carrier_tag, carrier_tag + 8);
+    std::vector<unsigned char> hdr_vec(hdr_bytes, hdr_bytes + 8);
+
+    script_sig_out = CScript();
+    script_sig_out << tag_vec << hdr_vec;
+    for (unsigned int c = 0; c < PQC_CARRIER_CHUNKS_PER_PART; ++c) {
+        if (chunks[c].empty()) {
+            script_sig_out << OP_0;
+        } else {
+            script_sig_out << chunks[c];
+        }
+    }
+    // Push the redeemScript as the final element
+    std::vector<unsigned char> rsBytes(redeemScript.begin(), redeemScript.end());
+    script_sig_out << rsBytes;
+    return true;
+}
+
+bool PQCDetectCarrierScriptSig(const CScript& scriptSig, PQCCommitmentType& type_out)
+{
+    // Decode the scriptSig to get push elements
+    std::vector<std::vector<unsigned char> > stack;
+    CScript::const_iterator it = scriptSig.begin();
+    while (it != scriptSig.end()) {
+        std::vector<unsigned char> data;
+        opcodetype opcode;
+        if (!scriptSig.GetOp(it, opcode, data)) break;
+        stack.push_back(data);
+    }
+    // Need at least 6 pushes: TAG8 HDR8 CHUNK0 CHUNK1 CHUNK2 redeemScript
+    if (stack.size() < 6) return false;
+
+    // First push must be an 8-byte carrier tag
+    if (stack[0].size() != 8) return false;
+
+    if (memcmp(stack[0].data(), PQC_CARRIER_TAG_FALCON, 8) == 0) {
+        type_out = PQCCommitmentType::FALCON512;
+        return true;
+    }
+    if (memcmp(stack[0].data(), PQC_CARRIER_TAG_DILITHIUM, 8) == 0) {
+        type_out = PQCCommitmentType::DILITHIUM2;
+        return true;
+    }
+    if (memcmp(stack[0].data(), PQC_CARRIER_TAG_RACCOON, 8) == 0) {
+        type_out = PQCCommitmentType::RACCOONG44;
+        return true;
+    }
+    return false;
+}
+
+bool PQCParseCarrierPartScriptSig(const CScript& scriptSig,
+                                   PQCCommitmentType& type_out,
+                                   PQCCarrierHeader& header_out,
+                                   std::vector<unsigned char>& payload_out)
+{
+    // Decode pushes
+    std::vector<std::vector<unsigned char> > stack;
+    CScript::const_iterator it = scriptSig.begin();
+    while (it != scriptSig.end()) {
+        std::vector<unsigned char> data;
+        opcodetype opcode;
+        if (!scriptSig.GetOp(it, opcode, data)) break;
+        stack.push_back(data);
+    }
+    if (stack.size() < 6) return false;
+
+    // TAG8 (8 bytes)
+    if (stack[0].size() != 8) return false;
+    if (!PQCDetectCarrierScriptSig(scriptSig, type_out)) return false;
+
+    // HDR8 (8 bytes)
+    if (stack[1].size() != 8) return false;
+    if (!DecodeCarrierHeader(stack[1].data(), header_out)) return false;
+
+    // Concatenate CHUNK0 + CHUNK1 + CHUNK2 (indices 2, 3, 4)
+    payload_out.clear();
+    for (int c = 2; c < 5 && c < (int)stack.size(); ++c) {
+        payload_out.insert(payload_out.end(), stack[c].begin(), stack[c].end());
+    }
+    return true;
+}
+
+bool PQCValidateCommitmentFromCarrier(const CTransaction& tx,
+                                       const uint256& commitment,
+                                       PQCCommitmentType& type_out,
+                                       uint32_t& carrier_input_index_out,
+                                       uint16_t& pk_len_out,
+                                       uint16_t& sig_len_out)
+{
+    // Gather carrier parts from all inputs
+    struct CarrierPart {
+        uint8_t part_index;
+        PQCCarrierHeader header;
+        std::vector<unsigned char> payload;
+        uint32_t input_index;
+    };
+
+    std::vector<CarrierPart> parts;
+    PQCCommitmentType detected_type = PQCCommitmentType::FALCON512;
+    bool type_set = false;
+
+    for (uint32_t i = 0; i < tx.vin.size(); ++i) {
+        PQCCommitmentType input_type;
+        PQCCarrierHeader hdr;
+        std::vector<unsigned char> payload;
+
+        if (!PQCParseCarrierPartScriptSig(tx.vin[i].scriptSig, input_type, hdr, payload)) {
+            continue;
+        }
+
+        if (!type_set) {
+            detected_type = input_type;
+            type_set = true;
+        } else if (input_type != detected_type) {
+            continue; // Mixed types in same tx — skip
+        }
+
+        CarrierPart part;
+        part.part_index = hdr.part_index;
+        part.header = hdr;
+        part.payload = payload;
+        part.input_index = i;
+        parts.push_back(part);
+    }
+
+    if (parts.empty()) return false;
+
+    // Sort by part_index
+    std::sort(parts.begin(), parts.end(),
+              [](const CarrierPart& a, const CarrierPart& b) {
+                  return a.part_index < b.part_index;
+              });
+
+    // Verify contiguous parts
+    uint8_t expected_total = parts[0].header.part_total;
+    if (parts.size() != expected_total) return false;
+    for (uint8_t p = 0; p < expected_total; ++p) {
+        if (parts[p].part_index != p) return false;
+    }
+
+    // Reconstruct full payload
+    std::vector<unsigned char> full_payload;
+    for (size_t p = 0; p < parts.size(); ++p) {
+        full_payload.insert(full_payload.end(), parts[p].payload.begin(), parts[p].payload.end());
+    }
+
+    uint16_t pk_len = parts[0].header.pk_len;
+    if (pk_len > full_payload.size()) return false;
+
+    std::vector<unsigned char> pubkey(full_payload.begin(), full_payload.begin() + pk_len);
+    std::vector<unsigned char> sig(full_payload.begin() + pk_len, full_payload.end());
+
+    if (pubkey.empty() || sig.empty()) return false;
+
+    // Recompute commitment
+    uint256 recomputed;
+    if (!PQCComputeCommitment(pubkey, sig, recomputed)) return false;
+
+    if (recomputed != commitment) return false;
+
+    type_out = detected_type;
+    carrier_input_index_out = parts[0].input_index;
+    pk_len_out = pk_len;
+    sig_len_out = static_cast<uint16_t>(sig.size());
+    return true;
 }

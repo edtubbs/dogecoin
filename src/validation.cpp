@@ -1053,8 +1053,19 @@ bool AcceptToMemoryPoolWorker(CTxMemPool& pool, CValidationState& state, const C
                     hash.ToString(), PQCCommitmentTypeToString(pqc_type), pqc_output_index, pqc_input_index,
                     pqc_pubkey_item_index, pqc_signature_item_index, pqc_commitment.GetHex());
             } else {
-                LogPrint("mempool", "PQC commitment accepted without witness match for mempool tx %s: type=%s vout=%u commitment=%s\n",
-                    hash.ToString(), PQCCommitmentTypeToString(pqc_type), pqc_output_index, pqc_commitment.GetHex());
+                // Try carrier mode validation (P2SH carrier scriptSig)
+                PQCCommitmentType carrier_type;
+                uint32_t carrier_input_index = 0;
+                uint16_t carrier_pk_len = 0;
+                uint16_t carrier_sig_len = 0;
+                if (PQCValidateCommitmentFromCarrier(tx, pqc_commitment, carrier_type, carrier_input_index, carrier_pk_len, carrier_sig_len)) {
+                    LogPrint("mempool", "PQC commitment validated via carrier for mempool tx %s: type=%s vout=%u carrier_vin=%u pk_len=%u sig_len=%u commitment=%s\n",
+                        hash.ToString(), PQCCommitmentTypeToString(carrier_type), pqc_output_index, carrier_input_index,
+                        carrier_pk_len, carrier_sig_len, pqc_commitment.GetHex());
+                } else {
+                    LogPrint("mempool", "PQC commitment accepted without witness/carrier match for mempool tx %s: type=%s vout=%u commitment=%s\n",
+                        hash.ToString(), PQCCommitmentTypeToString(pqc_type), pqc_output_index, pqc_commitment.GetHex());
+                }
             }
         }
     }

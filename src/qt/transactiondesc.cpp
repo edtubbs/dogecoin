@@ -245,6 +245,8 @@ QString TransactionDesc::toHTML(CWallet *wallet, CWalletTx &wtx, TransactionReco
         strHTML += "<b>" + tr("PQC validation") + ":</b> " + tr("valid commitment detected") + " (" + pqcTypeStr + ")<br>";
         strHTML += "<b>" + tr("PQC commitment") + ":</b> " + QString::fromStdString(pqcCommitment.GetHex()) + "<br>";
         strHTML += "<b>" + tr("PQC output index") + ":</b> " + QString::number(pqcOutputIndex) + "<br>";
+
+        // Check witness validation
         uint32_t pqcInputIndex = 0;
         uint32_t pqcPubkeyItemIndex = 0;
         uint32_t pqcSignatureItemIndex = 0;
@@ -253,6 +255,19 @@ QString TransactionDesc::toHTML(CWallet *wallet, CWalletTx &wtx, TransactionReco
         if (witnessValidated) {
             strHTML += "<b>" + tr("PQC witness input index") + ":</b> " + QString::number(pqcInputIndex) + "<br>";
             strHTML += "<b>" + tr("PQC witness item indexes") + ":</b> (" + QString::number(pqcPubkeyItemIndex) + ", " + QString::number(pqcSignatureItemIndex) + ")<br>";
+        }
+
+        // Check carrier mode validation (P2SH data carrier)
+        PQCCommitmentType carrierType;
+        uint32_t carrierInputIndex = 0;
+        uint16_t carrierPkLen = 0;
+        uint16_t carrierSigLen = 0;
+        const bool carrierValidated = PQCValidateCommitmentFromCarrier(*wtx.tx, pqcCommitment, carrierType, carrierInputIndex, carrierPkLen, carrierSigLen);
+        strHTML += "<b>" + tr("PQC carrier validation") + ":</b> " + (carrierValidated ? tr("matched carrier scriptSig") : tr("no carrier match")) + "<br>";
+        if (carrierValidated) {
+            strHTML += "<b>" + tr("PQC carrier input index") + ":</b> " + QString::number(carrierInputIndex) + "<br>";
+            strHTML += "<b>" + tr("PQC carrier pk_len") + ":</b> " + QString::number(carrierPkLen) + "<br>";
+            strHTML += "<b>" + tr("PQC carrier sig_len") + ":</b> " + QString::number(carrierSigLen) + "<br>";
         }
     } else {
         strHTML += "<b>" + tr("PQC validation") + ":</b> " + tr("no commitment detected") + "<br>";

@@ -146,9 +146,12 @@ SendCoinsDialog::SendCoinsDialog(const PlatformStyle *_platformStyle, QWidget *p
     pqcIncludeCommitmentCheckBox = new QCheckBox(tr("Include commitment in this transaction"), pqcFrame);
     pqcIncludeCommitmentCheckBox->setChecked(false);
     pqcForm->addRow(QString(), pqcIncludeCommitmentCheckBox);
-    pqcUseWitnessItemsCheckBox = new QCheckBox(tr("Include witness items (optional)"), pqcFrame);
-    pqcUseWitnessItemsCheckBox->setChecked(false);
-    pqcForm->addRow(QString(), pqcUseWitnessItemsCheckBox);
+    pqcCarrierModeCheckBox = new QCheckBox(tr("Carrier mode (P2SH data carrier for on-chain PQ verification)"), pqcFrame);
+    pqcCarrierModeCheckBox->setChecked(false);
+    pqcCarrierModeCheckBox->setToolTip(tr("When enabled, TX_C includes P2SH carrier output(s) alongside the OP_RETURN commitment.\n"
+                                            "A follow-up TX_R will reveal the full PQC public key and signature on-chain.\n"
+                                            "This is the canonical Phase 1 transport for on-chain PQ verification material."));
+    pqcForm->addRow(QString(), pqcCarrierModeCheckBox);
     pqcLayout->addLayout(pqcForm);
 
     ui->verticalLayout->insertWidget(2, pqcFrame);
@@ -333,6 +336,7 @@ void SendCoinsDialog::on_sendButton_clicked()
         }
         recipients[0].includePqcCommitment = true;
         recipients[0].pqcCommitmentScriptPubKey = pqcCommitmentScriptPubKeyHex.trimmed();
+        recipients[0].pqcCarrierMode = (pqcCarrierModeCheckBox && pqcCarrierModeCheckBox->isChecked());
     }
 
     fNewRecipientAllowed = false;
@@ -467,8 +471,8 @@ void SendCoinsDialog::clear()
     if (pqcIncludeCommitmentCheckBox) {
         pqcIncludeCommitmentCheckBox->setChecked(false);
     }
-    if (pqcUseWitnessItemsCheckBox) {
-        pqcUseWitnessItemsCheckBox->setChecked(false);
+    if (pqcCarrierModeCheckBox) {
+        pqcCarrierModeCheckBox->setChecked(false);
     }
     if (pqcDecodeButton) {
         pqcDecodeButton->setEnabled(false);
@@ -633,6 +637,8 @@ void SendCoinsDialog::onDecodePqcCommitmentClicked()
     decoded += tr("Algorithm tag: %1").arg(algorithmTag);
     decoded += "\n";
     decoded += tr("Extracted commitment from script: %1").arg(extractedCommitment);
+    decoded += "\n";
+    decoded += tr("Carrier mode: %1").arg((pqcCarrierModeCheckBox && pqcCarrierModeCheckBox->isChecked()) ? tr("enabled (TX_C + TX_R P2SH data carrier)") : tr("disabled (commitment-only)"));
 
     QDialog decodeDialog(this);
     decodeDialog.setWindowTitle(tr("Decoded PQC Commitment"));

@@ -15,6 +15,7 @@
 
 #include "base58.h"
 #include "keystore.h"
+#include "pqc/pqc_commitment.h"
 #include "validation.h"
 #include "net.h" // for g_connman
 #include "sync.h"
@@ -249,6 +250,16 @@ WalletModel::SendCoinsReturn WalletModel::prepareTransaction(WalletModelTransact
         CScript scriptPubKey(scriptBytes.begin(), scriptBytes.end());
         CRecipient recipient = {scriptPubKey, 0, false};
         vecSend.push_back(recipient);
+
+        // Add P2SH carrier output(s) when carrier mode is enabled
+        if (rcp.pqcCarrierMode) {
+            CScript carrierScriptPubKey;
+            if (PQCBuildCarrierScriptPubKey(carrierScriptPubKey)) {
+                // Carrier output value: 1 DOGE (100000000 koinu) to avoid dust rejection
+                CRecipient carrierRecipient = {carrierScriptPubKey, 100000000, false};
+                vecSend.push_back(carrierRecipient);
+            }
+        }
         break;
     }
     if(setAddress.size() != nAddresses)

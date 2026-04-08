@@ -128,6 +128,20 @@ void TxToJSON(const CTransaction& tx, const uint256 hashBlock, UniValue& entry)
             pqc.pushKV("witness_pubkey_item_index", (int64_t)pqcPubkeyItemIndex);
             pqc.pushKV("witness_signature_item_index", (int64_t)pqcSignatureItemIndex);
         }
+
+        // Carrier mode validation: extract PQC pubkey+sig from P2SH carrier scriptSig
+        PQCCommitmentType carrierType;
+        uint32_t carrierInputIndex = 0;
+        uint16_t carrierPkLen = 0;
+        uint16_t carrierSigLen = 0;
+        const bool carrierValidated = PQCValidateCommitmentFromCarrier(tx, pqcCommitment, carrierType, carrierInputIndex, carrierPkLen, carrierSigLen);
+        pqc.pushKV("carrier_validated", carrierValidated);
+        if (carrierValidated) {
+            pqc.pushKV("carrier_input_index", (int64_t)carrierInputIndex);
+            pqc.pushKV("carrier_pk_len", (int64_t)carrierPkLen);
+            pqc.pushKV("carrier_sig_len", (int64_t)carrierSigLen);
+        }
+
         entry.pushKV("pqc_commitment", pqc);
     }
 
