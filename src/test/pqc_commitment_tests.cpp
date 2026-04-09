@@ -372,7 +372,7 @@ static void DecodeAndValidateCarrierTxR(
     // Step 4: Compute SHA256(pk || sig)
     uint256 commitment;
     BOOST_CHECK(PQCComputeCommitment(pubkey, sig, commitment));
-    std::string commitment_hex = commitment.GetHex();
+    std::string commitment_hex = HexStr(commitment.begin(), commitment.end());
 
     // Step 5: Log decoded details
     std::string pk_prefix_hex = HexStr(pubkey.begin(), pubkey.begin() + std::min((size_t)16, pubkey.size()));
