@@ -978,7 +978,7 @@ if test "x$use_liboqs_raccoon" = "xyes"; then
   if test "x$use_liboqs" != "xyes"; then
     AC_MSG_ERROR([--with-liboqs-raccoon requires liboqs support (use --with-liboqs-raccoon with a liboqs-raccoon-enabled depends build)])
   fi
-  AC_DEFINE_UNQUOTED([ENABLE_LIBOQS_RACCOON],[1],[Define to 1 to enable Raccoon-G-44 via edtubbs/liboqs fork])
+  AC_DEFINE([ENABLE_LIBOQS_RACCOON],[1],[Define to 1 to enable Raccoon-G-44 via edtubbs/liboqs fork])
 fi
 
 if test x$intel_avx2 = xyes; then
