@@ -7,7 +7,7 @@ NO_QT ?=
 NO_WALLET ?=
 NO_UPNP ?=
 NO_PQC ?=
-PQC_RACCOON ?=
+LIBOQS_RACCOON ?=
 AVX2 ?=
 FALLBACK_DOWNLOAD_PATH ?= https://depends.dogecoincore.org
 
