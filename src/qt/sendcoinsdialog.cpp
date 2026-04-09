@@ -6,6 +6,7 @@
 #include "sendcoinsdialog.h"
 #include "ui_sendcoinsdialog.h"
 
+#include "config/bitcoin-config.h"
 #include "addresstablemodel.h"
 #include "bitcoinunits.h"
 #include "clientmodel.h"
@@ -507,7 +508,9 @@ void SendCoinsDialog::refreshPqcKeyInventory()
     const KeyItem items[] = {
         {"pqc_sigkey_falcon512", "falcon512"},
         {"pqc_sigkey_dilithium2", "dilithium2"},
+#ifdef ENABLE_LIBOQS_RACCOON
         {"pqc_sigkey_raccoong44", "raccoong44"}
+#endif
     };
 
     for (size_t i = 0; i < sizeof(items) / sizeof(items[0]); ++i) {
@@ -687,7 +690,9 @@ void SendCoinsDialog::onDecodePqcCommitmentClicked()
         switch (detectedType) {
             case PQCCommitmentType::FALCON512:  carrierTag = "FLC1FULL"; break;
             case PQCCommitmentType::DILITHIUM2: carrierTag = "DIL2FULL"; break;
+#ifdef ENABLE_LIBOQS_RACCOON
             case PQCCommitmentType::RACCOONG44: carrierTag = "RCG4FULL"; break;
+#endif
         }
         html += "<b>" + tr("Carrier tag (8-byte)") + ":</b> " + GUIUtil::HtmlEscape(carrierTag) + "<br>";
 

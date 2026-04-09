@@ -5,6 +5,7 @@
 
 #include "walletview.h"
 
+#include "config/bitcoin-config.h"
 #include "addressbookpage.h"
 #include "askpassphrasedialog.h"
 #include "bitcoingui.h"
@@ -60,7 +61,9 @@ namespace {
 const char* PQCSignatureStorageKeyForAlgorithm(const QString& algorithm)
 {
     if (algorithm == "dilithium2") return "pqc_sigkey_dilithium2";
+#ifdef ENABLE_LIBOQS_RACCOON
     if (algorithm == "raccoong44") return "pqc_sigkey_raccoong44";
+#endif
     return "pqc_sigkey_falcon512";
 }
 
@@ -723,7 +726,9 @@ void WalletView::showPQCSignatureDialog()
     QComboBox* algorithm = new QComboBox(&dlg);
     algorithm->addItem("falcon512");
     algorithm->addItem("dilithium2");
+#ifdef ENABLE_LIBOQS_RACCOON
     algorithm->addItem("raccoong44");
+#endif
 
     QLineEdit* publicKeyHex = new QLineEdit(&dlg);
     publicKeyHex->setReadOnly(true);
@@ -838,7 +843,9 @@ void WalletView::showPQCSignatureDialog()
         const KeyItem items[] = {
             {"pqc_sigkey_falcon512", "falcon512"},
             {"pqc_sigkey_dilithium2", "dilithium2"},
+#ifdef ENABLE_LIBOQS_RACCOON
             {"pqc_sigkey_raccoong44", "raccoong44"}
+#endif
         };
 
         for (size_t i = 0; i < sizeof(items) / sizeof(items[0]); ++i) {
@@ -1020,7 +1027,9 @@ void WalletView::showPQCSignatureDialog()
         QComboBox* importAlgorithm = new QComboBox(&importDlg);
         importAlgorithm->addItem("falcon512");
         importAlgorithm->addItem("dilithium2");
+#ifdef ENABLE_LIBOQS_RACCOON
         importAlgorithm->addItem("raccoong44");
+#endif
         importAlgorithm->setCurrentText(algorithm->currentText());
 
         QLineEdit* importPublicKeyHex = new QLineEdit(&importDlg);

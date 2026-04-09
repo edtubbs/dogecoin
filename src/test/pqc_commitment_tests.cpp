@@ -4,6 +4,7 @@
 
 #include "pqc/pqc_commitment.h"
 
+#include "config/bitcoin-config.h"
 #include "crypto/sha256.h"
 #include "test/test_bitcoin.h"
 #include "utilstrencodings.h"
@@ -62,6 +63,7 @@ BOOST_AUTO_TEST_CASE(pqc_build_extract_dilithium_commitment_roundtrip)
     BOOST_CHECK(parsed_commitment == commitment);
 }
 
+#ifdef ENABLE_LIBOQS_RACCOON
 BOOST_AUTO_TEST_CASE(pqc_build_extract_raccoong_commitment_roundtrip)
 {
     const std::vector<unsigned char> bytes = ParseHex("1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef");
@@ -77,6 +79,7 @@ BOOST_AUTO_TEST_CASE(pqc_build_extract_raccoong_commitment_roundtrip)
     BOOST_CHECK(parsed_type == PQCCommitmentType::RACCOONG44);
     BOOST_CHECK(parsed_commitment == commitment);
 }
+#endif
 
 BOOST_AUTO_TEST_CASE(pqc_extract_rejects_noncanonical_script)
 {
@@ -121,10 +124,12 @@ BOOST_AUTO_TEST_CASE(pqc_parse_commitment_type_aliases)
     BOOST_CHECK(type == PQCCommitmentType::DILITHIUM2);
     BOOST_CHECK(ParsePQCCommitmentType("dil2", type));
     BOOST_CHECK(type == PQCCommitmentType::DILITHIUM2);
+#ifdef ENABLE_LIBOQS_RACCOON
     BOOST_CHECK(ParsePQCCommitmentType("raccoong44", type));
     BOOST_CHECK(type == PQCCommitmentType::RACCOONG44);
     BOOST_CHECK(ParsePQCCommitmentType("RCG4", type));
     BOOST_CHECK(type == PQCCommitmentType::RACCOONG44);
+#endif
     BOOST_CHECK(!ParsePQCCommitmentType("unknown", type));
 }
 

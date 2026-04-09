@@ -5,6 +5,7 @@
 #ifndef DOGECOIN_PQC_COMMITMENT_H
 #define DOGECOIN_PQC_COMMITMENT_H
 
+#include "config/bitcoin-config.h"
 #include "script/script.h"
 #include "primitives/transaction.h"
 #include "uint256.h"
@@ -16,7 +17,9 @@
 enum class PQCCommitmentType {
     FALCON512,
     DILITHIUM2,
+#ifdef ENABLE_LIBOQS_RACCOON
     RACCOONG44,
+#endif
 };
 
 static const unsigned int PQC_COMMITMENT_BYTES = 32;
@@ -62,7 +65,9 @@ static const unsigned int PQC_CARRIER_PAYLOAD_PER_PART = PQC_CARRIER_CHUNKS_PER_
 /** 8-byte full-material carrier tags. */
 static const unsigned char PQC_CARRIER_TAG_FALCON[8]    = {'F','L','C','1','F','U','L','L'};
 static const unsigned char PQC_CARRIER_TAG_DILITHIUM[8]  = {'D','I','L','2','F','U','L','L'};
+#ifdef ENABLE_LIBOQS_RACCOON
 static const unsigned char PQC_CARRIER_TAG_RACCOON[8]    = {'R','C','G','4','F','U','L','L'};
+#endif
 
 /** Carrier redeemScript: OP_DROP x5 OP_TRUE (6 bytes). */
 bool PQCBuildCarrierRedeemScript(CScript& script_out);
