@@ -422,14 +422,18 @@ AC_DEFUN([_BITCOIN_QT_FIND_LIBS_WITHOUT_PKGCONFIG],[
     fi
   ])
 
-  dnl QtPlugin is Qt5 only, use QObject for Qt6 compatibility
+  dnl Qt6 static builds may not generate convenience headers (QObject, QApplication, etc.)
+  dnl Use actual .h files with module path prefix for reliable detection.
+  dnl These are found via -I$prefix/include (set in config.site.in CPPFLAGS).
   if test x$bitcoin_qt_want_version = xqt6; then
-    BITCOIN_QT_CHECK([AC_CHECK_HEADER([QObject],,BITCOIN_QT_FAIL(QtCore headers missing))])
+    BITCOIN_QT_CHECK([AC_CHECK_HEADER([QtCore/qglobal.h],,BITCOIN_QT_FAIL(QtCore headers missing))])
+    BITCOIN_QT_CHECK([AC_CHECK_HEADER([QtWidgets/qapplication.h],, BITCOIN_QT_FAIL(QtWidgets headers missing))])
+    BITCOIN_QT_CHECK([AC_CHECK_HEADER([QtNetwork/qlocalsocket.h],, BITCOIN_QT_FAIL(QtNetwork headers missing))])
   else
     BITCOIN_QT_CHECK([AC_CHECK_HEADER([QtPlugin],,BITCOIN_QT_FAIL(QtCore headers missing))])
+    BITCOIN_QT_CHECK([AC_CHECK_HEADER([QApplication],, BITCOIN_QT_FAIL(QtGui headers missing))])
+    BITCOIN_QT_CHECK([AC_CHECK_HEADER([QLocalSocket],, BITCOIN_QT_FAIL(QtNetwork headers missing))])
   fi
-  BITCOIN_QT_CHECK([AC_CHECK_HEADER([QApplication],, BITCOIN_QT_FAIL(QtGui headers missing))])
-  BITCOIN_QT_CHECK([AC_CHECK_HEADER([QLocalSocket],, BITCOIN_QT_FAIL(QtNetwork headers missing))])
 
   BITCOIN_QT_CHECK([
     if test x$bitcoin_qt_want_version = xauto; then
@@ -470,7 +474,11 @@ AC_DEFUN([_BITCOIN_QT_FIND_LIBS_WITHOUT_PKGCONFIG],[
       LIBS="-L$qt_lib_path"
     fi
     AC_CHECK_LIB([${QT_LIB_PREFIX}Test],      [main],, have_qt_test=no)
-    AC_CHECK_HEADER([QTest],, have_qt_test=no)
+    if test x$bitcoin_qt_want_version = xqt6; then
+      AC_CHECK_HEADER([QtTest/qtest.h],, have_qt_test=no)
+    else
+      AC_CHECK_HEADER([QTest],, have_qt_test=no)
+    fi
     QT_TEST_LIBS="$LIBS"
     if test x$use_dbus != xno; then
       LIBS=
@@ -478,7 +486,11 @@ AC_DEFUN([_BITCOIN_QT_FIND_LIBS_WITHOUT_PKGCONFIG],[
         LIBS="-L$qt_lib_path"
       fi
       AC_CHECK_LIB([${QT_LIB_PREFIX}DBus],      [main],, have_qt_dbus=no)
-      AC_CHECK_HEADER([QtDBus],, have_qt_dbus=no)
+      if test x$bitcoin_qt_want_version = xqt6; then
+        AC_CHECK_HEADER([QtDBus/qdbusconnection.h],, have_qt_dbus=no)
+      else
+        AC_CHECK_HEADER([QtDBus],, have_qt_dbus=no)
+      fi
       QT_DBUS_LIBS="$LIBS"
     fi
   ])
