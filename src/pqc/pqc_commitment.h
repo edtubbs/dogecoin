@@ -15,7 +15,9 @@
 #include <string>
 #include <vector>
 
+#if ENABLE_LIBOQS
 EXPERIMENTAL_FEATURE
+#endif
 
 enum class PQCCommitmentType {
     FALCON512,

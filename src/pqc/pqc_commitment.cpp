@@ -14,7 +14,9 @@
 #include <string.h>
 #include <algorithm>
 
+#if ENABLE_LIBOQS
 EXPERIMENTAL_FEATURE
+#endif
 
 static const unsigned char PQC_COMMITMENT_OP_RETURN = OP_RETURN;
 static const unsigned char PQC_COMMITMENT_PUSH_LEN = 36;
