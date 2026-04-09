@@ -167,9 +167,15 @@ AC_ARG_WITH([qrencode],
 
 AC_ARG_WITH([liboqs],
   [AS_HELP_STRING([--with-liboqs],
-  [enable liboqs support (default is auto: enabled if liboqs is found)])],
+  [enable liboqs support with upstream liboqs (Falcon-512 and Dilithium2 only; default is auto)])],
   [use_liboqs=$withval],
   [use_liboqs=auto])
+
+AC_ARG_WITH([liboqs-raccoon],
+  [AS_HELP_STRING([--with-liboqs-raccoon],
+  [enable liboqs support with edtubbs/liboqs fork (adds Raccoon-G-44; default is no)])],
+  [use_liboqs_raccoon=$withval],
+  [use_liboqs_raccoon=no])
 
 AC_ARG_ENABLE([hardening],
   [AS_HELP_STRING([--disable-hardening],
@@ -967,6 +973,16 @@ else
   AC_DEFINE([ENABLE_LIBOQS],[0],[Define to 1 to enable liboqs support])
 fi
 
+dnl --with-liboqs-raccoon implies liboqs support and adds Raccoon-G-44
+if test "x$use_liboqs_raccoon" = "xyes"; then
+  if test "x$use_liboqs" != "xyes"; then
+    AC_MSG_ERROR([--with-liboqs-raccoon requires liboqs support (use --with-liboqs-raccoon with a liboqs-raccoon-enabled depends build)])
+  fi
+  AC_DEFINE([ENABLE_LIBOQS_RACCOON],[1],[Define to 1 to enable Raccoon-G-44 via edtubbs/liboqs fork])
+else
+  AC_DEFINE([ENABLE_LIBOQS_RACCOON],[0],[Define to 1 to enable Raccoon-G-44 via edtubbs/liboqs fork])
+fi
+
 if test x$intel_avx2 = xyes; then
   DOGECOIN_REQUIRE_EXPERIMENTAL
   case $host in
@@ -1211,6 +1227,7 @@ AM_CONDITIONAL([ENABLE_QT_TESTS],[test x$BUILD_TEST_QT = xyes])
 AM_CONDITIONAL([ENABLE_BENCH],[test x$use_bench = xyes])
 AM_CONDITIONAL([USE_QRCODE], [test x$use_qr = xyes])
 AM_CONDITIONAL([ENABLE_LIBOQS], [test x$use_liboqs = xyes])
+AM_CONDITIONAL([ENABLE_LIBOQS_RACCOON], [test x$use_liboqs_raccoon = xyes])
 AM_CONDITIONAL([USE_LCOV],[test x$use_lcov = xyes])
 AM_CONDITIONAL([GLIBC_BACK_COMPAT],[test x$use_glibc_compat = xyes])
 AM_CONDITIONAL([HARDEN],[test x$use_hardening = xyes])
@@ -1337,6 +1354,7 @@ if test x$bitcoin_enable_qt != xno; then
 fi
 echo "  with zmq      = $use_zmq"
 echo "  with liboqs   = $use_liboqs"
+echo "  with liboqs-raccoon = $use_liboqs_raccoon"
 echo "  with test     = $use_tests"
 echo "  with bench    = $use_bench"
 echo "  with upnp     = $use_upnp"
