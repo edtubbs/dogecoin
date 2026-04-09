@@ -144,6 +144,13 @@ SendCoinsDialog::SendCoinsDialog(const PlatformStyle *_platformStyle, QWidget *p
     pqcKeyRowWidget->setLayout(pqcKeyRow);
     pqcForm->addRow(tr("Signature key pair:"), pqcKeyRowWidget);
 
+    pqcCarrierModeCheckBox = new QCheckBox(tr("Carrier mode (P2SH data carrier for on-chain PQ verification)"), pqcFrame);
+    pqcCarrierModeCheckBox->setChecked(false);
+    pqcCarrierModeCheckBox->setToolTip(tr("When enabled, TX_C includes P2SH carrier output(s) alongside the OP_RETURN commitment.\n"
+                                            "A follow-up TX_R will reveal the full PQC public key and signature on-chain.\n"
+                                            "This is the canonical Phase 1 transport for on-chain PQ verification material."));
+    pqcForm->addRow(QString(), pqcCarrierModeCheckBox);
+
     pqcCommitmentLineEdit = new QLineEdit(pqcFrame);
     pqcCommitmentLineEdit->setReadOnly(true);
     pqcCommitmentLineEdit->setPlaceholderText(tr("No commitment generated yet"));
@@ -151,12 +158,6 @@ SendCoinsDialog::SendCoinsDialog(const PlatformStyle *_platformStyle, QWidget *p
     pqcIncludeCommitmentCheckBox = new QCheckBox(tr("Include commitment in this transaction"), pqcFrame);
     pqcIncludeCommitmentCheckBox->setChecked(false);
     pqcForm->addRow(QString(), pqcIncludeCommitmentCheckBox);
-    pqcCarrierModeCheckBox = new QCheckBox(tr("Carrier mode (P2SH data carrier for on-chain PQ verification)"), pqcFrame);
-    pqcCarrierModeCheckBox->setChecked(false);
-    pqcCarrierModeCheckBox->setToolTip(tr("When enabled, TX_C includes P2SH carrier output(s) alongside the OP_RETURN commitment.\n"
-                                            "A follow-up TX_R will reveal the full PQC public key and signature on-chain.\n"
-                                            "This is the canonical Phase 1 transport for on-chain PQ verification material."));
-    pqcForm->addRow(QString(), pqcCarrierModeCheckBox);
     pqcLayout->addLayout(pqcForm);
 
     ui->verticalLayout->insertWidget(2, pqcFrame);
