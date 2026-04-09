@@ -123,10 +123,10 @@ This keeps the Phase 1 OP_RETURN commitment unchanged, while ensuring the full P
 '''Algorithm-specific carrier mode support:'''
 
 * '''Falcon-512''' supports both commitment-only and carrier mode. The public key (897 bytes) and signature (~660 bytes) fit within 3 P2SH carrier outputs at 1 DOGE each.
-* '''Dilithium2 (ML-DSA-44)''' is '''commitment-only'''. The public key (1312 bytes) and signature (2420 bytes) are too large for practical carrier mode, requiring many P2SH outputs and excessive cost. Only the OP_RETURN commitment is published on-chain.
-* '''Raccoon-G-44''' is '''commitment-only'''. The public key (~16 KB) and signature (~65 KB) far exceed practical carrier limits (would require 32+ P2SH outputs at 1 DOGE each). Only the OP_RETURN commitment is published on-chain.
+* '''Dilithium2 (ML-DSA-44)''' supports both commitment-only and carrier mode. The public key (1312 bytes) and signature (2420 bytes) require more P2SH carrier outputs than Falcon-512, resulting in higher on-chain cost.
+* '''Raccoon-G-44''' supports both commitment-only and carrier mode. The public key (~16 KB) and signature (~65 KB) require 32+ P2SH carrier outputs at 1 DOGE each, making carrier mode significantly more expensive.
 
-====Phase 1: Commitment Output (unchanged)====
+====Phase 1: Commitment Output====
 
 The commitment output remains canonical tagged OP_RETURN:
 
@@ -136,13 +136,13 @@ Dilithium2:  0x6a 0x24 0x44494c32 <32-byte-commitment>   ; "DIL2"
 Raccoon-G:   0x6a 0x24 0x52434734 <32-byte-commitment>   ; "RCG4"
 </source>
 
-Commitment derivation is unchanged:
+Commitment derivation:
 
 <source>
 commitment32 = SHA256(public_key_bytes || signature_bytes)
 </source>
 
-====Phase 1: Transaction Binding (unchanged)====
+====Phase 1: Transaction Binding====
 
 The PQ signature payload SHOULD be the per-input transaction signature hash:
 
@@ -256,8 +256,8 @@ SPV implementations should:
 
 SPV commitment detection operates in two modes depending on how PQ material is published:
 
-# '''Commitment-only:''' The commitment is detected in the OP_RETURN output. No PQ verification material is available on-chain. This is the only mode for Dilithium2 and Raccoon-G-44 due to their large key sizes. Log entry includes <code>source=op_return_only</code>.
-# '''Cross-TX P2SH carrier (TX_C + TX_R):''' The commitment OP_RETURN is in TX_C, and the full PQ public key + signature are revealed in TX_R's carrier scriptSig spending the P2SH outputs. Currently supported for Falcon-512. The SPV scanner extracts pk and sig from the carrier-tagged scriptSig (<code>FLC1FULL</code>), recomputes <code>SHA256(pk || sig)</code>, and matches against buffered OP_RETURN commitments from the same block. Log entry includes <code>source=carrier_scriptsig matched_txc_txpos=... pk_len=... sig_len=... pk_prefix=... sig_prefix=...</code>.
+# '''Commitment-only:''' The commitment is detected in the OP_RETURN output. No PQ verification material is available on-chain. Log entry includes <code>source=commitment_only</code>.
+# '''Cross-TX P2SH carrier (TX_C + TX_R):''' The commitment OP_RETURN is in TX_C, and the full PQ public key + signature are revealed in TX_R's carrier scriptSig spending the P2SH outputs. Supported for all three algorithms (Falcon-512 via <code>FLC1FULL</code>, Dilithium2 via <code>DL21FULL</code>, Raccoon-G via <code>RCG4FULL</code>). The SPV scanner extracts pk and sig from the carrier-tagged scriptSig, recomputes <code>SHA256(pk || sig)</code>, and matches against buffered OP_RETURN commitments from the same block. Log entry includes <code>source=carrier_scriptsig matched_txc_txpos=... pk_len=... sig_len=... pk_prefix=... sig_prefix=...</code>.
 
 In all validated cases, the log emits the algorithm label (e.g. <code>[falcon-commit]</code>), block height, transaction position, the 32-byte commitment hex, and the validation source.
 
@@ -383,9 +383,9 @@ Funded addr: DDMpdcTrWnZT38tRMebbYzCSAgLSnVMqvr
 Carrier P2SH: A6bAFnGqeKDiYk9dwkLqJSYX96ECHZ2f3q
 
 Outputs:
-  vout 0: 35.933 DOGE -> DDMpdcTrWnZT38tRMebbYzCSAgLSnVMqvr (change)
+  vout 0: 35.933 DOGE → DDMpdcTrWnZT38tRMebbYzCSAgLSnVMqvr (change)
   vout 1: OP_RETURN 6a24 464c4331 94308315af52359db5af07391ab12fc14909dc6fe64182477ea61c96e8ab8b9f
-  vout 2: 1.0 DOGE -> A6bAFnGqeKDiYk9dwkLqJSYX96ECHZ2f3q (P2SH carrier)
+  vout 2: 1.0 DOGE → A6bAFnGqeKDiYk9dwkLqJSYX96ECHZ2f3q (P2SH carrier)
 </source>
 
 SPV validation log for the OP_RETURN commitment:
@@ -414,7 +414,7 @@ Block:       6156605 (mainnet, confirmed 2026-04-08)
 Funded addr: DDMpdcTrWnZT38tRMebbYzCSAgLSnVMqvr
 
 Outputs:
-  vout 0: 0.997 DOGE -> DDMpdcTrWnZT38tRMebbYzCSAgLSnVMqvr (change)
+  vout 0: 0.997 DOGE → DDMpdcTrWnZT38tRMebbYzCSAgLSnVMqvr (change)
   vout 1: OP_RETURN 6a24 44494c32 752b2c664c68d89d029c81ac30b6036d42dcdf1990937d669d878026ffcaf72f
 </source>
 
@@ -443,20 +443,6 @@ Height   TxPos  Algorithm   Source              Commitment (first 16 hex)
 </source>
 
 Note: Commitments at heights 6156389, 6156425, and 6156450 appear as both op_return_only (TX_C) and carrier_scriptsig (TX_R), demonstrating the two-transaction carrier pattern where TX_R reveals the full PQC verification material and the SPV scanner cross-validates the commitment.
-
-===Confirmed TX_R Carrier Transactions===
-
-The following TX_R transactions are confirmed on mainnet and demonstrate the carrier P2SH reveal pattern:
-
-<source>
-TX_R txid: 77fc29fd9e5124fa85bcc62bb9ab49b8b95b4f4544b521e7589ca980dd1725b4  (mined)
-TX_R txid: 238fb58b352a7a2bbcd7eac7565f894ebeba020410b74cc76277f9336041b477  (mined)
-TX_R txid: 6551ccceeceb32b77b5930efeaeedea3d6d7a05040f7a84ce2c652ed9fe4c51c  (mined)
-TX_R txid: c32635aafa32abf9c89b5e366d647231c143b3fb1b925e51b51a67b6133e7924  (mined)
-TX_R txid: a9f2f84b3f2dff84c4505ac680ea6932224eb69c0960d00a5ad8f49df18b4e1e  (mined)
-</source>
-
-Each TX_R spends one or more P2SH carrier outputs from its corresponding TX_C. The carrier scriptSig includes the 8-byte tag (e.g., <code>FLC1FULL</code>), the 8-byte HDR8 header, up to three 520-byte data chunks containing the full PQC public key and signature, and the 6-byte carrier redeemScript. Validators can extract the verification material and recompute <code>SHA256(pk || sig)</code> to match against the OP_RETURN commitment in TX_C.
 
 ==Deployment==
 
