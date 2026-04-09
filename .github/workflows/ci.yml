@@ -303,7 +303,7 @@ jobs:
           ls depends/${{ matrix.host }}/include/QtCore/qglobal.h depends/${{ matrix.host }}/include/QtCore/QObject 2>/dev/null || echo "No QtCore header files found"
           echo "=== Running configure ==="
           # PKG_CONFIG_PATH is set by config.site (from depends/config.site.in)
-          ./configure --prefix=`pwd`/depends/${{ matrix.host }} ${{ matrix.config-opts }} --enable-reduce-exports || ( echo "=== Configure failed ===" && echo "=== Qt-related config.log entries ===" && grep -A5 "QObject\|qglobal\|qapplication\|qlocalsocket\|QtCore\|QtWidgets\|QtNetwork\|qt_include_path\|QT_INCLUDES\|BITCOIN_QT" config.log | tail -80 && echo "=== Last 50 lines of config.log ===" && tail -50 config.log && false)
+          ./configure --prefix=`pwd`/depends/${{ matrix.host }} ${{ matrix.config-opts }} --enable-reduce-exports || ( echo "=== Configure failed ===" && echo "=== Qt-related config.log entries ===" && grep -A5 "qglobal\|qapplication\|qlocalsocket\|qtest\|qdbusconnection\|QtCore\|QtWidgets\|QtNetwork\|qt_include_path\|QT_INCLUDES\|BITCOIN_QT" config.log | tail -80 && echo "=== Last 50 lines of config.log ===" && tail -50 config.log && false)
           make $MAKEJOBS ${{ matrix.goal }} || ( echo "Build failure. Verbose build follows." && make ${{ matrix.goal }} V=1 ; false )
 
       - name: Run benchmark
