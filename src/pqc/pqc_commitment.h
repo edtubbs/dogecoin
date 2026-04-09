@@ -6,6 +6,7 @@
 #define DOGECOIN_PQC_COMMITMENT_H
 
 #include "config/bitcoin-config.h"
+#include "support/experimental.h"
 #include "script/script.h"
 #include "primitives/transaction.h"
 #include "uint256.h"
@@ -13,6 +14,8 @@
 #include <stdint.h>
 #include <string>
 #include <vector>
+
+EXPERIMENTAL_FEATURE
 
 enum class PQCCommitmentType {
     FALCON512,

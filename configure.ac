@@ -963,6 +963,7 @@ fi
 if test "x$use_liboqs" = "xno"; then
   AC_DEFINE([ENABLE_LIBOQS],[0],[Define to 1 to enable liboqs support])
 elif test "x$have_liboqs" = "xyes"; then
+  DOGECOIN_REQUIRE_EXPERIMENTAL
   use_liboqs=yes
   AC_DEFINE([ENABLE_LIBOQS],[1],[Define to 1 to enable liboqs support])
 else
@@ -975,6 +976,7 @@ fi
 
 dnl --with-liboqs-raccoon implies liboqs support and adds Raccoon-G-44
 if test "x$use_liboqs_raccoon" = "xyes"; then
+  DOGECOIN_REQUIRE_EXPERIMENTAL
   if test "x$use_liboqs" != "xyes"; then
     AC_MSG_ERROR([--with-liboqs-raccoon requires liboqs support (use --with-liboqs-raccoon with a liboqs-raccoon-enabled depends build)])
   fi
@@ -1351,8 +1353,6 @@ if test x$bitcoin_enable_qt != xno; then
     echo "    with qr     = $use_qr"
 fi
 echo "  with zmq      = $use_zmq"
-echo "  with liboqs   = $use_liboqs"
-echo "  with liboqs-raccoon = $use_liboqs_raccoon"
 echo "  with test     = $use_tests"
 echo "  with bench    = $use_bench"
 echo "  with upnp     = $use_upnp"
@@ -1366,6 +1366,8 @@ if test x$allow_experimental = xyes; then
     echo "    AVX2 crypto   = $intel_avx2"
     echo "    ARMv8 crypto  = $armv8_crypto"
     echo "    ARMv82 crypto = $armv82_crypto"
+    echo "    liboqs        = $use_liboqs"
+    echo "    liboqs-raccoon = $use_liboqs_raccoon"
 fi
 echo
 echo "  target os     = $TARGET_OS"

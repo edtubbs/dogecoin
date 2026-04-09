@@ -9,9 +9,12 @@
 #include "pubkey.h"
 #include "script/script.h"
 #include "script/standard.h"
+#include "support/experimental.h"
 
 #include <string.h>
 #include <algorithm>
+
+EXPERIMENTAL_FEATURE
 
 static const unsigned char PQC_COMMITMENT_OP_RETURN = OP_RETURN;
 static const unsigned char PQC_COMMITMENT_PUSH_LEN = 36;

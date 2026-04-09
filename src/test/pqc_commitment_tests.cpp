@@ -9,12 +9,15 @@
 #include "pqc/pqc_commitment.h"
 
 #include "crypto/sha256.h"
+#include "support/experimental.h"
 #include "test/test_bitcoin.h"
 #include "utilstrencodings.h"
 
 #include <boost/test/unit_test.hpp>
 #include <algorithm>
 #include <string>
+
+EXPERIMENTAL_FEATURE
 
 BOOST_FIXTURE_TEST_SUITE(pqc_commitment_tests, BasicTestingSetup)
 

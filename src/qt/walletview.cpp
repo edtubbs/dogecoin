@@ -31,6 +31,7 @@
 #include "crypto/sha512.h"
 #include "random.h"
 #include "support/cleanse.h"
+#include "support/experimental.h"
 #include "init.h"
 
 #include <QAction>
