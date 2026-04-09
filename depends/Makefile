@@ -96,14 +96,6 @@ qt_packages_$(NO_QT) = $(qt_packages) $(qt_$(host_os)_packages) $(qt_$(host_arch
 wallet_packages_$(NO_WALLET) = $(wallet_packages)
 upnp_packages_$(NO_UPNP) = $(upnp_packages)
 pqc_packages_$(NO_PQC) = $(pqc_packages)
-
-# When PQC_RACCOON is set (and PQC is not disabled), use the edtubbs/liboqs
-# fork that includes Raccoon-G-44 support instead of upstream liboqs.
-ifneq ($(PQC_RACCOON),)
-ifeq ($(NO_PQC),)
-pqc_packages_ = $(pqc_raccoon_packages)
-endif
-endif
 avx2_packages_$(AVX2) = $(avx2_$(host_arch)_$(host_os)_packages)
 
 packages += $($(host_arch)_$(host_os)_packages) $($(host_os)_packages) $(avx2_packages_1) $(qt_packages_) $(wallet_packages_) $(upnp_packages_) $(pqc_packages_)
