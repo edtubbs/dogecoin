@@ -457,6 +457,23 @@ void SendCoinsDialog::on_sendButton_clicked()
     questionString.append(QString("<span style='font-size:10pt;font-weight:normal;'><br />(=%2)</span>")
         .arg(alternativeUnits.join(" " + tr("or") + "<br />")));
 
+    bool hasPqcCarrierSend = false;
+    Q_FOREACH(const SendCoinsRecipient &rcp, currentTransaction.getRecipients())
+    {
+        if (rcp.includePqcCommitment && rcp.pqcCarrierMode)
+        {
+            hasPqcCarrierSend = true;
+            break;
+        }
+    }
+    if (hasPqcCarrierSend)
+    {
+        questionString.append("<hr /><b>");
+        questionString.append(tr("Carrier mode enabled"));
+        questionString.append(":</b> ");
+        questionString.append(tr("This send will broadcast both TX_C (commitment transaction) and TX_R (reveal transaction)."));
+    }
+
     SendConfirmationDialog confirmationDialog(tr("Confirm send coins"),
         questionString.arg(formatted.join("<br />")), SEND_CONFIRM_DELAY, this);
     confirmationDialog.exec();
