@@ -296,7 +296,7 @@ jobs:
           echo "=== Qt Library Files ==="
           find depends/${{ matrix.host }}/lib -name "*Qt6*" -o -name "libQt*" 2>/dev/null | head -20 || echo "No Qt libraries found"
           echo "=== Qt Tool Binaries ==="
-          find depends/${{ matrix.host }}/native/bin depends/${{ matrix.host }}/bin -name "*moc*" -o -name "*rcc*" -o -name "*uic*" 2>/dev/null || echo "No Qt tools found"
+          find depends/${{ matrix.host }}/native/bin depends/${{ matrix.host }}/bin depends/${{ matrix.host }}/libexec -name "*moc*" -o -name "*rcc*" -o -name "*uic*" -o -name "*lrelease*" 2>/dev/null || echo "No Qt tools found"
           echo "=== Qt Include Headers ==="
           ls -d depends/${{ matrix.host }}/include/Qt* 2>/dev/null || echo "No Qt headers found"
           echo "=== Qt Header Files (QtCore sample) ==="

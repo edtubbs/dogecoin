@@ -14,7 +14,14 @@ if test -z $with_qt_translationdir; then
   with_qt_translationdir=$depends_prefix/translations
 fi
 if test -z $with_qt_bindir; then
-  with_qt_bindir=$depends_prefix/native/bin
+  # Qt6 cmake installs tools to libexec/ by default; check multiple locations
+  if test -d $depends_prefix/libexec && test -x "$depends_prefix/libexec/moc"; then
+    with_qt_bindir=$depends_prefix/libexec
+  elif test -d $depends_prefix/bin && test -x "$depends_prefix/bin/moc"; then
+    with_qt_bindir=$depends_prefix/bin
+  else
+    with_qt_bindir=$depends_prefix/native/bin
+  fi
 fi
 if test -z $with_protoc_bindir; then
   with_protoc_bindir=$depends_prefix/native/bin
@@ -46,7 +53,7 @@ if test -z $with_qt_libdir; then
   with_qt_libdir=$depends_prefix/lib
 fi
 
-PATH=$depends_prefix/native/bin:$PATH
+PATH=$depends_prefix/native/bin:$depends_prefix/libexec:$depends_prefix/bin:$PATH
 PKG_CONFIG="`which pkg-config` --static"
 
 # These two need to remain exported because pkg-config does not see them
