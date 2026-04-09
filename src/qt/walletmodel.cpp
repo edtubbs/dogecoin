@@ -3,6 +3,8 @@
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
+#include "config/bitcoin-config.h"
+
 #include "walletmodel.h"
 
 #include "addresstablemodel.h"
@@ -15,7 +17,9 @@
 
 #include "base58.h"
 #include "keystore.h"
+#if ENABLE_LIBOQS
 #include "pqc/pqc_commitment.h"
+#endif
 #include "validation.h"
 #include "net.h" // for g_connman
 #include "sync.h"
@@ -252,6 +256,7 @@ WalletModel::SendCoinsReturn WalletModel::prepareTransaction(WalletModelTransact
         vecSend.push_back(recipient);
 
         // Add P2SH carrier output(s) when carrier mode is enabled
+#if ENABLE_LIBOQS
         if (rcp.pqcCarrierMode) {
             CScript carrierScriptPubKey;
             if (PQCBuildCarrierScriptPubKey(carrierScriptPubKey)) {
@@ -260,6 +265,7 @@ WalletModel::SendCoinsReturn WalletModel::prepareTransaction(WalletModelTransact
                 vecSend.push_back(carrierRecipient);
             }
         }
+#endif
         break;
     }
     if(setAddress.size() != nAddresses)
