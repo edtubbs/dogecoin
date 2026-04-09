@@ -476,6 +476,8 @@ case $host in
      ;;
 esac
 
+liboqs_found=no
+
 if test x$use_pkgconfig = xyes; then
   m4_ifndef([PKG_PROG_PKG_CONFIG], [AC_MSG_ERROR(PKG_PROG_PKG_CONFIG macro not found. Please install pkg-config and re-run autogen.sh.)])
   m4_ifdef([PKG_PROG_PKG_CONFIG], [
@@ -896,7 +898,7 @@ if test x$use_pkgconfig = xyes; then
       fi
 
       if test "x$use_liboqs" != "xno"; then
-        PKG_CHECK_MODULES([LIBOQS], [liboqs], [have_liboqs=yes], [have_liboqs=no])
+        PKG_CHECK_MODULES([LIBOQS], [liboqs], [liboqs_found=yes], [liboqs_found=no])
       fi
 
       if test "x$use_zmq" = "xyes"; then
@@ -927,8 +929,8 @@ else
 
   if test "x$use_liboqs" != "xno"; then
     AC_CHECK_HEADER([oqs/oqs.h],[
-      AC_CHECK_LIB([oqs], [OQS_init], [LIBOQS_LIBS=-loqs; have_liboqs=yes], [have_liboqs=no])
-    ], [have_liboqs=no])
+      AC_CHECK_LIB([oqs], [OQS_init], [LIBOQS_LIBS=-loqs; liboqs_found=yes], [liboqs_found=no])
+    ], [liboqs_found=no])
   fi
 
   if test "x$use_zmq" = "xyes"; then
@@ -960,24 +962,26 @@ else
   fi
 fi
 
-if test "x$use_liboqs" = "xno"; then
-  AC_DEFINE([ENABLE_LIBOQS],[0],[Define to 1 to enable liboqs support])
-elif test "x$have_liboqs" = "xyes"; then
-  if test "x$use_liboqs" = "xyes"; then
-    DOGECOIN_REQUIRE_EXPERIMENTAL
-    use_liboqs=yes
-    AC_DEFINE([ENABLE_LIBOQS],[1],[Define to 1 to enable liboqs support])
-  elif test x$allow_experimental = xyes; then
-    use_liboqs=yes
-    AC_DEFINE([ENABLE_LIBOQS],[1],[Define to 1 to enable liboqs support])
+if test "x$use_liboqs" != "xno"; then
+  if test "x$liboqs_found" = "xyes"; then
+    if test "x$use_liboqs" = "xyes"; then
+      DOGECOIN_REQUIRE_EXPERIMENTAL
+      use_liboqs=yes
+    elif test x$allow_experimental = xyes; then
+      use_liboqs=yes
+    else
+      use_liboqs=no
+    fi
+  elif test "x$use_liboqs" = "xyes"; then
+    AC_MSG_ERROR([liboqs support requested but liboqs was not found])
   else
     use_liboqs=no
-    AC_DEFINE([ENABLE_LIBOQS],[0],[Define to 1 to enable liboqs support])
   fi
+fi
+
+if test "x$use_liboqs" = "xyes"; then
+  AC_DEFINE([ENABLE_LIBOQS],[1],[Define to 1 to enable liboqs support])
 else
-  if test "x$use_liboqs" = "xyes"; then
-    AC_MSG_ERROR([liboqs support requested but liboqs was not found])
-  fi
   use_liboqs=no
   AC_DEFINE([ENABLE_LIBOQS],[0],[Define to 1 to enable liboqs support])
 fi
