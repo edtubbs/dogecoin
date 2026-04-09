@@ -119,7 +119,7 @@ AC_DEFUN([BITCOIN_QT_CONFIGURE],[
       _BITCOIN_QT_FIND_STATIC_PLUGINS
       AC_DEFINE(QT_STATICPLUGIN, 1, [Define this symbol if qt plugins are static])
       AC_CACHE_CHECK(for Qt < 5.4, bitcoin_cv_need_acc_widget,[AC_COMPILE_IFELSE([AC_LANG_PROGRAM(
-          [[#include <QtCore>]],[[
+          [[#include <QtCore/qglobal.h>]],[[
           #if QT_VERSION >= 0x060400
           choke;
           #endif
@@ -260,7 +260,7 @@ dnl Output: bitcoin_cv_qt6=yes|no
 AC_DEFUN([_BITCOIN_QT_CHECK_QT5],[
   AC_CACHE_CHECK(for Qt 6, bitcoin_cv_qt6,[
   AC_COMPILE_IFELSE([AC_LANG_PROGRAM(
-    [[#include <QtCore>]],
+    [[#include <QtCore/qglobal.h>]],
     [[
       #if QT_VERSION < 0x060000
       choke me
@@ -280,7 +280,7 @@ dnl Output: Defines QT_STATICPLUGIN if plugins are static.
 AC_DEFUN([_BITCOIN_QT_IS_STATIC],[
   AC_CACHE_CHECK(for static Qt, bitcoin_cv_static_qt,[
   AC_COMPILE_IFELSE([AC_LANG_PROGRAM(
-    [[#include <QtCore>]],
+    [[#include <QtCore/qglobal.h>]],
     [[
       #if defined(QT_STATIC)
       return 0;
@@ -343,7 +343,7 @@ AC_DEFUN([_BITCOIN_QT_FIND_STATIC_PLUGINS],[
      else
        if test x$TARGET_OS = xwindows; then
          AC_CACHE_CHECK(for Qt >= 5.6, bitcoin_cv_need_platformsupport,[AC_COMPILE_IFELSE([AC_LANG_PROGRAM(
-             [[#include <QtCore>]],[[
+             [[#include <QtCore/qglobal.h>]],[[
              #if QT_VERSION < 0x060600
              choke;
              #endif
@@ -424,16 +424,10 @@ AC_DEFUN([_BITCOIN_QT_FIND_LIBS_WITHOUT_PKGCONFIG],[
 
   dnl Qt6 static builds may not generate convenience headers (QObject, QApplication, etc.)
   dnl Use actual .h files with module path prefix for reliable detection.
-  dnl These are found via -I$prefix/include (set in config.site.in CPPFLAGS).
-  if test x$bitcoin_qt_want_version = xqt6; then
-    BITCOIN_QT_CHECK([AC_CHECK_HEADER([QtCore/qglobal.h],,BITCOIN_QT_FAIL(QtCore headers missing))])
-    BITCOIN_QT_CHECK([AC_CHECK_HEADER([QtWidgets/qapplication.h],, BITCOIN_QT_FAIL(QtWidgets headers missing))])
-    BITCOIN_QT_CHECK([AC_CHECK_HEADER([QtNetwork/qlocalsocket.h],, BITCOIN_QT_FAIL(QtNetwork headers missing))])
-  else
-    BITCOIN_QT_CHECK([AC_CHECK_HEADER([QtPlugin],,BITCOIN_QT_FAIL(QtCore headers missing))])
-    BITCOIN_QT_CHECK([AC_CHECK_HEADER([QApplication],, BITCOIN_QT_FAIL(QtGui headers missing))])
-    BITCOIN_QT_CHECK([AC_CHECK_HEADER([QLocalSocket],, BITCOIN_QT_FAIL(QtNetwork headers missing))])
-  fi
+  dnl These work for both Qt5 and Qt6, found via -I$prefix/include in CPPFLAGS.
+  BITCOIN_QT_CHECK([AC_CHECK_HEADER([QtCore/qglobal.h],,BITCOIN_QT_FAIL(QtCore headers missing))])
+  BITCOIN_QT_CHECK([AC_CHECK_HEADER([QtWidgets/qapplication.h],, BITCOIN_QT_FAIL(QtWidgets headers missing))])
+  BITCOIN_QT_CHECK([AC_CHECK_HEADER([QtNetwork/qlocalsocket.h],, BITCOIN_QT_FAIL(QtNetwork headers missing))])
 
   BITCOIN_QT_CHECK([
     if test x$bitcoin_qt_want_version = xauto; then
@@ -474,11 +468,7 @@ AC_DEFUN([_BITCOIN_QT_FIND_LIBS_WITHOUT_PKGCONFIG],[
       LIBS="-L$qt_lib_path"
     fi
     AC_CHECK_LIB([${QT_LIB_PREFIX}Test],      [main],, have_qt_test=no)
-    if test x$bitcoin_qt_want_version = xqt6; then
-      AC_CHECK_HEADER([QtTest/qtest.h],, have_qt_test=no)
-    else
-      AC_CHECK_HEADER([QTest],, have_qt_test=no)
-    fi
+    AC_CHECK_HEADER([QtTest/qtest.h],, have_qt_test=no)
     QT_TEST_LIBS="$LIBS"
     if test x$use_dbus != xno; then
       LIBS=
@@ -486,11 +476,7 @@ AC_DEFUN([_BITCOIN_QT_FIND_LIBS_WITHOUT_PKGCONFIG],[
         LIBS="-L$qt_lib_path"
       fi
       AC_CHECK_LIB([${QT_LIB_PREFIX}DBus],      [main],, have_qt_dbus=no)
-      if test x$bitcoin_qt_want_version = xqt6; then
-        AC_CHECK_HEADER([QtDBus/qdbusconnection.h],, have_qt_dbus=no)
-      else
-        AC_CHECK_HEADER([QtDBus],, have_qt_dbus=no)
-      fi
+      AC_CHECK_HEADER([QtDBus/qdbusconnection.h],, have_qt_dbus=no)
       QT_DBUS_LIBS="$LIBS"
     fi
   ])
