@@ -2,9 +2,12 @@
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
+#include "config/bitcoin-config.h"
+
+#if ENABLE_LIBOQS
+
 #include "pqc/pqc_commitment.h"
 
-#include "config/bitcoin-config.h"
 #include "crypto/sha256.h"
 #include "test/test_bitcoin.h"
 #include "utilstrencodings.h"
@@ -478,3 +481,5 @@ BOOST_AUTO_TEST_CASE(pqc_carrier_decode_validate_mainnet_tx_r_c32635aa)
 }
 
 BOOST_AUTO_TEST_SUITE_END()
+
+#endif // ENABLE_LIBOQS

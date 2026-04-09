@@ -4,6 +4,8 @@
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
+#include "config/bitcoin-config.h"
+
 #include "base58.h"
 #include "chain.h"
 #include "coins.h"
@@ -15,7 +17,9 @@
 #include "merkleblock.h"
 #include "net.h"
 #include "policy/policy.h"
+#if ENABLE_LIBOQS
 #include "pqc/pqc_commitment.h"
+#endif
 #include "primitives/transaction.h"
 #include "rpc/server.h"
 #include "script/script.h"
@@ -109,6 +113,7 @@ void TxToJSON(const CTransaction& tx, const uint256 hashBlock, UniValue& entry)
     }
     entry.pushKV("vout", vout);
 
+#if ENABLE_LIBOQS
     PQCCommitmentType pqcType;
     uint256 pqcCommitment;
     uint32_t pqcOutputIndex = 0;
@@ -134,6 +139,7 @@ void TxToJSON(const CTransaction& tx, const uint256 hashBlock, UniValue& entry)
 
         entry.pushKV("pqc_commitment", pqc);
     }
+#endif
 
     if (!hashBlock.IsNull()) {
         entry.pushKV("blockhash", hashBlock.GetHex());

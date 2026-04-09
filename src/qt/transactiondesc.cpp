@@ -3,6 +3,8 @@
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
+#include "config/bitcoin-config.h"
+
 #include "transactiondesc.h"
 
 #include "bitcoinunits.h"
@@ -13,7 +15,9 @@
 #include "base58.h"
 #include "chainparams.h"
 #include "consensus/consensus.h"
+#if ENABLE_LIBOQS
 #include "pqc/pqc_commitment.h"
+#endif
 #include "validation.h"
 #include "script/script.h"
 #include "timedata.h"
@@ -237,6 +241,7 @@ QString TransactionDesc::toHTML(CWallet *wallet, CWalletTx &wtx, TransactionReco
     strHTML += "<b>" + tr("Transaction total size") + ":</b> " + QString::number(wtx.tx->GetTotalSize()) + " bytes<br>";
     strHTML += "<b>" + tr("Output index") + ":</b> " + QString::number(rec->getOutputIndex()) + "<br>";
 
+#if ENABLE_LIBOQS
     PQCCommitmentType pqcType;
     uint256 pqcCommitment;
     uint32_t pqcOutputIndex = 0;
@@ -261,6 +266,7 @@ QString TransactionDesc::toHTML(CWallet *wallet, CWalletTx &wtx, TransactionReco
     } else {
         strHTML += "<b>" + tr("PQC validation") + ":</b> " + tr("no commitment detected") + "<br>";
     }
+#endif
 
     // Message from normal bitcoin:URI (bitcoin:123...?message=example)
     for (const PAIRTYPE(std::string, std::string)& r : wtx.vOrderForm)

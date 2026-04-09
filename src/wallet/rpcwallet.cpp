@@ -15,7 +15,9 @@
 #include "net.h"
 #include "policy/policy.h"
 #include "policy/rbf.h"
+#if ENABLE_LIBOQS
 #include "pqc/pqc_commitment.h"
+#endif
 #include "rpc/server.h"
 #include "script/sign.h"
 #include "timedata.h"
@@ -544,6 +546,7 @@ UniValue signmessage(const JSONRPCRequest& request)
     return EncodeBase64(&vchSig[0], vchSig.size());
 }
 
+#if ENABLE_LIBOQS
 UniValue generatepqccommitment(const JSONRPCRequest& request)
 {
     if (!EnsureWalletIsAvailable(request.fHelp))
@@ -607,6 +610,7 @@ UniValue generatepqccommitment(const JSONRPCRequest& request)
     result.pushKV("scriptPubKey", HexStr(script.begin(), script.end()));
     return result;
 }
+#endif // ENABLE_LIBOQS
 
 UniValue getreceivedbyaddress(const JSONRPCRequest& request)
 {
@@ -3334,7 +3338,9 @@ static const CRPCCommand commands[] =
     { "wallet",             "setaccount",               &setaccount,               true,   {"address","account"} },
     { "wallet",             "settxfee",                 &settxfee,                 true,   {"amount"} },
     { "wallet",             "signmessage",              &signmessage,              true,   {"address","message"} },
+#if ENABLE_LIBOQS
     { "wallet",             "generatepqccommitment",    &generatepqccommitment,    true,   {"algorithm","public_key_hex","signature_hex"} },
+#endif
     { "wallet",             "walletlock",               &walletlock,               true,   {} },
     { "wallet",             "walletpassphrasechange",   &walletpassphrasechange,   true,   {"oldpassphrase","newpassphrase"} },
     { "wallet",             "walletpassphrase",         &walletpassphrase,         true,   {"passphrase","timeout"} },

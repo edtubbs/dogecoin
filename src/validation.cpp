@@ -21,7 +21,9 @@
 #include "policy/fees.h"
 #include "policy/policy.h"
 #include "pow.h"
+#if ENABLE_LIBOQS
 #include "pqc/pqc_commitment.h"
+#endif
 #include "primitives/block.h"
 #include "primitives/pureheader.h"
 #include "primitives/transaction.h"
@@ -1041,6 +1043,7 @@ bool AcceptToMemoryPoolWorker(CTxMemPool& pool, CValidationState& state, const C
                 return state.DoS(0, false, REJECT_INSUFFICIENTFEE, "mempool full");
         }
 
+#if ENABLE_LIBOQS
         PQCCommitmentType pqc_type;
         uint256 pqc_commitment;
         uint32_t pqc_output_index = 0;
@@ -1059,6 +1062,7 @@ bool AcceptToMemoryPoolWorker(CTxMemPool& pool, CValidationState& state, const C
                     hash.ToString(), PQCCommitmentTypeToString(pqc_type), pqc_output_index, pqc_commitment.GetHex());
             }
         }
+#endif
     }
 
     GetMainSignals().SyncTransaction(tx, NULL, CMainSignals::SYNC_TRANSACTION_NOT_IN_BLOCK);

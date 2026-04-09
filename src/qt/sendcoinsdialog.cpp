@@ -20,7 +20,9 @@
 #include "base58.h"
 #include "chainparams.h"
 #include "dogecoin-fees.h"
+#if ENABLE_LIBOQS
 #include "pqc/pqc_commitment.h"
+#endif
 #include "script/standard.h"
 #include "utilstrencodings.h"
 #include "wallet/coincontrol.h"
@@ -617,6 +619,7 @@ void SendCoinsDialog::onDecodePqcCommitmentClicked()
 
     QString algorithmTag = tr("Unknown");
     QString extractedCommitment = tr("n/a");
+#if ENABLE_LIBOQS
     PQCCommitmentType detectedType = PQCCommitmentType::FALCON512;
     bool commitmentExtracted = false;
     if (IsHex(scriptPubKey.toStdString())) {
@@ -631,6 +634,9 @@ void SendCoinsDialog::onDecodePqcCommitmentClicked()
             commitmentExtracted = true;
         }
     }
+#else
+    bool commitmentExtracted = false;
+#endif
 
     const bool carrierEnabled = pqcCarrierModeCheckBox && pqcCarrierModeCheckBox->isChecked();
 
@@ -647,6 +653,7 @@ void SendCoinsDialog::onDecodePqcCommitmentClicked()
     html += "<b>" + tr("Carrier mode") + ":</b> " + (carrierEnabled ? tr("enabled (TX_C + TX_R P2SH data carrier)") : tr("disabled (commitment-only)")) + "<br>";
 
     // Decode TX_C and TX_R carrier details when carrier mode is enabled
+#if ENABLE_LIBOQS
     if (carrierEnabled && commitmentExtracted) {
         html += "<br>";
         html += "<b>" + tr("TX_C (Commitment Transaction)") + ":</b><br>";
@@ -703,6 +710,7 @@ void SendCoinsDialog::onDecodePqcCommitmentClicked()
         html += "<b>" + tr("TX_R reveals") + ":</b> " + tr("full PQC public key + signature on-chain") + "<br>";
         html += "<b>" + tr("TX_R validation") + ":</b> " + tr("SHA256(pk || sig) must match TX_C OP_RETURN commitment") + "<br>";
     }
+#endif
 
     html += "</body></html>";
 
