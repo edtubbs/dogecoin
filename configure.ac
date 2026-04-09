@@ -963,9 +963,17 @@ fi
 if test "x$use_liboqs" = "xno"; then
   AC_DEFINE([ENABLE_LIBOQS],[0],[Define to 1 to enable liboqs support])
 elif test "x$have_liboqs" = "xyes"; then
-  DOGECOIN_REQUIRE_EXPERIMENTAL
-  use_liboqs=yes
-  AC_DEFINE([ENABLE_LIBOQS],[1],[Define to 1 to enable liboqs support])
+  if test "x$use_liboqs" = "xyes"; then
+    DOGECOIN_REQUIRE_EXPERIMENTAL
+    use_liboqs=yes
+    AC_DEFINE([ENABLE_LIBOQS],[1],[Define to 1 to enable liboqs support])
+  elif test x$allow_experimental = xyes; then
+    use_liboqs=yes
+    AC_DEFINE([ENABLE_LIBOQS],[1],[Define to 1 to enable liboqs support])
+  else
+    use_liboqs=no
+    AC_DEFINE([ENABLE_LIBOQS],[0],[Define to 1 to enable liboqs support])
+  fi
 else
   if test "x$use_liboqs" = "xyes"; then
     AC_MSG_ERROR([liboqs support requested but liboqs was not found])
