@@ -148,7 +148,7 @@ SendCoinsDialog::SendCoinsDialog(const PlatformStyle *_platformStyle, QWidget *p
     pqcCarrierModeCheckBox = new QCheckBox(tr("Carrier mode (P2SH data carrier for on-chain PQ verification)"), pqcFrame);
     pqcCarrierModeCheckBox->setChecked(false);
     pqcCarrierModeCheckBox->setToolTip(tr("When enabled, TX_C includes P2SH carrier output(s) alongside the OP_RETURN commitment.\n"
-                                            "A follow-up TX_R will reveal the full PQC public key and signature on-chain.\n"
+                                            "A separate follow-up transaction (TX_R) reveals the full PQC public key and signature on-chain.\n"
                                             "This is the canonical Phase 1 transport for on-chain PQ verification material."));
     pqcForm->addRow(QString(), pqcCarrierModeCheckBox);
 
@@ -471,7 +471,7 @@ void SendCoinsDialog::on_sendButton_clicked()
         questionString.append("<hr /><b>");
         questionString.append(tr("Carrier mode enabled"));
         questionString.append(":</b> ");
-        questionString.append(tr("This send will broadcast both TX_C (commitment transaction) and TX_R (reveal transaction)."));
+        questionString.append(tr("Carrier mode requires two separate transactions: TX_C (commitment) and TX_R (reveal). Confirm both will be broadcast."));
     }
 
     SendConfirmationDialog confirmationDialog(tr("Confirm send coins"),
