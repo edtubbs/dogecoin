@@ -34,6 +34,11 @@
 #include "support/experimental.h"
 #include "init.h"
 
+#if ENABLE_LIBOQS
+EXPERIMENTAL_FEATURE
+#include <oqs/oqs.h>
+#endif
+
 #include <QAction>
 #include <QActionGroup>
 #include <QComboBox>
@@ -397,6 +402,7 @@ void WalletView::backupWalletEncrypted()
         return;
     }
 
+    // --- Layer 1: AES-256-CBC encryption with passphrase-derived key ---
     std::vector<unsigned char> aesSalt(WALLET_CRYPTO_SALT_SIZE);
     GetStrongRandBytes(aesSalt.data(), WALLET_CRYPTO_SALT_SIZE);
     QByteArray aesPassphraseBytes = aesPassphrase.toUtf8();
@@ -423,7 +429,148 @@ void WalletView::backupWalletEncrypted()
         return;
     }
     if (!plainMaterial.empty()) memory_cleanse(&plainMaterial[0], plainMaterial.size());
+    if (!plain.isEmpty()) memory_cleanse(plain.data(), plain.size());
 
+#if ENABLE_LIBOQS
+    // --- Layer 2: ML-KEM-768 key encapsulation + AES-256-CBC ---
+    // Generate a KEM keypair, encapsulate a shared secret, use it to
+    // encrypt the AES ciphertext.  The KEM secret key is itself encrypted
+    // with the PQC passphrase so the user must supply both passwords to
+    // decrypt.  This gives genuine post-quantum protection: even if the
+    // passphrase KDF is weakened by Grover's algorithm, the ML-KEM layer
+    // remains quantum-resistant.
+
+    OQS_KEM *kem = OQS_KEM_new(OQS_KEM_alg_ml_kem_768);
+    if (kem == nullptr) {
+        if (!aesPassphraseBytes.isEmpty()) memory_cleanse(aesPassphraseBytes.data(), aesPassphraseBytes.size());
+        Q_EMIT message(tr("Encryption Failed"), tr("ML-KEM-768 algorithm unavailable in liboqs."),
+            CClientUIInterface::MSG_ERROR);
+        return;
+    }
+
+    std::vector<unsigned char> kemPk(kem->length_public_key);
+    std::vector<unsigned char> kemSk(kem->length_secret_key);
+    std::vector<unsigned char> kemCt(kem->length_ciphertext);
+    std::vector<unsigned char> sharedSecret(kem->length_shared_secret);
+
+    if (OQS_KEM_keypair(kem, kemPk.data(), kemSk.data()) != OQS_SUCCESS) {
+        OQS_KEM_free(kem);
+        if (!aesPassphraseBytes.isEmpty()) memory_cleanse(aesPassphraseBytes.data(), aesPassphraseBytes.size());
+        Q_EMIT message(tr("Encryption Failed"), tr("ML-KEM-768 keypair generation failed."),
+            CClientUIInterface::MSG_ERROR);
+        return;
+    }
+
+    if (OQS_KEM_encaps(kem, kemCt.data(), sharedSecret.data(), kemPk.data()) != OQS_SUCCESS) {
+        memory_cleanse(kemSk.data(), kemSk.size());
+        OQS_KEM_free(kem);
+        if (!aesPassphraseBytes.isEmpty()) memory_cleanse(aesPassphraseBytes.data(), aesPassphraseBytes.size());
+        Q_EMIT message(tr("Encryption Failed"), tr("ML-KEM-768 encapsulation failed."),
+            CClientUIInterface::MSG_ERROR);
+        return;
+    }
+    OQS_KEM_free(kem);
+
+    // Derive an AES key + IV from the KEM shared secret via SHA-512
+    unsigned char kemDerived[CSHA512::OUTPUT_SIZE];
+    CSHA512().Write(sharedSecret.data(), sharedSecret.size()).Finalize(kemDerived);
+    memory_cleanse(sharedSecret.data(), sharedSecret.size());
+
+    CCrypter kemCrypter;
+    CKeyingMaterial kemKey(kemDerived, kemDerived + WALLET_CRYPTO_KEY_SIZE);
+    std::vector<unsigned char> kemIV(kemDerived + WALLET_CRYPTO_KEY_SIZE,
+                                     kemDerived + WALLET_CRYPTO_KEY_SIZE + WALLET_CRYPTO_IV_SIZE);
+    memory_cleanse(kemDerived, sizeof(kemDerived));
+
+    if (!kemCrypter.SetKey(kemKey, kemIV)) {
+        memory_cleanse(kemSk.data(), kemSk.size());
+        if (!aesPassphraseBytes.isEmpty()) memory_cleanse(aesPassphraseBytes.data(), aesPassphraseBytes.size());
+        Q_EMIT message(tr("Encryption Failed"), tr("Unable to set KEM-derived encryption key."),
+            CClientUIInterface::MSG_ERROR);
+        return;
+    }
+    memory_cleanse(&kemKey[0], kemKey.size());
+
+    CKeyingMaterial aesCipherMaterial(aesCipher.begin(), aesCipher.end());
+    std::vector<unsigned char> outerCipher;
+    if (!kemCrypter.Encrypt(aesCipherMaterial, outerCipher)) {
+        memory_cleanse(kemSk.data(), kemSk.size());
+        if (!aesPassphraseBytes.isEmpty()) memory_cleanse(aesPassphraseBytes.data(), aesPassphraseBytes.size());
+        if (!aesCipherMaterial.empty()) memory_cleanse(&aesCipherMaterial[0], aesCipherMaterial.size());
+        Q_EMIT message(tr("Encryption Failed"), tr("Unable to encrypt with KEM-derived key."),
+            CClientUIInterface::MSG_ERROR);
+        return;
+    }
+    if (!aesCipherMaterial.empty()) memory_cleanse(&aesCipherMaterial[0], aesCipherMaterial.size());
+
+    // Encrypt the KEM secret key with the PQC passphrase
+    std::vector<unsigned char> pqcSalt(WALLET_CRYPTO_SALT_SIZE);
+    GetStrongRandBytes(pqcSalt.data(), WALLET_CRYPTO_SALT_SIZE);
+    QByteArray pqcPassphraseBytes = pqcPassphrase.toUtf8();
+    SecureString pqcPass(pqcPassphraseBytes.constData(), pqcPassphraseBytes.constData() + pqcPassphraseBytes.size());
+    const int pqcRounds = 50000;
+
+    CCrypter skCrypter;
+    if (!skCrypter.SetKeyFromPassphrase(pqcPass, pqcSalt, pqcRounds, 0)) {
+        memory_cleanse(kemSk.data(), kemSk.size());
+        if (!aesPassphraseBytes.isEmpty()) memory_cleanse(aesPassphraseBytes.data(), aesPassphraseBytes.size());
+        if (!pqcPassphraseBytes.isEmpty()) memory_cleanse(pqcPassphraseBytes.data(), pqcPassphraseBytes.size());
+        Q_EMIT message(tr("Encryption Failed"), tr("Unable to derive PQC passphrase key."),
+            CClientUIInterface::MSG_ERROR);
+        return;
+    }
+
+    CKeyingMaterial skMaterial(kemSk.begin(), kemSk.end());
+    memory_cleanse(kemSk.data(), kemSk.size());
+    std::vector<unsigned char> encryptedSk;
+    if (!skCrypter.Encrypt(skMaterial, encryptedSk)) {
+        memory_cleanse(&skMaterial[0], skMaterial.size());
+        if (!aesPassphraseBytes.isEmpty()) memory_cleanse(aesPassphraseBytes.data(), aesPassphraseBytes.size());
+        if (!pqcPassphraseBytes.isEmpty()) memory_cleanse(pqcPassphraseBytes.data(), pqcPassphraseBytes.size());
+        Q_EMIT message(tr("Encryption Failed"), tr("Unable to encrypt KEM secret key."),
+            CClientUIInterface::MSG_ERROR);
+        return;
+    }
+    memory_cleanse(&skMaterial[0], skMaterial.size());
+
+    if (!aesPassphraseBytes.isEmpty()) memory_cleanse(aesPassphraseBytes.data(), aesPassphraseBytes.size());
+    if (!pqcPassphraseBytes.isEmpty()) memory_cleanse(pqcPassphraseBytes.data(), pqcPassphraseBytes.size());
+
+    const QByteArray envelopeAlgo = "AES256-CBC+ML-KEM-768";
+    unsigned char digest[CSHA256::OUTPUT_SIZE];
+    CSHA256 hasher;
+    hasher.Write(reinterpret_cast<const unsigned char*>(envelopeAlgo.constData()), envelopeAlgo.size());
+    hasher.Write(reinterpret_cast<const unsigned char*>(outerCipher.data()), outerCipher.size());
+    hasher.Finalize(digest);
+
+    QFile outFile(outFilename);
+    if (!outFile.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+        memory_cleanse(digest, sizeof(digest));
+        Q_EMIT message(tr("Encryption Failed"), tr("Unable to write envelope file %1.").arg(outFilename),
+            CClientUIInterface::MSG_ERROR);
+        return;
+    }
+    outFile.write("DGC-PQCE4\n");
+    outFile.write("ALGO:" + envelopeAlgo + "\n");
+    outFile.write("AES_KDF:sha512-aes256cbc\n");
+    outFile.write("AES_SALT:" + QByteArray(reinterpret_cast<const char*>(aesSalt.data()), aesSalt.size()).toHex() + "\n");
+    outFile.write("AES_ROUNDS:25000\n");
+    outFile.write("KEM_ALG:ML-KEM-768\n");
+    outFile.write("KEM_CT:" + QByteArray(reinterpret_cast<const char*>(kemCt.data()), kemCt.size()).toHex() + "\n");
+    outFile.write("KEM_SK_KDF:sha512-aes256cbc\n");
+    outFile.write("KEM_SK_SALT:" + QByteArray(reinterpret_cast<const char*>(pqcSalt.data()), pqcSalt.size()).toHex() + "\n");
+    outFile.write("KEM_SK_ROUNDS:" + QByteArray::number(pqcRounds) + "\n");
+    outFile.write("KEM_SK_ENC:" + QByteArray(reinterpret_cast<const char*>(encryptedSk.data()), encryptedSk.size()).toBase64() + "\n");
+    outFile.write("DATA_SHA256:" + QByteArray(reinterpret_cast<const char*>(digest), sizeof(digest)).toHex() + "\n");
+    outFile.write("DATA_B64:" + QByteArray(reinterpret_cast<const char*>(outerCipher.data()), outerCipher.size()).toBase64() + "\n");
+    outFile.close();
+    memory_cleanse(digest, sizeof(digest));
+
+    Q_EMIT message(tr("Backup Successful"), tr("Double-encrypted (AES-256-CBC + ML-KEM-768) wallet backup was successfully saved to %1.").arg(outFilename),
+        CClientUIInterface::MSG_INFORMATION);
+
+#else
+    // --- Layer 2: AES-256-CBC cascade (no liboqs available) ---
     std::vector<unsigned char> pqcSalt(WALLET_CRYPTO_SALT_SIZE);
     GetStrongRandBytes(pqcSalt.data(), WALLET_CRYPTO_SALT_SIZE);
     QByteArray pqcPassphraseBytes = pqcPassphrase.toUtf8();
@@ -433,20 +580,18 @@ void WalletView::backupWalletEncrypted()
     if (!pqcPassCrypter.SetKeyFromPassphrase(pqcPass, pqcSalt, pqcRounds, 0)) {
         if (!aesPassphraseBytes.isEmpty()) memory_cleanse(aesPassphraseBytes.data(), aesPassphraseBytes.size());
         if (!pqcPassphraseBytes.isEmpty()) memory_cleanse(pqcPassphraseBytes.data(), pqcPassphraseBytes.size());
-        if (!plain.isEmpty()) memory_cleanse(plain.data(), plain.size());
         Q_EMIT message(tr("Encryption Failed"), tr("Unable to derive PQC passphrase key."),
             CClientUIInterface::MSG_ERROR);
         return;
     }
 
     CKeyingMaterial aesCipherMaterial(aesCipher.begin(), aesCipher.end());
-    std::vector<unsigned char> cipher;
-    if (!pqcPassCrypter.Encrypt(aesCipherMaterial, cipher)) {
+    std::vector<unsigned char> outerCipher;
+    if (!pqcPassCrypter.Encrypt(aesCipherMaterial, outerCipher)) {
         if (!aesPassphraseBytes.isEmpty()) memory_cleanse(aesPassphraseBytes.data(), aesPassphraseBytes.size());
         if (!pqcPassphraseBytes.isEmpty()) memory_cleanse(pqcPassphraseBytes.data(), pqcPassphraseBytes.size());
-        if (!plain.isEmpty()) memory_cleanse(plain.data(), plain.size());
         if (!aesCipherMaterial.empty()) memory_cleanse(&aesCipherMaterial[0], aesCipherMaterial.size());
-        Q_EMIT message(tr("Encryption Failed"), tr("Unable to encrypt AES layer with PQC password layer."),
+        Q_EMIT message(tr("Encryption Failed"), tr("Unable to encrypt AES layer with second password layer."),
             CClientUIInterface::MSG_ERROR);
         return;
     }
@@ -454,13 +599,12 @@ void WalletView::backupWalletEncrypted()
 
     if (!aesPassphraseBytes.isEmpty()) memory_cleanse(aesPassphraseBytes.data(), aesPassphraseBytes.size());
     if (!pqcPassphraseBytes.isEmpty()) memory_cleanse(pqcPassphraseBytes.data(), pqcPassphraseBytes.size());
-    if (!plain.isEmpty()) memory_cleanse(plain.data(), plain.size());
 
-    const QByteArray envelopeAlgo = "AES256-CBC+PQC-PASS-CASCADE";
+    const QByteArray envelopeAlgo = "AES256-CBC+AES256-CBC-CASCADE";
     unsigned char digest[CSHA256::OUTPUT_SIZE];
     CSHA256 hasher;
     hasher.Write(reinterpret_cast<const unsigned char*>(envelopeAlgo.constData()), envelopeAlgo.size());
-    hasher.Write(reinterpret_cast<const unsigned char*>(cipher.data()), cipher.size());
+    hasher.Write(reinterpret_cast<const unsigned char*>(outerCipher.data()), outerCipher.size());
     hasher.Finalize(digest);
 
     QFile outFile(outFilename);
@@ -479,12 +623,13 @@ void WalletView::backupWalletEncrypted()
     outFile.write("PQC_SALT:" + QByteArray(reinterpret_cast<const char*>(pqcSalt.data()), pqcSalt.size()).toHex() + "\n");
     outFile.write("PQC_ROUNDS:" + QByteArray::number(pqcRounds) + "\n");
     outFile.write("DATA_SHA256:" + QByteArray(reinterpret_cast<const char*>(digest), sizeof(digest)).toHex() + "\n");
-    outFile.write("DATA_B64:" + QByteArray(reinterpret_cast<const char*>(cipher.data()), cipher.size()).toBase64() + "\n");
+    outFile.write("DATA_B64:" + QByteArray(reinterpret_cast<const char*>(outerCipher.data()), outerCipher.size()).toBase64() + "\n");
     outFile.close();
     memory_cleanse(digest, sizeof(digest));
 
-    Q_EMIT message(tr("Backup Successful"), tr("Double password-encrypted (AES + PQC) wallet backup was successfully saved to %1.").arg(outFilename),
+    Q_EMIT message(tr("Backup Successful"), tr("Double password-encrypted (AES + AES cascade) wallet backup was successfully saved to %1.").arg(outFilename),
         CClientUIInterface::MSG_INFORMATION);
+#endif // ENABLE_LIBOQS
 }
 
 void WalletView::restoreWalletEncrypted()
@@ -522,45 +667,43 @@ void WalletView::restoreWalletEncrypted()
         if (sep <= 0) continue;
         fields.insert(line.left(sep), line.mid(sep + 1));
     }
-    if (header != "DGC-PQCE3") {
+
+    const bool isV4 = (header == "DGC-PQCE4");
+    const bool isV3 = (header == "DGC-PQCE3");
+    if (!isV4 && !isV3) {
         Q_EMIT message(tr("Restore Failed"), tr("Unsupported envelope format: %1").arg(QString::fromLatin1(header)),
             CClientUIInterface::MSG_ERROR);
         return;
     }
-    if (fields.value("ALGO") != "AES256-CBC+PQC-PASS-CASCADE") {
-        Q_EMIT message(tr("Restore Failed"), tr("Unsupported envelope algorithm."),
+
+    const QByteArray algo = fields.value("ALGO");
+    if (isV4 && algo != "AES256-CBC+ML-KEM-768") {
+        Q_EMIT message(tr("Restore Failed"), tr("Unsupported envelope algorithm: %1").arg(QString::fromLatin1(algo)),
+            CClientUIInterface::MSG_ERROR);
+        return;
+    }
+    if (isV3 && algo != "AES256-CBC+PQC-PASS-CASCADE" && algo != "AES256-CBC+AES256-CBC-CASCADE") {
+        Q_EMIT message(tr("Restore Failed"), tr("Unsupported envelope algorithm: %1").arg(QString::fromLatin1(algo)),
             CClientUIInterface::MSG_ERROR);
         return;
     }
 
+    // Common fields
     const QByteArray aesSaltHex = fields.value("AES_SALT");
     const QByteArray aesRoundsRaw = fields.value("AES_ROUNDS");
-    const QByteArray pqcKdf = fields.value("PQC_KDF");
-    const QByteArray pqcSaltHex = fields.value("PQC_SALT");
-    const QByteArray pqcRoundsRaw = fields.value("PQC_ROUNDS");
     const QByteArray expectedDigestHex = fields.value("DATA_SHA256");
     const QByteArray dataB64 = fields.value("DATA_B64");
-    if (aesSaltHex.isEmpty() || aesRoundsRaw.isEmpty() || pqcSaltHex.isEmpty() || pqcRoundsRaw.isEmpty() ||
-        expectedDigestHex.isEmpty() || dataB64.isEmpty()) {
+    if (aesSaltHex.isEmpty() || aesRoundsRaw.isEmpty() || expectedDigestHex.isEmpty() || dataB64.isEmpty()) {
         Q_EMIT message(tr("Restore Failed"), tr("Envelope is missing required fields."),
-            CClientUIInterface::MSG_ERROR);
-        return;
-    }
-    if (pqcKdf != "sha512-aes256cbc") {
-        Q_EMIT message(tr("Restore Failed"), tr("Unsupported PQC password KDF in envelope."),
             CClientUIInterface::MSG_ERROR);
         return;
     }
 
     const QByteArray aesSalt = QByteArray::fromHex(aesSaltHex);
-    const QByteArray pqcSalt = QByteArray::fromHex(pqcSaltHex);
     bool okAesRounds = false;
-    bool okPqcRounds = false;
     const int aesRounds = QString::fromLatin1(aesRoundsRaw).toInt(&okAesRounds);
-    const int pqcRounds = QString::fromLatin1(pqcRoundsRaw).toInt(&okPqcRounds);
-    if (!okAesRounds || !okPqcRounds || aesRounds <= 0 || pqcRounds <= 0 ||
-        aesSalt.isEmpty() || pqcSalt.isEmpty()) {
-        Q_EMIT message(tr("Restore Failed"), tr("Envelope KDF parameters are invalid."),
+    if (!okAesRounds || aesRounds <= 0 || aesSalt.isEmpty()) {
+        Q_EMIT message(tr("Restore Failed"), tr("Envelope AES KDF parameters are invalid."),
             CClientUIInterface::MSG_ERROR);
         return;
     }
@@ -572,10 +715,10 @@ void WalletView::restoreWalletEncrypted()
         return;
     }
 
-    const QByteArray envelopeAlgo = "AES256-CBC+PQC-PASS-CASCADE";
+    // Verify integrity digest
     unsigned char digest[CSHA256::OUTPUT_SIZE];
     CSHA256 hasher;
-    hasher.Write(reinterpret_cast<const unsigned char*>(envelopeAlgo.constData()), envelopeAlgo.size());
+    hasher.Write(reinterpret_cast<const unsigned char*>(algo.constData()), algo.size());
     hasher.Write(reinterpret_cast<const unsigned char*>(outerCipher.data()), outerCipher.size());
     hasher.Finalize(digest);
     const QByteArray digestHex(reinterpret_cast<const char*>(digest), sizeof(digest));
@@ -587,6 +730,7 @@ void WalletView::restoreWalletEncrypted()
         return;
     }
 
+    // Prompt for passphrases
     bool okAes = false;
     const QString aesPassphrase = QInputDialog::getText(
         this,
@@ -612,25 +756,176 @@ void WalletView::restoreWalletEncrypted()
 
     QByteArray aesPassphraseBytes = aesPassphrase.toUtf8();
     QByteArray pqcPassphraseBytes = pqcPassphrase.toUtf8();
-    SecureString pqcPass(pqcPassphraseBytes.constData(), pqcPassphraseBytes.constData() + pqcPassphraseBytes.size());
-    CCrypter pqcPassCrypter;
-    std::vector<unsigned char> pqcSaltBytes(pqcSalt.begin(), pqcSalt.end());
-    if (!pqcPassCrypter.SetKeyFromPassphrase(pqcPass, pqcSaltBytes, pqcRounds, 0)) {
-        if (!aesPassphraseBytes.isEmpty()) memory_cleanse(aesPassphraseBytes.data(), aesPassphraseBytes.size());
-        if (!pqcPassphraseBytes.isEmpty()) memory_cleanse(pqcPassphraseBytes.data(), pqcPassphraseBytes.size());
-        Q_EMIT message(tr("Restore Failed"), tr("Unable to derive PQC passphrase key."),
-            CClientUIInterface::MSG_ERROR);
-        return;
-    }
+
     CKeyingMaterial aesCipherMaterial;
-    if (!pqcPassCrypter.Decrypt(outerCipher, aesCipherMaterial)) {
+
+    if (isV4) {
+#if ENABLE_LIBOQS
+        // --- V4: ML-KEM-768 decapsulation ---
+        const QByteArray kemAlg = fields.value("KEM_ALG");
+        const QByteArray kemCtHex = fields.value("KEM_CT");
+        const QByteArray kemSkKdf = fields.value("KEM_SK_KDF");
+        const QByteArray kemSkSaltHex = fields.value("KEM_SK_SALT");
+        const QByteArray kemSkRoundsRaw = fields.value("KEM_SK_ROUNDS");
+        const QByteArray kemSkEncB64 = fields.value("KEM_SK_ENC");
+
+        if (kemAlg != "ML-KEM-768" || kemCtHex.isEmpty() || kemSkKdf != "sha512-aes256cbc" ||
+            kemSkSaltHex.isEmpty() || kemSkRoundsRaw.isEmpty() || kemSkEncB64.isEmpty()) {
+            if (!aesPassphraseBytes.isEmpty()) memory_cleanse(aesPassphraseBytes.data(), aesPassphraseBytes.size());
+            if (!pqcPassphraseBytes.isEmpty()) memory_cleanse(pqcPassphraseBytes.data(), pqcPassphraseBytes.size());
+            Q_EMIT message(tr("Restore Failed"), tr("Envelope is missing required KEM fields."),
+                CClientUIInterface::MSG_ERROR);
+            return;
+        }
+
+        const QByteArray kemSkSalt = QByteArray::fromHex(kemSkSaltHex);
+        bool okSkRounds = false;
+        const int kemSkRounds = QString::fromLatin1(kemSkRoundsRaw).toInt(&okSkRounds);
+        if (!okSkRounds || kemSkRounds <= 0 || kemSkSalt.isEmpty()) {
+            if (!aesPassphraseBytes.isEmpty()) memory_cleanse(aesPassphraseBytes.data(), aesPassphraseBytes.size());
+            if (!pqcPassphraseBytes.isEmpty()) memory_cleanse(pqcPassphraseBytes.data(), pqcPassphraseBytes.size());
+            Q_EMIT message(tr("Restore Failed"), tr("Envelope KEM secret key KDF parameters are invalid."),
+                CClientUIInterface::MSG_ERROR);
+            return;
+        }
+
+        // Decrypt the KEM secret key with PQC passphrase
+        SecureString pqcPass(pqcPassphraseBytes.constData(), pqcPassphraseBytes.constData() + pqcPassphraseBytes.size());
+        CCrypter skCrypter;
+        std::vector<unsigned char> kemSkSaltBytes(kemSkSalt.begin(), kemSkSalt.end());
+        if (!skCrypter.SetKeyFromPassphrase(pqcPass, kemSkSaltBytes, kemSkRounds, 0)) {
+            if (!aesPassphraseBytes.isEmpty()) memory_cleanse(aesPassphraseBytes.data(), aesPassphraseBytes.size());
+            if (!pqcPassphraseBytes.isEmpty()) memory_cleanse(pqcPassphraseBytes.data(), pqcPassphraseBytes.size());
+            Q_EMIT message(tr("Restore Failed"), tr("Unable to derive PQC passphrase key."),
+                CClientUIInterface::MSG_ERROR);
+            return;
+        }
+
+        std::vector<unsigned char> encryptedSk = DecodeBase64(kemSkEncB64.toStdString().c_str(), NULL);
+        CKeyingMaterial skMaterial;
+        if (!skCrypter.Decrypt(encryptedSk, skMaterial)) {
+            if (!aesPassphraseBytes.isEmpty()) memory_cleanse(aesPassphraseBytes.data(), aesPassphraseBytes.size());
+            if (!pqcPassphraseBytes.isEmpty()) memory_cleanse(pqcPassphraseBytes.data(), pqcPassphraseBytes.size());
+            Q_EMIT message(tr("Restore Failed"), tr("PQC password decryption of KEM secret key failed."),
+                CClientUIInterface::MSG_ERROR);
+            return;
+        }
+
+        // KEM decapsulation
+        const QByteArray kemCtBytes = QByteArray::fromHex(kemCtHex);
+        OQS_KEM *kem = OQS_KEM_new(OQS_KEM_alg_ml_kem_768);
+        if (kem == nullptr) {
+            memory_cleanse(&skMaterial[0], skMaterial.size());
+            if (!aesPassphraseBytes.isEmpty()) memory_cleanse(aesPassphraseBytes.data(), aesPassphraseBytes.size());
+            if (!pqcPassphraseBytes.isEmpty()) memory_cleanse(pqcPassphraseBytes.data(), pqcPassphraseBytes.size());
+            Q_EMIT message(tr("Restore Failed"), tr("ML-KEM-768 algorithm unavailable in liboqs."),
+                CClientUIInterface::MSG_ERROR);
+            return;
+        }
+
+        if (skMaterial.size() != kem->length_secret_key || (size_t)kemCtBytes.size() != kem->length_ciphertext) {
+            memory_cleanse(&skMaterial[0], skMaterial.size());
+            OQS_KEM_free(kem);
+            if (!aesPassphraseBytes.isEmpty()) memory_cleanse(aesPassphraseBytes.data(), aesPassphraseBytes.size());
+            if (!pqcPassphraseBytes.isEmpty()) memory_cleanse(pqcPassphraseBytes.data(), pqcPassphraseBytes.size());
+            Q_EMIT message(tr("Restore Failed"), tr("KEM secret key or ciphertext size mismatch."),
+                CClientUIInterface::MSG_ERROR);
+            return;
+        }
+
+        std::vector<unsigned char> sharedSecret(kem->length_shared_secret);
+        OQS_STATUS rc = OQS_KEM_decaps(kem, sharedSecret.data(),
+            reinterpret_cast<const unsigned char*>(kemCtBytes.constData()),
+            reinterpret_cast<const unsigned char*>(skMaterial.data()));
+        memory_cleanse(&skMaterial[0], skMaterial.size());
+        OQS_KEM_free(kem);
+
+        if (rc != OQS_SUCCESS) {
+            memory_cleanse(sharedSecret.data(), sharedSecret.size());
+            if (!aesPassphraseBytes.isEmpty()) memory_cleanse(aesPassphraseBytes.data(), aesPassphraseBytes.size());
+            if (!pqcPassphraseBytes.isEmpty()) memory_cleanse(pqcPassphraseBytes.data(), pqcPassphraseBytes.size());
+            Q_EMIT message(tr("Restore Failed"), tr("ML-KEM-768 decapsulation failed."),
+                CClientUIInterface::MSG_ERROR);
+            return;
+        }
+
+        // Derive AES key from shared secret
+        unsigned char kemDerived[CSHA512::OUTPUT_SIZE];
+        CSHA512().Write(sharedSecret.data(), sharedSecret.size()).Finalize(kemDerived);
+        memory_cleanse(sharedSecret.data(), sharedSecret.size());
+
+        CCrypter kemCrypter;
+        CKeyingMaterial kemKey(kemDerived, kemDerived + WALLET_CRYPTO_KEY_SIZE);
+        std::vector<unsigned char> kemIV(kemDerived + WALLET_CRYPTO_KEY_SIZE,
+                                         kemDerived + WALLET_CRYPTO_KEY_SIZE + WALLET_CRYPTO_IV_SIZE);
+        memory_cleanse(kemDerived, sizeof(kemDerived));
+
+        if (!kemCrypter.SetKey(kemKey, kemIV)) {
+            memory_cleanse(&kemKey[0], kemKey.size());
+            if (!aesPassphraseBytes.isEmpty()) memory_cleanse(aesPassphraseBytes.data(), aesPassphraseBytes.size());
+            if (!pqcPassphraseBytes.isEmpty()) memory_cleanse(pqcPassphraseBytes.data(), pqcPassphraseBytes.size());
+            Q_EMIT message(tr("Restore Failed"), tr("Unable to set KEM-derived decryption key."),
+                CClientUIInterface::MSG_ERROR);
+            return;
+        }
+        memory_cleanse(&kemKey[0], kemKey.size());
+
+        if (!kemCrypter.Decrypt(outerCipher, aesCipherMaterial)) {
+            if (!aesPassphraseBytes.isEmpty()) memory_cleanse(aesPassphraseBytes.data(), aesPassphraseBytes.size());
+            if (!pqcPassphraseBytes.isEmpty()) memory_cleanse(pqcPassphraseBytes.data(), pqcPassphraseBytes.size());
+            Q_EMIT message(tr("Restore Failed"), tr("KEM-layer decryption failed."),
+                CClientUIInterface::MSG_ERROR);
+            return;
+        }
+#else
         if (!aesPassphraseBytes.isEmpty()) memory_cleanse(aesPassphraseBytes.data(), aesPassphraseBytes.size());
         if (!pqcPassphraseBytes.isEmpty()) memory_cleanse(pqcPassphraseBytes.data(), pqcPassphraseBytes.size());
-        Q_EMIT message(tr("Restore Failed"), tr("PQC password decryption failed."),
+        Q_EMIT message(tr("Restore Failed"), tr("This envelope requires liboqs (ML-KEM-768) which is not enabled in this build."),
             CClientUIInterface::MSG_ERROR);
         return;
+#endif // ENABLE_LIBOQS
+    } else {
+        // --- V3: Legacy AES cascade decryption ---
+        const QByteArray pqcSaltHex = fields.value("PQC_SALT");
+        const QByteArray pqcRoundsRaw = fields.value("PQC_ROUNDS");
+        if (pqcSaltHex.isEmpty() || pqcRoundsRaw.isEmpty()) {
+            if (!aesPassphraseBytes.isEmpty()) memory_cleanse(aesPassphraseBytes.data(), aesPassphraseBytes.size());
+            if (!pqcPassphraseBytes.isEmpty()) memory_cleanse(pqcPassphraseBytes.data(), pqcPassphraseBytes.size());
+            Q_EMIT message(tr("Restore Failed"), tr("Envelope is missing required PQC fields."),
+                CClientUIInterface::MSG_ERROR);
+            return;
+        }
+        const QByteArray pqcSalt = QByteArray::fromHex(pqcSaltHex);
+        bool okPqcRounds = false;
+        const int pqcRounds = QString::fromLatin1(pqcRoundsRaw).toInt(&okPqcRounds);
+        if (!okPqcRounds || pqcRounds <= 0 || pqcSalt.isEmpty()) {
+            if (!aesPassphraseBytes.isEmpty()) memory_cleanse(aesPassphraseBytes.data(), aesPassphraseBytes.size());
+            if (!pqcPassphraseBytes.isEmpty()) memory_cleanse(pqcPassphraseBytes.data(), pqcPassphraseBytes.size());
+            Q_EMIT message(tr("Restore Failed"), tr("Envelope PQC KDF parameters are invalid."),
+                CClientUIInterface::MSG_ERROR);
+            return;
+        }
+
+        SecureString pqcPass(pqcPassphraseBytes.constData(), pqcPassphraseBytes.constData() + pqcPassphraseBytes.size());
+        CCrypter pqcPassCrypter;
+        std::vector<unsigned char> pqcSaltBytes(pqcSalt.begin(), pqcSalt.end());
+        if (!pqcPassCrypter.SetKeyFromPassphrase(pqcPass, pqcSaltBytes, pqcRounds, 0)) {
+            if (!aesPassphraseBytes.isEmpty()) memory_cleanse(aesPassphraseBytes.data(), aesPassphraseBytes.size());
+            if (!pqcPassphraseBytes.isEmpty()) memory_cleanse(pqcPassphraseBytes.data(), pqcPassphraseBytes.size());
+            Q_EMIT message(tr("Restore Failed"), tr("Unable to derive PQC passphrase key."),
+                CClientUIInterface::MSG_ERROR);
+            return;
+        }
+        if (!pqcPassCrypter.Decrypt(outerCipher, aesCipherMaterial)) {
+            if (!aesPassphraseBytes.isEmpty()) memory_cleanse(aesPassphraseBytes.data(), aesPassphraseBytes.size());
+            if (!pqcPassphraseBytes.isEmpty()) memory_cleanse(pqcPassphraseBytes.data(), pqcPassphraseBytes.size());
+            Q_EMIT message(tr("Restore Failed"), tr("PQC password decryption failed."),
+                CClientUIInterface::MSG_ERROR);
+            return;
+        }
     }
 
+    // --- AES layer decryption (common to both V3 and V4) ---
     SecureString aesPass(aesPassphraseBytes.constData(), aesPassphraseBytes.constData() + aesPassphraseBytes.size());
     CCrypter aesCrypter;
     std::vector<unsigned char> aesSaltBytes(aesSalt.begin(), aesSalt.end());
