@@ -167,9 +167,9 @@ AC_ARG_WITH([qrencode],
 
 AC_ARG_WITH([liboqs],
   [AS_HELP_STRING([--with-liboqs],
-  [enable liboqs support with upstream liboqs (Falcon-512 and Dilithium2 only; default is auto)])],
+  [enable liboqs support with upstream liboqs (Falcon-512 and Dilithium2 only; default is no)])],
   [use_liboqs=$withval],
-  [use_liboqs=auto])
+  [use_liboqs=no])
 
 AC_ARG_WITH([liboqs-raccoon],
   [AS_HELP_STRING([--with-liboqs-raccoon],
@@ -962,27 +962,13 @@ else
   fi
 fi
 
-if test "x$use_liboqs" != "xno"; then
-  if test "x$liboqs_found" = "xyes"; then
-    if test "x$use_liboqs" = "xyes"; then
-      DOGECOIN_REQUIRE_EXPERIMENTAL
-      use_liboqs=yes
-    elif test x$allow_experimental = xyes; then
-      use_liboqs=yes
-    else
-      use_liboqs=no
-    fi
-  elif test "x$use_liboqs" = "xyes"; then
-    AC_MSG_ERROR([liboqs support requested but liboqs was not found])
-  else
-    use_liboqs=no
-  fi
-fi
-
 if test "x$use_liboqs" = "xyes"; then
+  DOGECOIN_REQUIRE_EXPERIMENTAL
+  if test "x$liboqs_found" != "xyes"; then
+    AC_MSG_ERROR([liboqs support requested but liboqs was not found])
+  fi
   AC_DEFINE([ENABLE_LIBOQS],[1],[Define to 1 to enable liboqs support])
 else
-  use_liboqs=no
   AC_DEFINE([ENABLE_LIBOQS],[0],[Define to 1 to enable liboqs support])
 fi
 
