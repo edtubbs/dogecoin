@@ -61,8 +61,6 @@ src/qt/test/moc*.cpp
 *.pb.h
 
 *.log
-!doc/spec/core-e2e-validation-real.log
-!doc/spec/core-e2e-validation-real.console.log
 *.trs
 *.dmg
 
