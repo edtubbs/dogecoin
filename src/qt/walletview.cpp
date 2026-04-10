@@ -63,10 +63,6 @@ EXPERIMENTAL_FEATURE
 #include <QRegularExpression>
 #include <QVBoxLayout>
 
-#ifdef ENABLE_LIBOQS_RACCOON
-EXPERIMENTAL_FEATURE
-#endif
-
 namespace {
 const char* PQCSignatureStorageKeyForAlgorithm(const QString& algorithm)
 {
