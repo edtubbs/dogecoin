@@ -17,6 +17,8 @@
 #include "consensus/consensus.h"
 #if ENABLE_LIBOQS
 #include "pqc/pqc_commitment.h"
+#include "support/experimental.h"
+EXPERIMENTAL_FEATURE
 #endif
 #include "validation.h"
 #include "script/script.h"

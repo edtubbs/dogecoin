@@ -23,6 +23,8 @@
 #include "pow.h"
 #if ENABLE_LIBOQS
 #include "pqc/pqc_commitment.h"
+#include "support/experimental.h"
+EXPERIMENTAL_FEATURE
 #endif
 #include "primitives/block.h"
 #include "primitives/pureheader.h"

@@ -22,6 +22,8 @@
 #include "dogecoin-fees.h"
 #if ENABLE_LIBOQS
 #include "pqc/pqc_commitment.h"
+#include "support/experimental.h"
+EXPERIMENTAL_FEATURE
 #endif
 #include "script/standard.h"
 #include "utilstrencodings.h"
