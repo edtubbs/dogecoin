@@ -165,23 +165,6 @@ AC_ARG_WITH([qrencode],
   [use_qr=$withval],
   [use_qr=auto])
 
-AC_ARG_WITH([liboqs],
-  [AS_HELP_STRING([--with-liboqs],
-  [enable liboqs support with upstream liboqs (Falcon-512 and Dilithium2 only; default is no)])],
-  [use_liboqs=$withval],
-  [use_liboqs=no])
-
-AC_ARG_WITH([liboqs-raccoon],
-  [AS_HELP_STRING([--with-liboqs-raccoon],
-  [enable liboqs support with edtubbs/liboqs fork (adds Raccoon-G-44; default is no)])],
-  [use_liboqs_raccoon=$withval],
-  [use_liboqs_raccoon=no])
-
-dnl --with-liboqs-raccoon implies --with-liboqs
-if test "x$use_liboqs_raccoon" = "xyes"; then
-  use_liboqs=yes
-fi
-
 AC_ARG_ENABLE([hardening],
   [AS_HELP_STRING([--disable-hardening],
   [do not attempt to harden the resulting executables (default is to harden)])],
@@ -253,6 +236,23 @@ AC_ARG_WITH([armv82-crypto],
   [Build with armv8.2 crypto sha512 (default is no)])],
   [armv82_crypto=$withval],
   [armv82_crypto=no])
+
+AC_ARG_WITH([liboqs],
+  [AS_HELP_STRING([--with-liboqs],
+  [enable liboqs support with upstream liboqs (Falcon-512 and Dilithium2 only; default is no)])],
+  [use_liboqs=$withval],
+  [use_liboqs=no])
+
+AC_ARG_WITH([liboqs-raccoon],
+  [AS_HELP_STRING([--with-liboqs-raccoon],
+  [enable liboqs support with edtubbs/liboqs fork (adds Raccoon-G-44; default is no)])],
+  [use_liboqs_raccoon=$withval],
+  [use_liboqs_raccoon=no])
+
+dnl --with-liboqs-raccoon implies --with-liboqs
+if test "x$use_liboqs_raccoon" = "xyes"; then
+  use_liboqs=yes
+fi
 
 AC_ARG_ENABLE(man,
     [AS_HELP_STRING([--disable-man],
