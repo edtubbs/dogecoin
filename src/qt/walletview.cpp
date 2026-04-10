@@ -566,65 +566,12 @@ void WalletView::backupWalletEncrypted()
         CClientUIInterface::MSG_INFORMATION);
 
 #else
-    // --- Layer 2: AES-256-CBC cascade (no liboqs available) ---
-    std::vector<unsigned char> pqcSalt(WALLET_CRYPTO_SALT_SIZE);
-    GetStrongRandBytes(pqcSalt.data(), WALLET_CRYPTO_SALT_SIZE);
-    QByteArray pqcPassphraseBytes = pqcPassphrase.toUtf8();
-    SecureString pqcPass(pqcPassphraseBytes.constData(), pqcPassphraseBytes.constData() + pqcPassphraseBytes.size());
-    const int pqcRounds = 50000;
-    CCrypter pqcPassCrypter;
-    if (!pqcPassCrypter.SetKeyFromPassphrase(pqcPass, pqcSalt, pqcRounds, 0)) {
-        if (!aesPassphraseBytes.isEmpty()) memory_cleanse(aesPassphraseBytes.data(), aesPassphraseBytes.size());
-        if (!pqcPassphraseBytes.isEmpty()) memory_cleanse(pqcPassphraseBytes.data(), pqcPassphraseBytes.size());
-        Q_EMIT message(tr("Encryption Failed"), tr("Unable to derive PQC passphrase key."),
-            CClientUIInterface::MSG_ERROR);
-        return;
-    }
-
-    CKeyingMaterial aesCipherMaterial(aesCipher.begin(), aesCipher.end());
-    std::vector<unsigned char> outerCipher;
-    if (!pqcPassCrypter.Encrypt(aesCipherMaterial, outerCipher)) {
-        if (!aesPassphraseBytes.isEmpty()) memory_cleanse(aesPassphraseBytes.data(), aesPassphraseBytes.size());
-        if (!pqcPassphraseBytes.isEmpty()) memory_cleanse(pqcPassphraseBytes.data(), pqcPassphraseBytes.size());
-        if (!aesCipherMaterial.empty()) memory_cleanse(&aesCipherMaterial[0], aesCipherMaterial.size());
-        Q_EMIT message(tr("Encryption Failed"), tr("Unable to encrypt AES layer with second password layer."),
-            CClientUIInterface::MSG_ERROR);
-        return;
-    }
-    if (!aesCipherMaterial.empty()) memory_cleanse(&aesCipherMaterial[0], aesCipherMaterial.size());
-
+    // liboqs is required for PQC envelope creation (ML-KEM-768)
     if (!aesPassphraseBytes.isEmpty()) memory_cleanse(aesPassphraseBytes.data(), aesPassphraseBytes.size());
-    if (!pqcPassphraseBytes.isEmpty()) memory_cleanse(pqcPassphraseBytes.data(), pqcPassphraseBytes.size());
-
-    const QByteArray envelopeAlgo = "AES256-CBC+AES256-CBC-CASCADE";
-    unsigned char digest[CSHA256::OUTPUT_SIZE];
-    CSHA256 hasher;
-    hasher.Write(reinterpret_cast<const unsigned char*>(envelopeAlgo.constData()), envelopeAlgo.size());
-    hasher.Write(reinterpret_cast<const unsigned char*>(outerCipher.data()), outerCipher.size());
-    hasher.Finalize(digest);
-
-    QFile outFile(outFilename);
-    if (!outFile.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
-        memory_cleanse(digest, sizeof(digest));
-        Q_EMIT message(tr("Encryption Failed"), tr("Unable to write envelope file %1.").arg(outFilename),
-            CClientUIInterface::MSG_ERROR);
-        return;
-    }
-    outFile.write("DGC-PQCE3\n");
-    outFile.write("ALGO:" + envelopeAlgo + "\n");
-    outFile.write("AES_KDF:sha512-aes256cbc\n");
-    outFile.write("AES_SALT:" + QByteArray(reinterpret_cast<const char*>(aesSalt.data()), aesSalt.size()).toHex() + "\n");
-    outFile.write("AES_ROUNDS:25000\n");
-    outFile.write("PQC_KDF:sha512-aes256cbc\n");
-    outFile.write("PQC_SALT:" + QByteArray(reinterpret_cast<const char*>(pqcSalt.data()), pqcSalt.size()).toHex() + "\n");
-    outFile.write("PQC_ROUNDS:" + QByteArray::number(pqcRounds) + "\n");
-    outFile.write("DATA_SHA256:" + QByteArray(reinterpret_cast<const char*>(digest), sizeof(digest)).toHex() + "\n");
-    outFile.write("DATA_B64:" + QByteArray(reinterpret_cast<const char*>(outerCipher.data()), outerCipher.size()).toBase64() + "\n");
-    outFile.close();
-    memory_cleanse(digest, sizeof(digest));
-
-    Q_EMIT message(tr("Backup Successful"), tr("Double password-encrypted (AES + AES cascade) wallet backup was successfully saved to %1.").arg(outFilename),
-        CClientUIInterface::MSG_INFORMATION);
+    Q_EMIT message(tr("Encryption Failed"),
+        tr("PQC envelope backup requires liboqs (ML-KEM-768). Rebuild with --with-liboqs --enable-experimental."),
+        CClientUIInterface::MSG_ERROR);
+    return;
 #endif // ENABLE_LIBOQS
 }
 

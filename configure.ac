@@ -177,6 +177,11 @@ AC_ARG_WITH([liboqs-raccoon],
   [use_liboqs_raccoon=$withval],
   [use_liboqs_raccoon=no])
 
+dnl --with-liboqs-raccoon implies --with-liboqs
+if test "x$use_liboqs_raccoon" = "xyes"; then
+  use_liboqs=yes
+fi
+
 AC_ARG_ENABLE([hardening],
   [AS_HELP_STRING([--disable-hardening],
   [do not attempt to harden the resulting executables (default is to harden)])],
@@ -962,36 +967,19 @@ else
   fi
 fi
 
-if test "x$use_liboqs" != "xno"; then
-  if test "x$liboqs_found" = "xyes"; then
-    if test "x$use_liboqs" = "xyes"; then
-      DOGECOIN_REQUIRE_EXPERIMENTAL
-      use_liboqs=yes
-    elif test x$allow_experimental = xyes; then
-      use_liboqs=yes
-    else
-      use_liboqs=no
-    fi
-  elif test "x$use_liboqs" = "xyes"; then
-    AC_MSG_ERROR([liboqs support requested but liboqs was not found])
-  else
-    use_liboqs=no
-  fi
-fi
-
+dnl liboqs support (--with-liboqs or --with-liboqs-raccoon)
 if test "x$use_liboqs" = "xyes"; then
+  DOGECOIN_REQUIRE_EXPERIMENTAL
+  if test "x$liboqs_found" != "xyes"; then
+    AC_MSG_ERROR([liboqs support requested but liboqs was not found])
+  fi
   AC_DEFINE([ENABLE_LIBOQS],[1],[Define to 1 to enable liboqs support])
 else
-  use_liboqs=no
   AC_DEFINE([ENABLE_LIBOQS],[0],[Define to 1 to enable liboqs support])
 fi
 
-dnl --with-liboqs-raccoon implies liboqs support and adds Raccoon-G-44
+dnl --with-liboqs-raccoon adds Raccoon-G-44 support
 if test "x$use_liboqs_raccoon" = "xyes"; then
-  DOGECOIN_REQUIRE_EXPERIMENTAL
-  if test "x$use_liboqs" != "xyes"; then
-    AC_MSG_ERROR([--with-liboqs-raccoon requires liboqs support (use --with-liboqs-raccoon with a liboqs-raccoon-enabled depends build)])
-  fi
   AC_DEFINE([ENABLE_LIBOQS_RACCOON],[1],[Define to 1 to enable Raccoon-G-44 via edtubbs/liboqs fork])
 fi
 
