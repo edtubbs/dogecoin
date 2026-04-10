@@ -678,7 +678,7 @@ void SendCoinsDialog::onDecodePqcCommitmentClicked()
 
     // Build HTML matching the transaction details style (<b>Label:</b> value<br>)
     QString html;
-    html += "<html><body>";
+    html += "<html><body style=\"word-break: break-all;\">";
     html += "<b>" + tr("Selected key algorithm") + ":</b> " + GUIUtil::HtmlEscape(pqcSelectedAlgorithm.isEmpty() ? tr("unknown") : pqcSelectedAlgorithm) + "<br>";
     html += "<b>" + tr("Selected public key") + ":</b> " + GUIUtil::HtmlEscape(pqcSelectedPublicKeyHex.isEmpty() ? tr("n/a") : (pqcSelectedPublicKeyHex.left(16) + "..." + pqcSelectedPublicKeyHex.right(16))) + "<br>";
     html += "<b>" + tr("Commitment") + ":</b> " + GUIUtil::HtmlEscape(commitment) + "<br>";
@@ -777,7 +777,7 @@ void SendCoinsDialog::onDecodePqcCommitmentClicked()
             fullPayload.insert(fullPayload.end(), sigBytes.begin(), sigBytes.end());
             const std::string fullPayloadHex = HexStr(fullPayload.begin(), fullPayload.end());
             html += "<b>" + tr("TX_R full payload (pk||sig)") + ":</b> "
-                  + GUIUtil::HtmlEscape(QString::fromStdString(fullPayloadHex).left(120) + "...") + "<br>";
+                  + GUIUtil::HtmlEscape(QString::fromStdString(fullPayloadHex)) + "<br>";
             html += "<b>" + tr("TX_R payload size") + ":</b> " + QString::number(fullPayload.size()) + " " + tr("bytes") + "<br>";
 
             // Verify commitment matches SHA256(pk || sig)

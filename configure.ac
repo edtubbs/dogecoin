@@ -1368,7 +1368,7 @@ if test x$allow_experimental = xyes; then
     echo "    ARMv82 crypto = $armv82_crypto"
     echo "    with liboqs   = $use_liboqs"
     if test x$use_liboqs = xyes; then
-        echo "      with raccoon = $use_liboqs_raccoon"
+        echo "      raccoon     = $use_liboqs_raccoon"
     fi
 fi
 echo
