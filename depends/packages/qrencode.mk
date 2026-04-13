@@ -11,7 +11,7 @@ $(package)_config_opts_linux=--with-pic
 endef
 
 define $(package)_preprocess_cmds
-  ./autogen.sh
+  mkdir -p m4 && ./autogen.sh
 endef
 
 define $(package)_config_cmds
