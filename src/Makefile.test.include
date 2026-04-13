@@ -167,6 +167,9 @@ test_test_dogecoin_LDFLAGS = $(RELDFLAGS) $(AM_LDFLAGS) $(LIBTOOL_APP_LDFLAGS) -
 if ENABLE_ZMQ
 test_test_dogecoin_LDADD += $(ZMQ_LIBS)
 endif
+if ENABLE_LIBOQS
+test_test_dogecoin_LDADD += $(LIBOQS_LIBS)
+endif
 #
 
 # test_bitcoin_fuzzy binary #

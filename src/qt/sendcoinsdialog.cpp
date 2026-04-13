@@ -34,7 +34,7 @@ EXPERIMENTAL_FEATURE
 #include "wallet/wallet.h"
 #include "crypto/sha256.h"
 #include "support/cleanse.h"
-#include "crypter.h"
+#include "wallet/crypter.h"
 
 #include <univalue.h>
 

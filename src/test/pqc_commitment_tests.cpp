@@ -483,6 +483,135 @@ BOOST_AUTO_TEST_CASE(pqc_carrier_decode_validate_mainnet_tx_r_c32635aa)
         "3938a41d3ffc68a55583033a2be98c11");
 }
 
+BOOST_AUTO_TEST_CASE(pqc_generate_keypair_falcon512)
+{
+    std::vector<unsigned char> public_key;
+    std::vector<unsigned char> secret_key;
+    BOOST_CHECK(PQCGenerateKeypair(PQCCommitmentType::FALCON512, public_key, secret_key));
+    // Falcon-512 public key is 897 bytes
+    BOOST_CHECK_EQUAL(public_key.size(), 897u);
+    // Falcon-512 secret key is 1281 bytes
+    BOOST_CHECK_EQUAL(secret_key.size(), 1281u);
+    // Keys must not be empty/zero
+    BOOST_CHECK(!public_key.empty());
+    BOOST_CHECK(!secret_key.empty());
+}
+
+BOOST_AUTO_TEST_CASE(pqc_generate_keypair_dilithium2)
+{
+    std::vector<unsigned char> public_key;
+    std::vector<unsigned char> secret_key;
+    BOOST_CHECK(PQCGenerateKeypair(PQCCommitmentType::DILITHIUM2, public_key, secret_key));
+    // ML-DSA-44 (Dilithium2) public key is 1312 bytes
+    BOOST_CHECK_EQUAL(public_key.size(), 1312u);
+    // ML-DSA-44 (Dilithium2) secret key is 2560 bytes
+    BOOST_CHECK_EQUAL(secret_key.size(), 2560u);
+}
+
+BOOST_AUTO_TEST_CASE(pqc_sign_verify_falcon512_roundtrip)
+{
+    // Generate a keypair
+    std::vector<unsigned char> pk, sk;
+    BOOST_CHECK(PQCGenerateKeypair(PQCCommitmentType::FALCON512, pk, sk));
+
+    // Sign a 32-byte message (mimics sighash32)
+    const std::vector<unsigned char> message = ParseHex("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f");
+    std::vector<unsigned char> signature;
+    BOOST_CHECK(PQCSign(PQCCommitmentType::FALCON512, sk, message.data(), message.size(), signature));
+    // Falcon-512 signature is variable, typically 640-690 bytes
+    BOOST_CHECK(signature.size() >= 600);
+    BOOST_CHECK(signature.size() <= 800);
+
+    // Verify the signature
+    BOOST_CHECK(PQCVerify(PQCCommitmentType::FALCON512, pk, message.data(), message.size(), signature));
+
+    // Verify fails with wrong message
+    std::vector<unsigned char> wrong_message = message;
+    wrong_message[0] ^= 0xff;
+    BOOST_CHECK(!PQCVerify(PQCCommitmentType::FALCON512, pk, wrong_message.data(), wrong_message.size(), signature));
+
+    // Verify fails with wrong public key
+    std::vector<unsigned char> pk2, sk2;
+    BOOST_CHECK(PQCGenerateKeypair(PQCCommitmentType::FALCON512, pk2, sk2));
+    BOOST_CHECK(!PQCVerify(PQCCommitmentType::FALCON512, pk2, message.data(), message.size(), signature));
+}
+
+BOOST_AUTO_TEST_CASE(pqc_sign_verify_dilithium2_roundtrip)
+{
+    std::vector<unsigned char> pk, sk;
+    BOOST_CHECK(PQCGenerateKeypair(PQCCommitmentType::DILITHIUM2, pk, sk));
+
+    const std::vector<unsigned char> message = ParseHex("deadbeef01020304050607080910111213141516171819202122232425262728");
+    std::vector<unsigned char> signature;
+    BOOST_CHECK(PQCSign(PQCCommitmentType::DILITHIUM2, sk, message.data(), message.size(), signature));
+    // ML-DSA-44 (Dilithium2) signature is 2420 bytes
+    BOOST_CHECK_EQUAL(signature.size(), 2420u);
+
+    BOOST_CHECK(PQCVerify(PQCCommitmentType::DILITHIUM2, pk, message.data(), message.size(), signature));
+
+    // Tamper with signature
+    std::vector<unsigned char> bad_sig = signature;
+    bad_sig[0] ^= 0xff;
+    BOOST_CHECK(!PQCVerify(PQCCommitmentType::DILITHIUM2, pk, message.data(), message.size(), bad_sig));
+}
+
+BOOST_AUTO_TEST_CASE(pqc_commitment_from_real_signature)
+{
+    // Generate keypair and sign, then verify the full commitment flow
+    std::vector<unsigned char> pk, sk;
+    BOOST_CHECK(PQCGenerateKeypair(PQCCommitmentType::FALCON512, pk, sk));
+
+    const std::vector<unsigned char> message = ParseHex("aabbccdd00112233445566778899aabbccddeeff00112233445566778899aabb");
+    std::vector<unsigned char> sig;
+    BOOST_CHECK(PQCSign(PQCCommitmentType::FALCON512, sk, message.data(), message.size(), sig));
+
+    // Compute commitment = SHA256(pk || sig)
+    uint256 commitment;
+    BOOST_CHECK(PQCComputeCommitment(pk, sig, commitment));
+
+    // Verify that SHA256(pk || sig) matches manual computation
+    unsigned char expected[CSHA256::OUTPUT_SIZE];
+    CSHA256()
+        .Write(pk.data(), pk.size())
+        .Write(sig.data(), sig.size())
+        .Finalize(expected);
+    BOOST_CHECK(std::equal(expected, expected + CSHA256::OUTPUT_SIZE, commitment.begin()));
+
+    // Build and extract commitment script
+    CScript script;
+    BOOST_CHECK(PQCBuildCommitmentScript(PQCCommitmentType::FALCON512, commitment, script));
+
+    PQCCommitmentType parsed_type;
+    uint256 parsed_commitment;
+    BOOST_CHECK(PQCExtractCommitment(script, parsed_type, parsed_commitment));
+    BOOST_CHECK(parsed_type == PQCCommitmentType::FALCON512);
+    BOOST_CHECK(parsed_commitment == commitment);
+
+    // Verify the signature
+    BOOST_CHECK(PQCVerify(PQCCommitmentType::FALCON512, pk, message.data(), message.size(), sig));
+}
+
+BOOST_AUTO_TEST_CASE(pqc_sign_rejects_wrong_key_size)
+{
+    // Empty secret key
+    const std::vector<unsigned char> empty_sk;
+    const std::vector<unsigned char> message = ParseHex("0011223344556677");
+    std::vector<unsigned char> signature;
+    BOOST_CHECK(!PQCSign(PQCCommitmentType::FALCON512, empty_sk, message.data(), message.size(), signature));
+
+    // Wrong size secret key (too short)
+    const std::vector<unsigned char> short_sk(32, 0x42);
+    BOOST_CHECK(!PQCSign(PQCCommitmentType::FALCON512, short_sk, message.data(), message.size(), signature));
+}
+
+BOOST_AUTO_TEST_CASE(pqc_verify_rejects_wrong_key_size)
+{
+    const std::vector<unsigned char> message = ParseHex("0011223344556677");
+    const std::vector<unsigned char> short_pk(32, 0x42);
+    const std::vector<unsigned char> fake_sig(64, 0xaa);
+    BOOST_CHECK(!PQCVerify(PQCCommitmentType::FALCON512, short_pk, message.data(), message.size(), fake_sig));
+}
+
 BOOST_AUTO_TEST_SUITE_END()
 
 #endif // ENABLE_LIBOQS

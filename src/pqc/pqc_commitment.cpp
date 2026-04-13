@@ -462,7 +462,7 @@ const char* PQCGetOQSAlgorithmName(PQCCommitmentType type)
         return OQS_SIG_alg_ml_dsa_44;
 #ifdef ENABLE_LIBOQS_RACCOON
     case PQCCommitmentType::RACCOONG44:
-        return "raccoon_g_44";
+        return "Raccoon-G-44";
 #endif
     default:
         return nullptr;
