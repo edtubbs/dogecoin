@@ -676,11 +676,35 @@ void SendCoinsDialog::onDecodePqcCommitmentClicked()
 
     const bool carrierEnabled = pqcCarrierModeCheckBox && pqcCarrierModeCheckBox->isChecked();
 
+    // Compute the auto-generated PQC signature early so it can be shown in the header
+    QString pqcSignatureHex;
+    {
+        QList<SendCoinsRecipient> currentRecipients;
+        for (int i = 0; i < ui->entries->count(); ++i) {
+            SendCoinsEntry* entry = qobject_cast<SendCoinsEntry*>(ui->entries->itemAt(i)->widget());
+            if (entry) {
+                const SendCoinsRecipient r = entry->getValue();
+                if (!r.address.trimmed().isEmpty() && r.amount > 0)
+                    currentRecipients.append(r);
+            }
+        }
+        if (!pqcSelectedAlgorithm.isEmpty() && !pqcSelectedPublicKeyHex.isEmpty() && !currentRecipients.isEmpty()) {
+            pqcSignatureHex = BuildAutoPqcSignatureHex(pqcSelectedAlgorithm, pqcSelectedPublicKeyHex, currentRecipients);
+        }
+    }
+
     // Build HTML matching the transaction details style (<b>Label:</b> value<br>)
     QString html;
     html += "<html><body style=\"word-break: break-all;\">";
     html += "<b>" + tr("Selected key algorithm") + ":</b> " + GUIUtil::HtmlEscape(pqcSelectedAlgorithm.isEmpty() ? tr("unknown") : pqcSelectedAlgorithm) + "<br>";
     html += "<b>" + tr("Selected public key") + ":</b> " + GUIUtil::HtmlEscape(pqcSelectedPublicKeyHex.isEmpty() ? tr("n/a") : pqcSelectedPublicKeyHex) + "<br>";
+    if (!pqcSelectedPublicKeyHex.isEmpty() && IsHex(pqcSelectedPublicKeyHex.toStdString())) {
+        html += "<b>" + tr("Selected public key size") + ":</b> " + QString::number(ParseHex(pqcSelectedPublicKeyHex.toStdString()).size()) + " " + tr("bytes") + "<br>";
+    }
+    html += "<b>" + tr("Selected PQC signature") + ":</b> " + GUIUtil::HtmlEscape(pqcSignatureHex.isEmpty() ? tr("n/a") : pqcSignatureHex) + "<br>";
+    if (!pqcSignatureHex.isEmpty() && IsHex(pqcSignatureHex.toStdString())) {
+        html += "<b>" + tr("Selected PQC signature size") + ":</b> " + QString::number(ParseHex(pqcSignatureHex.toStdString()).size()) + " " + tr("bytes") + "<br>";
+    }
     html += "<b>" + tr("Commitment") + ":</b> " + GUIUtil::HtmlEscape(commitment) + "<br>";
     html += "<b>" + tr("OP_RETURN scriptPubKey") + ":</b> " + GUIUtil::HtmlEscape(scriptPubKey) + "<br>";
     html += "<b>" + tr("Script starts with OP_RETURN") + ":</b> " + (scriptPubKey.startsWith("6a24", Qt::CaseInsensitive) ? tr("yes") : tr("no")) + "<br>";
@@ -720,8 +744,9 @@ void SendCoinsDialog::onDecodePqcCommitmentClicked()
         if (!pqcSelectedPublicKeyHex.isEmpty() && IsHex(pqcSelectedPublicKeyHex.toStdString())) {
             pkLen = ParseHex(pqcSelectedPublicKeyHex.toStdString()).size();
         }
-        // Estimate sig size based on algorithm (auto-generated signature is 64 bytes)
-        const size_t sigLen = 64;
+        // Use actual auto-generated signature size
+        const size_t sigLen = (!pqcSignatureHex.isEmpty() && IsHex(pqcSignatureHex.toStdString()))
+            ? ParseHex(pqcSignatureHex.toStdString()).size() : 0;
         const size_t payloadSize = pkLen + sigLen;
         const uint8_t partsNeeded = PQCCarrierPartsNeeded(payloadSize);
 
@@ -743,21 +768,10 @@ void SendCoinsDialog::onDecodePqcCommitmentClicked()
         html += "<b>" + tr("TX_R (Reveal Transaction)") + ":</b><br>";
 
         // Build actual TX_R carrier scriptSig data for each part
-        if (!pqcSelectedPublicKeyHex.isEmpty() && IsHex(pqcSelectedPublicKeyHex.toStdString())) {
+        if (!pqcSelectedPublicKeyHex.isEmpty() && IsHex(pqcSelectedPublicKeyHex.toStdString())
+            && !pqcSignatureHex.isEmpty() && IsHex(pqcSignatureHex.toStdString())) {
             const std::vector<unsigned char> pubkeyBytes = ParseHex(pqcSelectedPublicKeyHex.toStdString());
-
-            // Rebuild the auto-generated signature from current recipients
-            QList<SendCoinsRecipient> currentRecipients;
-            for (int i = 0; i < ui->entries->count(); ++i) {
-                SendCoinsEntry* entry = qobject_cast<SendCoinsEntry*>(ui->entries->itemAt(i)->widget());
-                if (entry) {
-                    const SendCoinsRecipient r = entry->getValue();
-                    if (!r.address.trimmed().isEmpty() && r.amount > 0)
-                        currentRecipients.append(r);
-                }
-            }
-            const QString sigHex = BuildAutoPqcSignatureHex(pqcSelectedAlgorithm, pqcSelectedPublicKeyHex, currentRecipients);
-            const std::vector<unsigned char> sigBytes = ParseHex(sigHex.toStdString());
+            const std::vector<unsigned char> sigBytes = ParseHex(pqcSignatureHex.toStdString());
 
             for (uint8_t p = 0; p < partsNeeded; ++p) {
                 CScript partScriptSig;
@@ -770,15 +784,25 @@ void SendCoinsDialog::onDecodePqcCommitmentClicked()
                 }
             }
 
-            // Show PQC public key and signature separately
-            const std::string pubkeyHex = HexStr(pubkeyBytes.begin(), pubkeyBytes.end());
+            // Show PQC public key and signature separately (for visual comparison with header)
+            const std::string pubkeyHexStr = HexStr(pubkeyBytes.begin(), pubkeyBytes.end());
             const std::string sigHexStr = HexStr(sigBytes.begin(), sigBytes.end());
             html += "<b>" + tr("TX_R PQC public key") + ":</b> "
-                  + GUIUtil::HtmlEscape(QString::fromStdString(pubkeyHex)) + "<br>";
+                  + GUIUtil::HtmlEscape(QString::fromStdString(pubkeyHexStr)) + "<br>";
             html += "<b>" + tr("TX_R PQC public key size") + ":</b> " + QString::number(pubkeyBytes.size()) + " " + tr("bytes") + "<br>";
             html += "<b>" + tr("TX_R PQC signature") + ":</b> "
                   + GUIUtil::HtmlEscape(QString::fromStdString(sigHexStr)) + "<br>";
             html += "<b>" + tr("TX_R PQC signature size") + ":</b> " + QString::number(sigBytes.size()) + " " + tr("bytes") + "<br>";
+
+            // Validate TX_R public key matches selected public key
+            const bool pkMatch = (pubkeyHexStr == pqcSelectedPublicKeyHex.toStdString());
+            html += "<b>" + tr("TX_R public key matches selected") + ":</b> "
+                  + (pkMatch ? tr("yes") : tr("NO — MISMATCH")) + "<br>";
+
+            // Validate TX_R signature matches auto-generated signature
+            const bool sigMatch = (sigHexStr == pqcSignatureHex.toStdString());
+            html += "<b>" + tr("TX_R signature matches selected") + ":</b> "
+                  + (sigMatch ? tr("yes") : tr("NO — MISMATCH")) + "<br>";
 
             // Show full payload hex (pk || sig)
             std::vector<unsigned char> fullPayload;
@@ -799,7 +823,22 @@ void SendCoinsDialog::onDecodePqcCommitmentClicked()
             memcpy(recomputedCommitment.begin(), hash, 32);
             html += "<b>" + tr("TX_R SHA256(pk||sig)") + ":</b> " + GUIUtil::HtmlEscape(QString::fromStdString(recomputedCommitment.GetHex()))
                   + " " + tr("(included in both TX_C OP_RETURN and TX_R carrier)") + "<br>";
-            html += "<b>" + tr("Commitment matches") + ":</b> " + (recomputedCommitment.GetHex() == commitment.toStdString() ? tr("yes") : tr("no")) + "<br>";
+            const bool commitmentMatch = (recomputedCommitment.GetHex() == commitment.toStdString());
+            html += "<b>" + tr("Commitment matches") + ":</b> " + (commitmentMatch ? tr("yes") : tr("NO — MISMATCH")) + "<br>";
+
+            // Overall signature validation summary
+            html += "<br>";
+            if (pkMatch && sigMatch && commitmentMatch) {
+                html += "<b>" + tr("PQC signature validation") + ":</b> <span style=\"color:green;\">"
+                      + tr("PASSED — public key, signature, and commitment all verified") + "</span><br>";
+            } else {
+                QString failReason;
+                if (!pkMatch) failReason += tr("public key mismatch") + "; ";
+                if (!sigMatch) failReason += tr("signature mismatch") + "; ";
+                if (!commitmentMatch) failReason += tr("commitment mismatch") + "; ";
+                html += "<b>" + tr("PQC signature validation") + ":</b> <span style=\"color:red;\">"
+                      + tr("FAILED — %1").arg(failReason) + "</span><br>";
+            }
         } else {
             html += "<b>" + tr("TX_R data") + ":</b> " + tr("public key not available for scriptSig computation") + "<br>";
         }
