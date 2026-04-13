@@ -187,10 +187,11 @@ test_test_dogecoin_fuzzy_LDADD = \
   $(LIBDOGECOIN_CRYPTO) \
   $(LIBSECP256K1)
 
-test_test_dogecoin_fuzzy_LDADD += $(BOOST_LIBS) $(CRYPTO_LIBS)
+test_test_dogecoin_fuzzy_LDADD += $(BOOST_LIBS)
 if ENABLE_LIBOQS
 test_test_dogecoin_fuzzy_LDADD += $(LIBOQS_LIBS)
 endif
+test_test_dogecoin_fuzzy_LDADD += $(CRYPTO_LIBS)
 #
 
 nodist_test_test_dogecoin_SOURCES = $(GENERATED_TEST_FILES)
