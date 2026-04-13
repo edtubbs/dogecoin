@@ -680,7 +680,7 @@ void SendCoinsDialog::onDecodePqcCommitmentClicked()
     QString html;
     html += "<html><body style=\"word-break: break-all;\">";
     html += "<b>" + tr("Selected key algorithm") + ":</b> " + GUIUtil::HtmlEscape(pqcSelectedAlgorithm.isEmpty() ? tr("unknown") : pqcSelectedAlgorithm) + "<br>";
-    html += "<b>" + tr("Selected public key") + ":</b> " + GUIUtil::HtmlEscape(pqcSelectedPublicKeyHex.isEmpty() ? tr("n/a") : (pqcSelectedPublicKeyHex.left(16) + "..." + pqcSelectedPublicKeyHex.right(16))) + "<br>";
+    html += "<b>" + tr("Selected public key") + ":</b> " + GUIUtil::HtmlEscape(pqcSelectedPublicKeyHex.isEmpty() ? tr("n/a") : pqcSelectedPublicKeyHex) + "<br>";
     html += "<b>" + tr("Commitment") + ":</b> " + GUIUtil::HtmlEscape(commitment) + "<br>";
     html += "<b>" + tr("OP_RETURN scriptPubKey") + ":</b> " + GUIUtil::HtmlEscape(scriptPubKey) + "<br>";
     html += "<b>" + tr("Script starts with OP_RETURN") + ":</b> " + (scriptPubKey.startsWith("6a24", Qt::CaseInsensitive) ? tr("yes") : tr("no")) + "<br>";
@@ -764,11 +764,21 @@ void SendCoinsDialog::onDecodePqcCommitmentClicked()
                 if (PQCBuildCarrierPartScriptSig(detectedType, pubkeyBytes, sigBytes, p, partScriptSig)) {
                     const std::string ssHex = HexStr(partScriptSig.begin(), partScriptSig.end());
                     html += "<b>" + tr("TX_R scriptSig part %1/%2").arg(p + 1).arg(partsNeeded) + ":</b> "
-                          + GUIUtil::HtmlEscape(QString::fromStdString(ssHex).left(120) + "...") + "<br>";
+                          + GUIUtil::HtmlEscape(QString::fromStdString(ssHex)) + "<br>";
                     html += "<b>" + tr("TX_R part %1 size").arg(p + 1) + ":</b> "
                           + QString::number(partScriptSig.size()) + " " + tr("bytes") + "<br>";
                 }
             }
+
+            // Show PQC public key and signature separately
+            const std::string pubkeyHex = HexStr(pubkeyBytes.begin(), pubkeyBytes.end());
+            const std::string sigHexStr = HexStr(sigBytes.begin(), sigBytes.end());
+            html += "<b>" + tr("TX_R PQC public key") + ":</b> "
+                  + GUIUtil::HtmlEscape(QString::fromStdString(pubkeyHex)) + "<br>";
+            html += "<b>" + tr("TX_R PQC public key size") + ":</b> " + QString::number(pubkeyBytes.size()) + " " + tr("bytes") + "<br>";
+            html += "<b>" + tr("TX_R PQC signature") + ":</b> "
+                  + GUIUtil::HtmlEscape(QString::fromStdString(sigHexStr)) + "<br>";
+            html += "<b>" + tr("TX_R PQC signature size") + ":</b> " + QString::number(sigBytes.size()) + " " + tr("bytes") + "<br>";
 
             // Show full payload hex (pk || sig)
             std::vector<unsigned char> fullPayload;
@@ -787,7 +797,8 @@ void SendCoinsDialog::onDecodePqcCommitmentClicked()
             hasher.Finalize(hash);
             uint256 recomputedCommitment;
             memcpy(recomputedCommitment.begin(), hash, 32);
-            html += "<b>" + tr("TX_R SHA256(pk||sig)") + ":</b> " + GUIUtil::HtmlEscape(QString::fromStdString(recomputedCommitment.GetHex())) + "<br>";
+            html += "<b>" + tr("TX_R SHA256(pk||sig)") + ":</b> " + GUIUtil::HtmlEscape(QString::fromStdString(recomputedCommitment.GetHex()))
+                  + " " + tr("(included in both TX_C OP_RETURN and TX_R carrier)") + "<br>";
             html += "<b>" + tr("Commitment matches") + ":</b> " + (recomputedCommitment.GetHex() == commitment.toStdString() ? tr("yes") : tr("no")) + "<br>";
         } else {
             html += "<b>" + tr("TX_R data") + ":</b> " + tr("public key not available for scriptSig computation") + "<br>";
