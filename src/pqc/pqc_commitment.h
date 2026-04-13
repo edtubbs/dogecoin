@@ -128,6 +128,30 @@ bool PQCValidateCommitmentFromCarrier(const CTransaction& tx,
                                        uint16_t& pk_len_out,
                                        uint16_t& sig_len_out);
 
+/** Extract the raw PQC public key and signature bytes from carrier
+ *  scriptSig data in the transaction inputs. Reconstructs the full
+ *  payload from multi-part carrier inputs and splits by pk_len.
+ *  Returns true if extraction succeeded (does NOT validate commitment).
+ */
+bool PQCExtractKeyMaterialFromCarrier(const CTransaction& tx,
+                                       PQCCommitmentType& type_out,
+                                       std::vector<unsigned char>& pubkey_out,
+                                       std::vector<unsigned char>& signature_out);
+
+/** Full PQC signature verification from carrier data:
+ *  1. Extract pk + sig from carrier scriptSig inputs
+ *  2. Validate SHA256(pk || sig) == commitment
+ *  3. Verify the PQC signature over the provided message using liboqs OQS_SIG_verify
+ *  Returns true only if all three steps pass.
+ */
+bool PQCVerifySignatureFromCarrier(const CTransaction& tx,
+                                    const uint256& commitment,
+                                    const unsigned char* message, size_t message_len,
+                                    PQCCommitmentType& type_out,
+                                    uint32_t& carrier_input_index_out,
+                                    uint16_t& pk_len_out,
+                                    uint16_t& sig_len_out);
+
 // --- liboqs PQC Cryptographic Operations ---
 
 /** Get the liboqs OQS_SIG algorithm identifier string for a PQC type.

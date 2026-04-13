@@ -612,6 +612,197 @@ BOOST_AUTO_TEST_CASE(pqc_verify_rejects_wrong_key_size)
     BOOST_CHECK(!PQCVerify(PQCCommitmentType::FALCON512, short_pk, message.data(), message.size(), fake_sig));
 }
 
+BOOST_AUTO_TEST_CASE(pqc_extract_key_material_from_carrier_falcon)
+{
+    // Generate a real Falcon-512 keypair
+    std::vector<unsigned char> pk, sk;
+    BOOST_CHECK(PQCGenerateKeypair(PQCCommitmentType::FALCON512, pk, sk));
+    BOOST_CHECK_EQUAL(pk.size(), 897u);
+
+    // Sign a 32-byte message (mimics tx sighash32)
+    const std::vector<unsigned char> message = ParseHex("aabbccdd00112233445566778899aabbccddeeff00112233445566778899aabb");
+    std::vector<unsigned char> sig;
+    BOOST_CHECK(PQCSign(PQCCommitmentType::FALCON512, sk, message.data(), message.size(), sig));
+    BOOST_CHECK(!sig.empty());
+
+    // Build carrier scriptSig
+    CScript carrierScriptSig;
+    BOOST_CHECK(PQCBuildCarrierPartScriptSig(PQCCommitmentType::FALCON512, pk, sig, 0, carrierScriptSig));
+
+    // Build a TX with carrier input
+    CMutableTransaction mtx;
+    mtx.vin.resize(1);
+    mtx.vin[0].scriptSig = carrierScriptSig;
+    mtx.vout.resize(1);
+    mtx.vout[0].scriptPubKey = CScript() << OP_DUP << OP_HASH160
+        << ParseHex("00112233445566778899aabbccddeeff00112233") << OP_EQUALVERIFY << OP_CHECKSIG;
+    const CTransaction tx(mtx);
+
+    // Extract key material
+    PQCCommitmentType extracted_type;
+    std::vector<unsigned char> extracted_pk, extracted_sig;
+    BOOST_CHECK(PQCExtractKeyMaterialFromCarrier(tx, extracted_type, extracted_pk, extracted_sig));
+    BOOST_CHECK(extracted_type == PQCCommitmentType::FALCON512);
+    BOOST_CHECK(extracted_pk == pk);
+    BOOST_CHECK(extracted_sig == sig);
+}
+
+BOOST_AUTO_TEST_CASE(pqc_verify_signature_from_carrier_falcon_roundtrip)
+{
+    // Full roundtrip: keygen -> sign -> carrier TX -> extract -> verify via liboqs
+    std::vector<unsigned char> pk, sk;
+    BOOST_CHECK(PQCGenerateKeypair(PQCCommitmentType::FALCON512, pk, sk));
+
+    // Sign a 32-byte message (mimics tx sighash32)
+    const std::vector<unsigned char> message = ParseHex("deadbeef01020304050607080910111213141516171819202122232425262728");
+    std::vector<unsigned char> sig;
+    BOOST_CHECK(PQCSign(PQCCommitmentType::FALCON512, sk, message.data(), message.size(), sig));
+
+    // Compute commitment
+    uint256 commitment;
+    BOOST_CHECK(PQCComputeCommitment(pk, sig, commitment));
+
+    // Build commitment script
+    CScript commitScript;
+    BOOST_CHECK(PQCBuildCommitmentScript(PQCCommitmentType::FALCON512, commitment, commitScript));
+
+    // Build carrier scriptSig
+    CScript carrierScriptSig;
+    BOOST_CHECK(PQCBuildCarrierPartScriptSig(PQCCommitmentType::FALCON512, pk, sig, 0, carrierScriptSig));
+
+    // Build TX with carrier input + commitment output
+    CMutableTransaction mtx;
+    mtx.vin.resize(1);
+    mtx.vin[0].scriptSig = carrierScriptSig;
+    mtx.vout.resize(2);
+    mtx.vout[0].scriptPubKey = CScript() << OP_DUP << OP_HASH160
+        << ParseHex("00112233445566778899aabbccddeeff00112233") << OP_EQUALVERIFY << OP_CHECKSIG;
+    mtx.vout[1].scriptPubKey = commitScript;
+    const CTransaction tx(mtx);
+
+    // Verify signature from carrier (should PASS with correct message)
+    PQCCommitmentType verified_type;
+    uint32_t carrier_input = 0;
+    uint16_t pk_len = 0, sig_len = 0;
+    BOOST_CHECK(PQCVerifySignatureFromCarrier(tx, commitment,
+        message.data(), message.size(),
+        verified_type, carrier_input, pk_len, sig_len));
+    BOOST_CHECK(verified_type == PQCCommitmentType::FALCON512);
+    BOOST_CHECK_EQUAL(pk_len, 897);
+    BOOST_CHECK(sig_len >= 600 && sig_len <= 800);
+
+    // Verify should FAIL with wrong message
+    std::vector<unsigned char> wrong_message = message;
+    wrong_message[0] ^= 0xff;
+    BOOST_CHECK(!PQCVerifySignatureFromCarrier(tx, commitment,
+        wrong_message.data(), wrong_message.size(),
+        verified_type, carrier_input, pk_len, sig_len));
+
+    // Verify should FAIL with wrong commitment
+    uint256 wrong_commitment;
+    wrong_commitment.SetHex("0000000000000000000000000000000000000000000000000000000000000001");
+    BOOST_CHECK(!PQCVerifySignatureFromCarrier(tx, wrong_commitment,
+        message.data(), message.size(),
+        verified_type, carrier_input, pk_len, sig_len));
+
+    // Verify should FAIL with null message
+    BOOST_CHECK(!PQCVerifySignatureFromCarrier(tx, commitment,
+        nullptr, 0,
+        verified_type, carrier_input, pk_len, sig_len));
+}
+
+BOOST_AUTO_TEST_CASE(pqc_verify_signature_from_carrier_dilithium2_roundtrip)
+{
+    // Full roundtrip for Dilithium2 (ML-DSA-44)
+    std::vector<unsigned char> pk, sk;
+    BOOST_CHECK(PQCGenerateKeypair(PQCCommitmentType::DILITHIUM2, pk, sk));
+    BOOST_CHECK_EQUAL(pk.size(), 1312u);
+
+    const std::vector<unsigned char> message = ParseHex("0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20");
+    std::vector<unsigned char> sig;
+    BOOST_CHECK(PQCSign(PQCCommitmentType::DILITHIUM2, sk, message.data(), message.size(), sig));
+    BOOST_CHECK_EQUAL(sig.size(), 2420u);
+
+    uint256 commitment;
+    BOOST_CHECK(PQCComputeCommitment(pk, sig, commitment));
+
+    CScript commitScript;
+    BOOST_CHECK(PQCBuildCommitmentScript(PQCCommitmentType::DILITHIUM2, commitment, commitScript));
+
+    // Dilithium2 needs 3 carrier parts (pk=1312 + sig=2420 = 3732 bytes)
+    uint8_t partsNeeded = PQCCarrierPartsNeeded(pk.size() + sig.size());
+    BOOST_CHECK_EQUAL(partsNeeded, 3);
+
+    CMutableTransaction mtx;
+    mtx.vin.resize(partsNeeded);
+    for (uint8_t p = 0; p < partsNeeded; ++p) {
+        CScript partScript;
+        BOOST_CHECK(PQCBuildCarrierPartScriptSig(PQCCommitmentType::DILITHIUM2, pk, sig, p, partScript));
+        mtx.vin[p].scriptSig = partScript;
+    }
+    mtx.vout.resize(2);
+    mtx.vout[0].scriptPubKey = CScript() << OP_DUP << OP_HASH160
+        << ParseHex("00112233445566778899aabbccddeeff00112233") << OP_EQUALVERIFY << OP_CHECKSIG;
+    mtx.vout[1].scriptPubKey = commitScript;
+    const CTransaction tx(mtx);
+
+    // Verify signature from carrier (should PASS)
+    PQCCommitmentType verified_type;
+    uint32_t carrier_input = 0;
+    uint16_t pk_len = 0, sig_len = 0;
+    BOOST_CHECK(PQCVerifySignatureFromCarrier(tx, commitment,
+        message.data(), message.size(),
+        verified_type, carrier_input, pk_len, sig_len));
+    BOOST_CHECK(verified_type == PQCCommitmentType::DILITHIUM2);
+    BOOST_CHECK_EQUAL(pk_len, 1312);
+    BOOST_CHECK_EQUAL(sig_len, 2420);
+
+    // Wrong message should FAIL
+    std::vector<unsigned char> wrong_msg = message;
+    wrong_msg[31] ^= 0xff;
+    BOOST_CHECK(!PQCVerifySignatureFromCarrier(tx, commitment,
+        wrong_msg.data(), wrong_msg.size(),
+        verified_type, carrier_input, pk_len, sig_len));
+}
+
+BOOST_AUTO_TEST_CASE(pqc_validate_commitment_from_carrier_still_works)
+{
+    // Ensure the refactored PQCValidateCommitmentFromCarrier still works
+    std::vector<unsigned char> pk, sk;
+    BOOST_CHECK(PQCGenerateKeypair(PQCCommitmentType::FALCON512, pk, sk));
+
+    const std::vector<unsigned char> message = ParseHex("ff00ff00ff00ff00ff00ff00ff00ff00ff00ff00ff00ff00ff00ff00ff00ff00");
+    std::vector<unsigned char> sig;
+    BOOST_CHECK(PQCSign(PQCCommitmentType::FALCON512, sk, message.data(), message.size(), sig));
+
+    uint256 commitment;
+    BOOST_CHECK(PQCComputeCommitment(pk, sig, commitment));
+
+    CScript commitScript;
+    BOOST_CHECK(PQCBuildCommitmentScript(PQCCommitmentType::FALCON512, commitment, commitScript));
+
+    CScript carrierScriptSig;
+    BOOST_CHECK(PQCBuildCarrierPartScriptSig(PQCCommitmentType::FALCON512, pk, sig, 0, carrierScriptSig));
+
+    CMutableTransaction mtx;
+    mtx.vin.resize(1);
+    mtx.vin[0].scriptSig = carrierScriptSig;
+    mtx.vout.resize(2);
+    mtx.vout[0].scriptPubKey = CScript() << OP_DUP << OP_HASH160
+        << ParseHex("00112233445566778899aabbccddeeff00112233") << OP_EQUALVERIFY << OP_CHECKSIG;
+    mtx.vout[1].scriptPubKey = commitScript;
+    const CTransaction tx(mtx);
+
+    // Commitment-only validation (SHA256 check) should still pass
+    PQCCommitmentType carrier_type;
+    uint32_t carrier_input = 0;
+    uint16_t pk_len = 0, sig_len = 0;
+    BOOST_CHECK(PQCValidateCommitmentFromCarrier(tx, commitment, carrier_type, carrier_input, pk_len, sig_len));
+    BOOST_CHECK(carrier_type == PQCCommitmentType::FALCON512);
+    BOOST_CHECK_EQUAL(pk_len, (uint16_t)pk.size());
+    BOOST_CHECK_EQUAL(sig_len, (uint16_t)sig.size());
+}
+
 BOOST_AUTO_TEST_SUITE_END()
 
 #endif // ENABLE_LIBOQS

@@ -1059,6 +1059,15 @@ bool AcceptToMemoryPoolWorker(CTxMemPool& pool, CValidationState& state, const C
                 LogPrint("mempool", "PQC commitment validated via carrier for mempool tx %s: type=%s vout=%u carrier_vin=%u pk_len=%u sig_len=%u commitment=%s\n",
                     hash.ToString(), PQCCommitmentTypeToString(carrier_type), pqc_output_index, carrier_input_index,
                     carrier_pk_len, carrier_sig_len, pqc_commitment.GetHex());
+                // Extract PQC key material for informational logging
+                std::vector<unsigned char> pqc_pubkey, pqc_sig;
+                if (PQCExtractKeyMaterialFromCarrier(tx, carrier_type, pqc_pubkey, pqc_sig)) {
+                    LogPrint("mempool", "PQC carrier key material extracted for tx %s: algorithm=%s pk_len=%u sig_len=%u pk_prefix=%s sig_prefix=%s (signature verification requires signing message)\n",
+                        hash.ToString(), PQCGetOQSAlgorithmName(carrier_type) ? PQCGetOQSAlgorithmName(carrier_type) : "unknown",
+                        pqc_pubkey.size(), pqc_sig.size(),
+                        HexStr(pqc_pubkey.begin(), pqc_pubkey.begin() + std::min((size_t)8, pqc_pubkey.size())),
+                        HexStr(pqc_sig.begin(), pqc_sig.begin() + std::min((size_t)8, pqc_sig.size())));
+                }
             } else {
                 LogPrint("mempool", "PQC commitment accepted without carrier match for mempool tx %s: type=%s vout=%u commitment=%s\n",
                     hash.ToString(), PQCCommitmentTypeToString(pqc_type), pqc_output_index, pqc_commitment.GetHex());

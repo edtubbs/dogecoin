@@ -365,14 +365,14 @@ bool PQCParseCarrierPartScriptSig(const CScript& scriptSig,
     return true;
 }
 
-bool PQCValidateCommitmentFromCarrier(const CTransaction& tx,
-                                       const uint256& commitment,
+// Internal helper: gather carrier parts from all inputs and reconstruct full payload.
+// Returns the extracted pubkey, sig, detected type, and first carrier input index.
+static bool ReconstructCarrierPayload(const CTransaction& tx,
                                        PQCCommitmentType& type_out,
-                                       uint32_t& carrier_input_index_out,
-                                       uint16_t& pk_len_out,
-                                       uint16_t& sig_len_out)
+                                       std::vector<unsigned char>& pubkey_out,
+                                       std::vector<unsigned char>& sig_out,
+                                       uint32_t& carrier_input_index_out)
 {
-    // Gather carrier parts from all inputs
     struct CarrierPart {
         uint8_t part_index;
         PQCCarrierHeader header;
@@ -397,7 +397,7 @@ bool PQCValidateCommitmentFromCarrier(const CTransaction& tx,
             detected_type = input_type;
             type_set = true;
         } else if (input_type != detected_type) {
-            continue; // Mixed types in same tx — skip
+            continue; // Mixed types in same tx -- skip
         }
 
         CarrierPart part;
@@ -432,22 +432,69 @@ bool PQCValidateCommitmentFromCarrier(const CTransaction& tx,
     uint16_t pk_len = parts[0].header.pk_len;
     if (pk_len > full_payload.size()) return false;
 
-    std::vector<unsigned char> pubkey(full_payload.begin(), full_payload.begin() + pk_len);
-    std::vector<unsigned char> sig(full_payload.begin() + pk_len, full_payload.end());
+    pubkey_out.assign(full_payload.begin(), full_payload.begin() + pk_len);
+    sig_out.assign(full_payload.begin() + pk_len, full_payload.end());
 
-    if (pubkey.empty() || sig.empty()) return false;
+    if (pubkey_out.empty() || sig_out.empty()) return false;
+
+    type_out = detected_type;
+    carrier_input_index_out = parts[0].input_index;
+    return true;
+}
+
+bool PQCValidateCommitmentFromCarrier(const CTransaction& tx,
+                                       const uint256& commitment,
+                                       PQCCommitmentType& type_out,
+                                       uint32_t& carrier_input_index_out,
+                                       uint16_t& pk_len_out,
+                                       uint16_t& sig_len_out)
+{
+    std::vector<unsigned char> pubkey, sig;
+    if (!ReconstructCarrierPayload(tx, type_out, pubkey, sig, carrier_input_index_out))
+        return false;
 
     // Recompute commitment
     uint256 recomputed;
     if (!PQCComputeCommitment(pubkey, sig, recomputed)) return false;
-
     if (recomputed != commitment) return false;
 
-    type_out = detected_type;
-    carrier_input_index_out = parts[0].input_index;
-    pk_len_out = pk_len;
+    pk_len_out = static_cast<uint16_t>(pubkey.size());
     sig_len_out = static_cast<uint16_t>(sig.size());
     return true;
+}
+
+bool PQCExtractKeyMaterialFromCarrier(const CTransaction& tx,
+                                       PQCCommitmentType& type_out,
+                                       std::vector<unsigned char>& pubkey_out,
+                                       std::vector<unsigned char>& signature_out)
+{
+    uint32_t carrier_input_index = 0;
+    return ReconstructCarrierPayload(tx, type_out, pubkey_out, signature_out, carrier_input_index);
+}
+
+bool PQCVerifySignatureFromCarrier(const CTransaction& tx,
+                                    const uint256& commitment,
+                                    const unsigned char* message, size_t message_len,
+                                    PQCCommitmentType& type_out,
+                                    uint32_t& carrier_input_index_out,
+                                    uint16_t& pk_len_out,
+                                    uint16_t& sig_len_out)
+{
+    std::vector<unsigned char> pubkey, sig;
+    if (!ReconstructCarrierPayload(tx, type_out, pubkey, sig, carrier_input_index_out))
+        return false;
+
+    // Step 1: Validate SHA256(pk || sig) == commitment
+    uint256 recomputed;
+    if (!PQCComputeCommitment(pubkey, sig, recomputed)) return false;
+    if (recomputed != commitment) return false;
+
+    pk_len_out = static_cast<uint16_t>(pubkey.size());
+    sig_len_out = static_cast<uint16_t>(sig.size());
+
+    // Step 2: Verify the PQC signature over the message using liboqs
+    if (!message || message_len == 0) return false;
+    return PQCVerify(type_out, pubkey, message, message_len, sig);
 }
 
 // --- liboqs PQC Cryptographic Operations ---

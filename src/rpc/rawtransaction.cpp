@@ -137,6 +137,14 @@ void TxToJSON(const CTransaction& tx, const uint256 hashBlock, UniValue& entry)
             pqc.pushKV("carrier_input_index", (int64_t)carrierInputIndex);
             pqc.pushKV("carrier_pk_len", (int64_t)carrierPkLen);
             pqc.pushKV("carrier_sig_len", (int64_t)carrierSigLen);
+
+            // Extract and report the raw PQC public key and signature hex
+            std::vector<unsigned char> carrierPubkey, carrierSig;
+            if (PQCExtractKeyMaterialFromCarrier(tx, carrierType, carrierPubkey, carrierSig)) {
+                pqc.pushKV("carrier_pk_hex", HexStr(carrierPubkey.begin(), carrierPubkey.end()));
+                pqc.pushKV("carrier_sig_hex", HexStr(carrierSig.begin(), carrierSig.end()));
+                pqc.pushKV("carrier_algorithm", PQCGetOQSAlgorithmName(carrierType) ? PQCGetOQSAlgorithmName(carrierType) : "unknown");
+            }
         }
 
         entry.pushKV("pqc_commitment", pqc);
