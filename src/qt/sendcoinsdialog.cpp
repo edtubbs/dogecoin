@@ -33,6 +33,8 @@ EXPERIMENTAL_FEATURE
 #include "txmempool.h"
 #include "wallet/wallet.h"
 #include "crypto/sha256.h"
+#include "support/cleanse.h"
+#include "crypter.h"
 
 #include <univalue.h>
 
@@ -41,6 +43,7 @@ EXPERIMENTAL_FEATURE
 #include <QCheckBox>
 #include <QComboBox>
 #include <QDialogButtonBox>
+#include <QInputDialog>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QJsonParseError>
@@ -63,18 +66,19 @@ EXPERIMENTAL_FEATURE
 #define CHARACTERS_DISPLAY_LIMIT_IN_LABEL 45
 
 namespace {
-QByteArray Sha256Bytes(const QByteArray& input)
-{
-    unsigned char digest[CSHA256::OUTPUT_SIZE];
-    CSHA256().Write(reinterpret_cast<const unsigned char*>(input.constData()), input.size()).Finalize(digest);
-    return QByteArray(reinterpret_cast<const char*>(digest), sizeof(digest));
-}
 
-QString BuildAutoPqcSignatureHex(const QString& algorithm,
-                                 const QString& publicKeyHex,
-                                 const QList<SendCoinsRecipient>& recipients)
+/** Build a deterministic 32-byte message for PQC signing, binding the
+ *  signature to the transaction parameters (recipients + amounts).
+ *  Per the BIP spec, the message SHOULD be a transaction sighash, but since
+ *  the GUI generates the commitment before the transaction is assembled,
+ *  we use a deterministic digest that binds to the intended tx parameters.
+ *  Returns raw 32 bytes.
+ */
+QByteArray BuildPqcSigningMessage(const QString& algorithm,
+                                  const QString& publicKeyHex,
+                                  const QList<SendCoinsRecipient>& recipients)
 {
-    QByteArray context("DGC-PQC-AUTOSIG|");
+    QByteArray context("DGC-PQC-SIG-V1|");
     context.append(algorithm.trimmed().toUtf8());
     context.append("|");
     context.append(publicKeyHex.trimmed().toUtf8());
@@ -88,9 +92,9 @@ QString BuildAutoPqcSignatureHex(const QString& algorithm,
         context.append(r.fSubtractFeeFromAmount ? "1" : "0");
         context.append(";");
     }
-    const QByteArray sigPartA = Sha256Bytes(context);
-    const QByteArray sigPartB = Sha256Bytes(QByteArray("DGC-PQC-AUTOSIG-2|") + context);
-    return QString::fromLatin1((sigPartA + sigPartB).toHex());
+    unsigned char digest[CSHA256::OUTPUT_SIZE];
+    CSHA256().Write(reinterpret_cast<const unsigned char*>(context.constData()), context.size()).Finalize(digest);
+    return QByteArray(reinterpret_cast<const char*>(digest), sizeof(digest));
 }
 
 } // namespace
@@ -505,6 +509,8 @@ void SendCoinsDialog::clear()
 {
     pqcSelectedAlgorithm.clear();
     pqcSelectedPublicKeyHex.clear();
+    pqcSelectedSignatureHex.clear();
+    pqcSigningMessageHex.clear();
     pqcCommitmentScriptPubKeyHex.clear();
     if (pqcCommitmentLineEdit) {
         pqcCommitmentLineEdit->clear();
@@ -618,7 +624,111 @@ void SendCoinsDialog::onGeneratePqcCommitmentClicked()
         Q_EMIT message(tr("PQC Commitment"), tr("Enter at least one recipient with amount before generating a transaction commitment."), CClientUIInterface::MSG_WARNING);
         return;
     }
-    const QString signatureHex = BuildAutoPqcSignatureHex(algorithm, publicKeyHex, recipients);
+
+#if ENABLE_LIBOQS
+    // Parse the PQC algorithm type
+    PQCCommitmentType pqcType;
+    if (!ParsePQCCommitmentType(algorithm.toStdString(), pqcType)) {
+        Q_EMIT message(tr("PQC Commitment"), tr("Unknown PQC algorithm: %1").arg(algorithm), CClientUIInterface::MSG_ERROR);
+        return;
+    }
+
+    // Build the deterministic 32-byte signing message from tx parameters
+    const QByteArray message32 = BuildPqcSigningMessage(algorithm, publicKeyHex, recipients);
+
+    // Retrieve the stored key metadata to get the encrypted private key
+    const char* storageKeys[] = {
+        "pqc_sigkey_falcon512",
+        "pqc_sigkey_dilithium2",
+#ifdef ENABLE_LIBOQS_RACCOON
+        "pqc_sigkey_raccoong44",
+#endif
+    };
+    std::string metaJson;
+    bool foundKey = false;
+    for (size_t i = 0; i < sizeof(storageKeys) / sizeof(storageKeys[0]); ++i) {
+        if (model->getWalletMeta(storageKeys[i], &metaJson)) {
+            QJsonDocument doc = QJsonDocument::fromJson(QByteArray::fromStdString(metaJson));
+            if (doc.isObject()) {
+                const QString storedPubHex = doc.object().value("public_key_hex").toString().trimmed();
+                if (storedPubHex == publicKeyHex) {
+                    foundKey = true;
+                    break;
+                }
+            }
+        }
+    }
+    if (!foundKey || metaJson.empty()) {
+        Q_EMIT message(tr("PQC Commitment"), tr("Could not find stored PQC key metadata for the selected public key."), CClientUIInterface::MSG_ERROR);
+        return;
+    }
+
+    QJsonDocument metaDoc = QJsonDocument::fromJson(QByteArray::fromStdString(metaJson));
+    QJsonObject metaObj = metaDoc.object();
+    const QString encryptedHex = metaObj.value("encrypted_private_key_hex").toString().trimmed();
+    const QString saltHex = metaObj.value("salt_hex").toString().trimmed();
+    const int kdfRounds = metaObj.value("kdf_rounds").toInt(25000);
+
+    if (encryptedHex.isEmpty() || saltHex.isEmpty()) {
+        Q_EMIT message(tr("PQC Commitment"), tr("Stored PQC key is missing encrypted private key or salt."), CClientUIInterface::MSG_ERROR);
+        return;
+    }
+
+    // Prompt user for passphrase to decrypt the PQC private key
+    bool ok = false;
+    QString passphrase = QInputDialog::getText(
+        this,
+        tr("PQC Signature — Decrypt Private Key"),
+        tr("Enter passphrase to decrypt PQC private key for signing:"),
+        QLineEdit::Password,
+        QString(),
+        &ok);
+    if (!ok || passphrase.isEmpty()) {
+        Q_EMIT message(tr("PQC Commitment"), tr("PQC signing cancelled."), CClientUIInterface::MSG_WARNING);
+        return;
+    }
+
+    // Decrypt the private key
+    std::vector<unsigned char> encryptedPrivate = ParseHex(encryptedHex.toStdString());
+    std::vector<unsigned char> salt = ParseHex(saltHex.toStdString());
+    QByteArray passphraseBytes = passphrase.toUtf8();
+    SecureString pass(passphraseBytes.constData(), passphraseBytes.constData() + passphraseBytes.size());
+    memory_cleanse(passphraseBytes.data(), passphraseBytes.size());
+
+    CCrypter keyCrypter;
+    if (!keyCrypter.SetKeyFromPassphrase(pass, salt, kdfRounds, 0)) {
+        Q_EMIT message(tr("PQC Commitment"), tr("Failed to derive decryption key from passphrase."), CClientUIInterface::MSG_ERROR);
+        return;
+    }
+
+    CKeyingMaterial decryptedMaterial;
+    if (!keyCrypter.Decrypt(encryptedPrivate, decryptedMaterial)) {
+        Q_EMIT message(tr("PQC Commitment"), tr("Failed to decrypt PQC private key. Wrong passphrase?"), CClientUIInterface::MSG_ERROR);
+        return;
+    }
+
+    // Sign the message with the real PQC private key using liboqs
+    std::vector<unsigned char> secretKey(decryptedMaterial.begin(), decryptedMaterial.end());
+    memory_cleanse(&decryptedMaterial[0], decryptedMaterial.size());
+
+    std::vector<unsigned char> signatureBytes;
+    bool signOk = PQCSign(pqcType, secretKey,
+                           reinterpret_cast<const unsigned char*>(message32.constData()),
+                           message32.size(), signatureBytes);
+    memory_cleanse(secretKey.data(), secretKey.size());
+
+    if (!signOk || signatureBytes.empty()) {
+        Q_EMIT message(tr("PQC Commitment"), tr("PQC signing failed. The secret key may be invalid or corrupted."), CClientUIInterface::MSG_ERROR);
+        return;
+    }
+
+    const QString signatureHex = QString::fromStdString(HexStr(signatureBytes.begin(), signatureBytes.end()));
+#else
+    Q_EMIT message(tr("PQC Commitment"), tr("PQC signing requires liboqs. Rebuild with --with-liboqs --enable-experimental."), CClientUIInterface::MSG_ERROR);
+    return;
+    const QByteArray message32;
+    const QString signatureHex;
+#endif
 
     try {
         UniValue params(UniValue::VARR);
@@ -636,6 +746,8 @@ void SendCoinsDialog::onGeneratePqcCommitmentClicked()
 
         pqcSelectedAlgorithm = algorithm;
         pqcSelectedPublicKeyHex = publicKeyHex;
+        pqcSelectedSignatureHex = signatureHex;
+        pqcSigningMessageHex = QString::fromLatin1(message32.toHex());
         pqcCommitmentScriptPubKeyHex = scriptPubKey;
         pqcCommitmentLineEdit->setText(commitment);
         pqcDecodeButton->setEnabled(!commitment.isEmpty() && !pqcCommitmentScriptPubKeyHex.isEmpty());
@@ -676,22 +788,8 @@ void SendCoinsDialog::onDecodePqcCommitmentClicked()
 
     const bool carrierEnabled = pqcCarrierModeCheckBox && pqcCarrierModeCheckBox->isChecked();
 
-    // Compute the auto-generated PQC signature early so it can be shown in the header
-    QString pqcSignatureHex;
-    {
-        QList<SendCoinsRecipient> currentRecipients;
-        for (int i = 0; i < ui->entries->count(); ++i) {
-            SendCoinsEntry* entry = qobject_cast<SendCoinsEntry*>(ui->entries->itemAt(i)->widget());
-            if (entry) {
-                const SendCoinsRecipient r = entry->getValue();
-                if (!r.address.trimmed().isEmpty() && r.amount > 0)
-                    currentRecipients.append(r);
-            }
-        }
-        if (!pqcSelectedAlgorithm.isEmpty() && !pqcSelectedPublicKeyHex.isEmpty() && !currentRecipients.isEmpty()) {
-            pqcSignatureHex = BuildAutoPqcSignatureHex(pqcSelectedAlgorithm, pqcSelectedPublicKeyHex, currentRecipients);
-        }
-    }
+    // Use the real PQC signature stored during commitment generation
+    const QString pqcSignatureHex = pqcSelectedSignatureHex;
 
     // Build HTML matching the transaction details style (<b>Label:</b> value<br>)
     QString html;
@@ -828,14 +926,33 @@ void SendCoinsDialog::onDecodePqcCommitmentClicked()
 
             // Overall signature validation summary
             html += "<br>";
-            if (pkMatch && sigMatch && commitmentMatch) {
+
+            // Perform real cryptographic PQC signature verification using liboqs
+            bool cryptoVerified = false;
+            if (pkMatch && commitmentMatch && !pqcSigningMessageHex.isEmpty()
+                && IsHex(pqcSigningMessageHex.toStdString())) {
+                const std::vector<unsigned char> messageBytes = ParseHex(pqcSigningMessageHex.toStdString());
+                cryptoVerified = PQCVerify(detectedType, pubkeyBytes,
+                                           messageBytes.data(), messageBytes.size(),
+                                           sigBytes);
+            }
+
+            html += "<b>" + tr("Signing message (hex)") + ":</b> "
+                  + GUIUtil::HtmlEscape(pqcSigningMessageHex.isEmpty() ? tr("n/a") : pqcSigningMessageHex) + "<br>";
+            html += "<b>" + tr("OQS_SIG_verify() cryptographic check") + ":</b> "
+                  + (cryptoVerified
+                       ? "<span style=\"color:green;\">" + tr("PASSED") + "</span>"
+                       : "<span style=\"color:red;\">" + tr("FAILED") + "</span>") + "<br>";
+
+            if (pkMatch && sigMatch && commitmentMatch && cryptoVerified) {
                 html += "<b>" + tr("PQC signature validation") + ":</b> <span style=\"color:green;\">"
-                      + tr("PASSED — public key, signature, and commitment all verified") + "</span><br>";
+                      + tr("PASSED — public key, signature, commitment, and cryptographic verification all verified") + "</span><br>";
             } else {
                 QString failReason;
                 if (!pkMatch) failReason += tr("public key mismatch") + "; ";
                 if (!sigMatch) failReason += tr("signature mismatch") + "; ";
                 if (!commitmentMatch) failReason += tr("commitment mismatch") + "; ";
+                if (!cryptoVerified) failReason += tr("OQS_SIG_verify() failed") + "; ";
                 html += "<b>" + tr("PQC signature validation") + ":</b> <span style=\"color:red;\">"
                       + tr("FAILED — %1").arg(failReason) + "</span><br>";
             }

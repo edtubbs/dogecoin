@@ -16,6 +16,7 @@
 
 #if ENABLE_LIBOQS
 EXPERIMENTAL_FEATURE
+#include <oqs/oqs.h>
 #endif
 
 static const unsigned char PQC_COMMITMENT_OP_RETURN = OP_RETURN;
@@ -447,4 +448,132 @@ bool PQCValidateCommitmentFromCarrier(const CTransaction& tx,
     pk_len_out = pk_len;
     sig_len_out = static_cast<uint16_t>(sig.size());
     return true;
+}
+
+// --- liboqs PQC Cryptographic Operations ---
+
+const char* PQCGetOQSAlgorithmName(PQCCommitmentType type)
+{
+#if ENABLE_LIBOQS
+    switch (type) {
+    case PQCCommitmentType::FALCON512:
+        return OQS_SIG_alg_falcon_512;
+    case PQCCommitmentType::DILITHIUM2:
+        return OQS_SIG_alg_ml_dsa_44;
+#ifdef ENABLE_LIBOQS_RACCOON
+    case PQCCommitmentType::RACCOONG44:
+        return "raccoon_g_44";
+#endif
+    default:
+        return nullptr;
+    }
+#else
+    (void)type;
+    return nullptr;
+#endif
+}
+
+bool PQCGenerateKeypair(PQCCommitmentType type,
+                         std::vector<unsigned char>& public_key_out,
+                         std::vector<unsigned char>& secret_key_out)
+{
+#if ENABLE_LIBOQS
+    const char* alg_name = PQCGetOQSAlgorithmName(type);
+    if (!alg_name) return false;
+
+    OQS_SIG* sig = OQS_SIG_new(alg_name);
+    if (!sig) return false;
+
+    public_key_out.resize(sig->length_public_key);
+    secret_key_out.resize(sig->length_secret_key);
+
+    OQS_STATUS status = OQS_SIG_keypair(sig, public_key_out.data(), secret_key_out.data());
+    OQS_SIG_free(sig);
+
+    if (status != OQS_SUCCESS) {
+        public_key_out.clear();
+        secret_key_out.clear();
+        return false;
+    }
+    return true;
+#else
+    (void)type;
+    (void)public_key_out;
+    (void)secret_key_out;
+    return false;
+#endif
+}
+
+bool PQCSign(PQCCommitmentType type,
+             const std::vector<unsigned char>& secret_key,
+             const unsigned char* message, size_t message_len,
+             std::vector<unsigned char>& signature_out)
+{
+#if ENABLE_LIBOQS
+    const char* alg_name = PQCGetOQSAlgorithmName(type);
+    if (!alg_name) return false;
+    if (secret_key.empty() || !message || message_len == 0) return false;
+
+    OQS_SIG* sig = OQS_SIG_new(alg_name);
+    if (!sig) return false;
+
+    if (secret_key.size() != sig->length_secret_key) {
+        OQS_SIG_free(sig);
+        return false;
+    }
+
+    signature_out.resize(sig->length_signature);
+    size_t sig_len = 0;
+
+    OQS_STATUS status = OQS_SIG_sign(sig, signature_out.data(), &sig_len,
+                                      message, message_len, secret_key.data());
+    OQS_SIG_free(sig);
+
+    if (status != OQS_SUCCESS) {
+        signature_out.clear();
+        return false;
+    }
+    signature_out.resize(sig_len);
+    return true;
+#else
+    (void)type;
+    (void)secret_key;
+    (void)message;
+    (void)message_len;
+    (void)signature_out;
+    return false;
+#endif
+}
+
+bool PQCVerify(PQCCommitmentType type,
+               const std::vector<unsigned char>& public_key,
+               const unsigned char* message, size_t message_len,
+               const std::vector<unsigned char>& signature)
+{
+#if ENABLE_LIBOQS
+    const char* alg_name = PQCGetOQSAlgorithmName(type);
+    if (!alg_name) return false;
+    if (public_key.empty() || !message || message_len == 0 || signature.empty()) return false;
+
+    OQS_SIG* sig = OQS_SIG_new(alg_name);
+    if (!sig) return false;
+
+    if (public_key.size() != sig->length_public_key) {
+        OQS_SIG_free(sig);
+        return false;
+    }
+
+    OQS_STATUS status = OQS_SIG_verify(sig, message, message_len,
+                                        signature.data(), signature.size(),
+                                        public_key.data());
+    OQS_SIG_free(sig);
+    return status == OQS_SUCCESS;
+#else
+    (void)type;
+    (void)public_key;
+    (void)message;
+    (void)message_len;
+    (void)signature;
+    return false;
+#endif
 }

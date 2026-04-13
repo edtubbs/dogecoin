@@ -128,4 +128,34 @@ bool PQCValidateCommitmentFromCarrier(const CTransaction& tx,
                                        uint16_t& pk_len_out,
                                        uint16_t& sig_len_out);
 
+// --- liboqs PQC Cryptographic Operations ---
+
+/** Get the liboqs OQS_SIG algorithm identifier string for a PQC type.
+ *  Returns nullptr if the type is unknown or not supported. */
+const char* PQCGetOQSAlgorithmName(PQCCommitmentType type);
+
+/** Generate a real PQC keypair using liboqs.
+ *  public_key_out will be e.g. 897 bytes for Falcon-512.
+ *  secret_key_out will be e.g. 1281 bytes for Falcon-512.
+ */
+bool PQCGenerateKeypair(PQCCommitmentType type,
+                         std::vector<unsigned char>& public_key_out,
+                         std::vector<unsigned char>& secret_key_out);
+
+/** Sign a message with a PQC secret key using liboqs.
+ *  signature_out will be variable-length (e.g. ~660 bytes for Falcon-512).
+ */
+bool PQCSign(PQCCommitmentType type,
+             const std::vector<unsigned char>& secret_key,
+             const unsigned char* message, size_t message_len,
+             std::vector<unsigned char>& signature_out);
+
+/** Verify a PQC signature using liboqs.
+ *  Returns true if the signature is valid.
+ */
+bool PQCVerify(PQCCommitmentType type,
+               const std::vector<unsigned char>& public_key,
+               const unsigned char* message, size_t message_len,
+               const std::vector<unsigned char>& signature);
+
 #endif // DOGECOIN_PQC_COMMITMENT_H

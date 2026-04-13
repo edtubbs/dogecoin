@@ -37,6 +37,7 @@
 #if ENABLE_LIBOQS
 EXPERIMENTAL_FEATURE
 #include <oqs/oqs.h>
+#include "pqc/pqc_commitment.h"
 #endif
 
 #include <QAction>
@@ -1397,11 +1398,29 @@ void WalletView::showPQCSignatureDialog()
             return;
         }
 
-        QByteArray seed(32, 0);
-        GetStrongRandBytes(reinterpret_cast<unsigned char*>(seed.data()), seed.size());
-        QByteArray alg = algorithm->currentText().toUtf8();
-        QByteArray publicKey = Sha256Bytes("DGC-PQC-PUB|" + alg + "|" + seed);
-        QByteArray privateKey = seed + Sha256Bytes("DGC-PQC-PRIV|" + alg + "|" + seed);
+#if ENABLE_LIBOQS
+        // Generate real PQC keypair using liboqs (e.g. Falcon-512: pk=897, sk=1281 bytes)
+        PQCCommitmentType pqcType;
+        if (!ParsePQCCommitmentType(algorithm->currentText().toStdString(), pqcType)) {
+            actionStatusLabel->setText(tr("Unknown PQC algorithm: %1").arg(algorithm->currentText()));
+            return;
+        }
+        std::vector<unsigned char> realPublicKey;
+        std::vector<unsigned char> realSecretKey;
+        if (!PQCGenerateKeypair(pqcType, realPublicKey, realSecretKey)) {
+            actionStatusLabel->setText(tr("Failed to generate %1 keypair via liboqs.").arg(algorithm->currentText()));
+            return;
+        }
+
+        QByteArray publicKey(reinterpret_cast<const char*>(realPublicKey.data()), realPublicKey.size());
+        QByteArray privateKey(reinterpret_cast<const char*>(realSecretKey.data()), realSecretKey.size());
+        memory_cleanse(realSecretKey.data(), realSecretKey.size());
+#else
+        actionStatusLabel->setText(tr("PQC key generation requires liboqs. Rebuild with --with-liboqs --enable-experimental."));
+        return;
+        QByteArray publicKey;
+        QByteArray privateKey;
+#endif
 
         std::vector<unsigned char> salt(WALLET_CRYPTO_SALT_SIZE);
         GetStrongRandBytes(salt.data(), salt.size());
@@ -1410,7 +1429,6 @@ void WalletView::showPQCSignatureDialog()
         CCrypter keyCrypter;
         if (!keyCrypter.SetKeyFromPassphrase(pass, salt, 25000, 0)) {
             if (!passphraseBytes.isEmpty()) memory_cleanse(passphraseBytes.data(), passphraseBytes.size());
-            if (!seed.isEmpty()) memory_cleanse(seed.data(), seed.size());
             if (!privateKey.isEmpty()) memory_cleanse(privateKey.data(), privateKey.size());
             actionStatusLabel->setText(tr("Failed to derive key encryption key."));
             return;
@@ -1420,7 +1438,6 @@ void WalletView::showPQCSignatureDialog()
         std::vector<unsigned char> encryptedPrivateKey;
         if (!keyCrypter.Encrypt(privateMaterial, encryptedPrivateKey)) {
             if (!passphraseBytes.isEmpty()) memory_cleanse(passphraseBytes.data(), passphraseBytes.size());
-            if (!seed.isEmpty()) memory_cleanse(seed.data(), seed.size());
             if (!privateKey.isEmpty()) memory_cleanse(privateKey.data(), privateKey.size());
             if (!privateMaterial.empty()) memory_cleanse(&privateMaterial[0], privateMaterial.size());
             actionStatusLabel->setText(tr("Failed to encrypt generated private key."));
@@ -1428,7 +1445,6 @@ void WalletView::showPQCSignatureDialog()
         }
 
         if (!passphraseBytes.isEmpty()) memory_cleanse(passphraseBytes.data(), passphraseBytes.size());
-        if (!seed.isEmpty()) memory_cleanse(seed.data(), seed.size());
         if (!privateKey.isEmpty()) memory_cleanse(privateKey.data(), privateKey.size());
         if (!privateMaterial.empty()) memory_cleanse(&privateMaterial[0], privateMaterial.size());
 
@@ -1449,8 +1465,9 @@ void WalletView::showPQCSignatureDialog()
             return;
         }
         const QString generatedPubHex = QString::fromLatin1(publicKey.toHex());
-        actionStatusLabel->setText(tr("Generated and stored %1 key pair in wallet metadata (private key encrypted).")
-                                   .arg(algorithm->currentText()));
+        actionStatusLabel->setText(tr("Generated and stored %1 key pair in wallet metadata (private key encrypted, pk=%2 bytes).")
+                                   .arg(algorithm->currentText())
+                                   .arg(publicKey.size()));
         privateKeyHex->clear();
         refreshStoredInventory();
         selectStoredItem(algorithm->currentText(), generatedPubHex);

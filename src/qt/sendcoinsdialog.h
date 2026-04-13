@@ -76,6 +76,8 @@ private:
     QPushButton *pqcDecodeButton;
     QString pqcSelectedAlgorithm;
     QString pqcSelectedPublicKeyHex;
+    QString pqcSelectedSignatureHex;
+    QString pqcSigningMessageHex;
     QString pqcCommitmentScriptPubKeyHex;
 
     // Process WalletModel::SendCoinsReturn and generate a pair consisting
