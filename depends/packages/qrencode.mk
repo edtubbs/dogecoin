@@ -11,7 +11,10 @@ $(package)_config_opts_linux=--with-pic
 endef
 
 define $(package)_preprocess_cmds
-  mkdir -p m4 && ./autogen.sh
+  mkdir -p m4 && \
+  echo 'AC_DEFUN([AM_PATH_SDL],[])' > m4/sdl.m4 && \
+  echo 'AC_DEFUN([AM_ICONV_LINK],[])' > m4/iconv.m4 && \
+  autoreconf -fi
 endef
 
 define $(package)_config_cmds
