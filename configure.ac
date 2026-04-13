@@ -715,6 +715,21 @@ fi
 
 BITCOIN_QT_INIT
 
+dnl Qt 6 requires C++17 - verify before attempting Qt header checks
+if test x$bitcoin_qt_want_version != xno; then
+  AC_MSG_CHECKING([whether C++ compiler supports C++17 (required for Qt 6)])
+  AC_COMPILE_IFELSE(
+    [AC_LANG_PROGRAM([[
+      #if __cplusplus < 201703L
+      #error "C++17 required for Qt 6"
+      #endif
+    ]])],
+    [AC_MSG_RESULT([yes])],
+    [AC_MSG_RESULT([no])
+     AC_MSG_ERROR([Qt 6 requires a C++17 compiler. Please pass --enable-c++17 to configure.])]
+  )
+fi
+
 dnl Qt 6 static builds don't generate pkg-config files reliably.
 dnl Force use of direct library detection instead of pkg-config.
 dnl This uses _BITCOIN_QT_FIND_LIBS_WITHOUT_PKGCONFIG which finds Qt
