@@ -469,6 +469,7 @@ bool WalletModel::sendCarrierTx(const CTransaction& txc,
     {
         CValidationState state;
         bool fMissingInputs = false;
+        LOCK(cs_main);
         if (!AcceptToMemoryPool(mempool, state, txrRef, false /* fLimitFree */,
                                 &fMissingInputs, nullptr /* plTxnReplaced */,
                                 false /* fOverrideMempoolLimit */,
