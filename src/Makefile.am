@@ -415,10 +415,11 @@ dogecoind_LDADD = \
   $(LIBMEMENV) \
   $(LIBSECP256K1)
 
-dogecoind_LDADD += $(BOOST_LIBS) $(BDB_LIBS) $(SSL_LIBS) $(CRYPTO_LIBS) $(MINIUPNPC_LIBS) $(EVENT_PTHREADS_LIBS) $(EVENT_LIBS) $(ZMQ_LIBS)
+dogecoind_LDADD += $(BOOST_LIBS) $(BDB_LIBS)
 if ENABLE_LIBOQS
 dogecoind_LDADD += $(LIBOQS_LIBS)
 endif
+dogecoind_LDADD += $(SSL_LIBS) $(CRYPTO_LIBS) $(MINIUPNPC_LIBS) $(EVENT_PTHREADS_LIBS) $(EVENT_LIBS) $(ZMQ_LIBS)
 
 # bitcoin-cli binary #
 dogecoin_cli_SOURCES = bitcoin-cli.cpp
@@ -457,10 +458,11 @@ dogecoin_tx_LDADD = \
   $(LIBDOGECOIN_CRYPTO) \
   $(LIBSECP256K1)
 
-dogecoin_tx_LDADD += $(BOOST_LIBS) $(CRYPTO_LIBS)
+dogecoin_tx_LDADD += $(BOOST_LIBS)
 if ENABLE_LIBOQS
 dogecoin_tx_LDADD += $(LIBOQS_LIBS)
 endif
+dogecoin_tx_LDADD += $(CRYPTO_LIBS)
 #
 
 # bitcoinconsensus library #
