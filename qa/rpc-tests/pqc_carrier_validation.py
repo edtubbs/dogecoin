@@ -489,5 +489,7 @@ class TestDecodeConfirmedCarrierTxR(unittest.TestCase):
 if __name__ == "__main__":
     # Strip unknown test runner args (--srcdir, --cachedir, --portseed, etc.)
     sys.argv = [sys.argv[0]]
-    result = unittest.main(exit=False, verbosity=2)
-    sys.exit(0 if result.result.wasSuccessful() else 1)
+    # Use stdout for test output; the CI test runner treats any stderr as failure.
+    runner = unittest.TextTestRunner(stream=sys.stdout, verbosity=2)
+    result = runner.run(unittest.TestLoader().loadTestsFromModule(sys.modules[__name__]))
+    sys.exit(0 if result.wasSuccessful() else 1)

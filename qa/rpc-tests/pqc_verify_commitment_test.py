@@ -96,4 +96,7 @@ signature_hex: dd88
 if __name__ == "__main__":
     # Strip unknown test runner args (--srcdir, --cachedir, --portseed, etc.)
     sys.argv = [sys.argv[0]]
-    unittest.main()
+    # Use stdout for test output; the CI test runner treats any stderr as failure.
+    runner = unittest.TextTestRunner(stream=sys.stdout)
+    result = runner.run(unittest.TestLoader().loadTestsFromModule(sys.modules[__name__]))
+    sys.exit(0 if result.wasSuccessful() else 1)
