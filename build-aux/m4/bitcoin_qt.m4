@@ -426,7 +426,7 @@ AC_DEFUN([_BITCOIN_QT_FIND_LIBS_WITHOUT_PKGCONFIG],[
   dnl Use actual .h files with module path prefix for reliable detection.
   dnl These work for both Qt5 and Qt6, found via -I$prefix/include in CPPFLAGS.
   BITCOIN_QT_CHECK([AC_CHECK_HEADER([QtCore/qglobal.h],,BITCOIN_QT_FAIL(QtCore headers missing))])
-  BITCOIN_QT_CHECK([AC_CHECK_HEADER([QtWidgets/qapplication.h],, BITCOIN_QT_FAIL(QtWidgets headers missing))])
+  BITCOIN_QT_CHECK([AC_CHECK_HEADER([QtWidgets/qtwidgetsglobal.h],, BITCOIN_QT_FAIL(QtWidgets headers missing))])
   BITCOIN_QT_CHECK([AC_CHECK_HEADER([QtNetwork/qlocalsocket.h],, BITCOIN_QT_FAIL(QtNetwork headers missing))])
 
   BITCOIN_QT_CHECK([
@@ -451,14 +451,14 @@ AC_DEFUN([_BITCOIN_QT_FIND_LIBS_WITHOUT_PKGCONFIG],[
   ])
 
   BITCOIN_QT_CHECK(AC_CHECK_LIB([z] ,[main],,AC_MSG_WARN([zlib not found. Assuming qt has it built-in])))
-  BITCOIN_QT_CHECK(AC_SEARCH_LIBS([png_error] ,[qtpng png],,AC_MSG_WARN([libpng not found. Assuming qt has it built-in])))
-  BITCOIN_QT_CHECK(AC_SEARCH_LIBS([jpeg_create_decompress] ,[qtjpeg jpeg],,AC_MSG_WARN([libjpeg not found. Assuming qt has it built-in])))
-  if test x$bitcoin_qt_want_version = xqt6; then
-    BITCOIN_QT_CHECK(AC_SEARCH_LIBS([pcre2_code_free_16], [qtpcre2 pcre2-16],,AC_MSG_WARN([libpcre2-16 not found. Assuming qt has it built-in])))
+  if test x$bitcoin_qt_got_major_vers = x6; then
+    AC_MSG_NOTICE([Skipping optional jpeg/pcre/harfbuzz library checks for Qt6 static builds])
   else
+    BITCOIN_QT_CHECK(AC_SEARCH_LIBS([png_error] ,[qtpng png],,AC_MSG_WARN([libpng not found. Assuming qt has it built-in])))
+    BITCOIN_QT_CHECK(AC_SEARCH_LIBS([jpeg_create_decompress] ,[qtjpeg jpeg],,AC_MSG_WARN([libjpeg not found. Assuming qt has it built-in])))
     BITCOIN_QT_CHECK(AC_SEARCH_LIBS([pcre16_exec], [qtpcre pcre16],,AC_MSG_WARN([libpcre16 not found. Assuming qt has it built-in])))
+    BITCOIN_QT_CHECK(AC_SEARCH_LIBS([hb_ot_tags_from_script] ,[qtharfbuzzng harfbuzz],,AC_MSG_WARN([libharfbuzz not found. Assuming qt has it built-in or support is disabled])))
   fi
-  BITCOIN_QT_CHECK(AC_SEARCH_LIBS([hb_ot_tags_from_script] ,[qtharfbuzzng harfbuzz],,AC_MSG_WARN([libharfbuzz not found. Assuming qt has it built-in or support is disabled])))
   BITCOIN_QT_CHECK(AC_CHECK_LIB([${QT_LIB_PREFIX}Core]   ,[main],,BITCOIN_QT_FAIL(lib$QT_LIB_PREFIXCore not found)))
   BITCOIN_QT_CHECK(AC_CHECK_LIB([${QT_LIB_PREFIX}Gui]    ,[main],,BITCOIN_QT_FAIL(lib$QT_LIB_PREFIXGui not found)))
   BITCOIN_QT_CHECK(AC_CHECK_LIB([${QT_LIB_PREFIX}Network],[main],,BITCOIN_QT_FAIL(lib$QT_LIB_PREFIXNetwork not found)))
