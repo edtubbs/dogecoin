@@ -14,14 +14,20 @@ if test -z $with_qt_translationdir; then
   with_qt_translationdir=$depends_prefix/translations
 fi
 if test -z $with_qt_bindir; then
-  # Qt6 cmake installs tools to libexec/ by default; check multiple locations
-  if test -d $depends_prefix/libexec && test -x "$depends_prefix/libexec/moc"; then
-    with_qt_bindir=$depends_prefix/libexec
-  elif test -d $depends_prefix/bin && test -x "$depends_prefix/bin/moc"; then
-    with_qt_bindir=$depends_prefix/bin
-  else
-    with_qt_bindir=$depends_prefix/native/bin
+  # Qt6 installs core tools (moc, uic, rcc) to libexec/ and
+  # linguist tools (lrelease, lupdate) to bin/.
+  # Build a colon-separated path so AC_PATH_PROGS finds them all.
+  qt_bin_search=""
+  if test -d "$depends_prefix/libexec"; then
+    qt_bin_search="$depends_prefix/libexec"
   fi
+  if test -d "$depends_prefix/bin"; then
+    qt_bin_search="${qt_bin_search:+$qt_bin_search:}$depends_prefix/bin"
+  fi
+  if test -d "$depends_prefix/native/bin"; then
+    qt_bin_search="${qt_bin_search:+$qt_bin_search:}$depends_prefix/native/bin"
+  fi
+  with_qt_bindir="$qt_bin_search"
 fi
 if test -z $with_protoc_bindir; then
   with_protoc_bindir=$depends_prefix/native/bin
