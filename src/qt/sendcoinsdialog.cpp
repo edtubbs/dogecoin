@@ -491,6 +491,16 @@ void SendCoinsDialog::on_sendButton_clicked()
         return;
     }
 
+    // Store PQC signing message in the wallet transaction's mapValue for later verification
+#if ENABLE_LIBOQS
+    if (!pqcSigningMessageHex.isEmpty()) {
+        CWalletTx *wtxPqc = currentTransaction.getTransaction();
+        if (wtxPqc) {
+            wtxPqc->mapValue["pqcSigningMessage"] = pqcSigningMessageHex.toStdString();
+        }
+    }
+#endif
+
     // now send the prepared transaction
     WalletModel::SendCoinsReturn sendStatus = model->sendCoins(currentTransaction);
     // process sendStatus and on error generate message shown to user
@@ -498,6 +508,40 @@ void SendCoinsDialog::on_sendButton_clicked()
 
     if (sendStatus.status == WalletModel::OK)
     {
+#if ENABLE_LIBOQS
+        // If carrier mode is enabled, automatically create and broadcast TX_R
+        bool carrierSent = false;
+        Q_FOREACH(const SendCoinsRecipient &rcp, currentTransaction.getRecipients())
+        {
+            if (rcp.includePqcCommitment && rcp.pqcCarrierMode &&
+                !pqcSelectedPublicKeyHex.isEmpty() && !pqcSelectedSignatureHex.isEmpty() &&
+                !pqcSelectedAlgorithm.isEmpty() &&
+                IsHex(pqcSelectedPublicKeyHex.toStdString()) &&
+                IsHex(pqcSelectedSignatureHex.toStdString()))
+            {
+                PQCCommitmentType pqcType;
+                if (ParsePQCCommitmentType(pqcSelectedAlgorithm.toStdString(), pqcType)) {
+                    const std::vector<unsigned char> pubkeyBytes = ParseHex(pqcSelectedPublicKeyHex.toStdString());
+                    const std::vector<unsigned char> sigBytes = ParseHex(pqcSelectedSignatureHex.toStdString());
+
+                    uint256 txrTxid;
+                    QString txrError;
+                    const CTransaction& txc = *currentTransaction.getTransaction()->tx;
+                    if (model->sendCarrierTx(txc, pqcType, pubkeyBytes, sigBytes, txrTxid, txrError)) {
+                        carrierSent = true;
+                        Q_EMIT message(tr("PQC Carrier"),
+                            tr("TX_R (carrier reveal) broadcast successfully.\nTX_R txid: %1").arg(QString::fromStdString(txrTxid.GetHex())),
+                            CClientUIInterface::MSG_INFORMATION);
+                    } else {
+                        Q_EMIT message(tr("PQC Carrier"),
+                            tr("TX_C was sent, but TX_R (carrier reveal) failed: %1\nYou may need to manually create the TX_R.").arg(txrError),
+                            CClientUIInterface::MSG_WARNING);
+                    }
+                }
+                break;
+            }
+        }
+#endif
         accept();
         CoinControlDialog::coinControl->UnSelectAll();
         coinControlUpdateLabels();

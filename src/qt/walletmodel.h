@@ -9,6 +9,10 @@
 
 #include "amount.h"
 #include "support/allocators/secure.h"
+#if ENABLE_LIBOQS
+#include "pqc/pqc_commitment.h"
+#include "uint256.h"
+#endif
 
 #include <map>
 #include <vector>
@@ -151,6 +155,18 @@ public:
 
     // Send coins to a list of recipients
     SendCoinsReturn sendCoins(WalletModelTransaction &transaction);
+
+#if ENABLE_LIBOQS
+    // Create and broadcast TX_R (carrier reveal transaction) after TX_C succeeds.
+    // Spends the P2SH carrier output from TX_C, embedding PQC key material in scriptSig.
+    // Returns the TX_R txid on success, or empty uint256 on failure.
+    bool sendCarrierTx(const CTransaction& txc,
+                       PQCCommitmentType pqcType,
+                       const std::vector<unsigned char>& pubkey,
+                       const std::vector<unsigned char>& signature,
+                       uint256& txr_txid_out,
+                       QString& error_out);
+#endif
 
     // Wallet encryption
     bool setWalletEncrypted(bool encrypted, const SecureString &passphrase);

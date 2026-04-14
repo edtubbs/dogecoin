@@ -23,6 +23,7 @@
 EXPERIMENTAL_FEATURE
 #endif
 #include "validation.h"
+#include "primitives/transaction.h" // for CMutableTransaction, MakeTransactionRef
 #include "net.h" // for g_connman
 #include "sync.h"
 #include "ui_interface.h"
@@ -372,7 +373,132 @@ WalletModel::SendCoinsReturn WalletModel::sendCoins(WalletModelTransaction &tran
     return SendCoinsReturn(OK);
 }
 
-OptionsModel *WalletModel::getOptionsModel()
+#if ENABLE_LIBOQS
+bool WalletModel::sendCarrierTx(const CTransaction& txc,
+                                 PQCCommitmentType pqcType,
+                                 const std::vector<unsigned char>& pubkey,
+                                 const std::vector<unsigned char>& signature,
+                                 uint256& txr_txid_out,
+                                 QString& error_out)
+{
+    // Step 1: Find the P2SH carrier output in TX_C
+    CScript carrierScriptPubKey;
+    if (!PQCBuildCarrierScriptPubKey(carrierScriptPubKey)) {
+        error_out = tr("Failed to build carrier scriptPubKey");
+        return false;
+    }
+
+    int carrierOutputIndex = -1;
+    CAmount carrierValue = 0;
+    for (unsigned int i = 0; i < txc.vout.size(); ++i) {
+        if (txc.vout[i].scriptPubKey == carrierScriptPubKey) {
+            carrierOutputIndex = static_cast<int>(i);
+            carrierValue = txc.vout[i].nValue;
+            break;
+        }
+    }
+    if (carrierOutputIndex < 0) {
+        error_out = tr("No P2SH carrier output found in TX_C");
+        return false;
+    }
+
+    // Step 2: Compute number of carrier parts needed
+    size_t payloadSize = pubkey.size() + signature.size();
+    uint8_t partsNeeded = PQCCarrierPartsNeeded(payloadSize);
+    if (partsNeeded == 0) {
+        error_out = tr("Invalid PQC payload size");
+        return false;
+    }
+
+    // Step 3: Build TX_R as a raw transaction
+    CMutableTransaction txr;
+    txr.nVersion = 1;
+    txr.nLockTime = 0;
+
+    // For simplicity, Falcon-512 payload is ~1557 bytes, fits in 1 part (1560 bytes per part).
+    // We only have 1 carrier output in TX_C, so we use 1 input.
+    if (partsNeeded > 1) {
+        error_out = tr("Multi-part carrier not yet supported (payload too large for single carrier input)");
+        return false;
+    }
+
+    // Single carrier input spending the P2SH output from TX_C
+    CTxIn carrierInput(COutPoint(txc.GetHash(), carrierOutputIndex), CScript(), CTxIn::SEQUENCE_FINAL);
+    txr.vin.push_back(carrierInput);
+
+    // Step 4: Build the carrier scriptSig
+    CScript carrierScriptSig;
+    if (!PQCBuildCarrierPartScriptSig(pqcType, pubkey, signature, 0, carrierScriptSig)) {
+        error_out = tr("Failed to build carrier scriptSig");
+        return false;
+    }
+    txr.vin[0].scriptSig = carrierScriptSig;
+
+    // Step 5: Estimate fee and set output
+    // Get a change address from the wallet first (to estimate full tx size)
+    CPubKey changePubKey;
+    {
+        LOCK(wallet->cs_wallet);
+        if (!wallet->GetKeyFromPool(changePubKey)) {
+            error_out = tr("Failed to get change address from wallet keypool");
+            return false;
+        }
+    }
+    CScript changeScript = GetScriptForDestination(changePubKey.GetID());
+    txr.vout.push_back(CTxOut(0, changeScript)); // placeholder value
+
+    // Serialize to estimate size
+    CTransaction txrTemp(txr);
+    unsigned int txrSize = ::GetSerializeSize(txrTemp, SER_NETWORK, PROTOCOL_VERSION);
+    // Use a conservative fee rate: 1000 koinu per byte (standard Dogecoin relay fee)
+    CAmount fee = static_cast<CAmount>(txrSize) * 1000;
+    // Ensure fee is at least the minimum relay fee
+    if (fee < 100000) fee = 100000; // 0.001 DOGE minimum
+
+    CAmount outputValue = carrierValue - fee;
+    if (outputValue <= 0) {
+        error_out = tr("Carrier output value too small to cover TX_R fee");
+        return false;
+    }
+    txr.vout[0].nValue = outputValue;
+
+    // Step 6: Submit to mempool and relay
+    CTransactionRef txrRef = MakeTransactionRef(std::move(txr));
+    txr_txid_out = txrRef->GetHash();
+
+    {
+        CValidationState state;
+        bool fMissingInputs = false;
+        if (!AcceptToMemoryPool(mempool, state, txrRef, false /* fLimitFree */,
+                                &fMissingInputs, nullptr /* plTxnReplaced */,
+                                false /* fOverrideMempoolLimit */,
+                                0 /* nAbsurdFee */)) {
+            error_out = tr("TX_R rejected from mempool: %1").arg(QString::fromStdString(state.GetRejectReason()));
+            return false;
+        }
+    }
+
+    // Add to wallet so it appears in transaction list
+    {
+        LOCK(wallet->cs_wallet);
+        CWalletTx wtxr(wallet, txrRef);
+        wallet->AddToWallet(wtxr, false);
+    }
+
+    // Relay to peers
+    if (g_connman) {
+        CInv inv(MSG_TX, txr_txid_out);
+        g_connman->ForEachNode([&inv](CNode* pnode) {
+            pnode->PushInventory(inv);
+        });
+    }
+
+    LogPrintf("PQC: TX_R broadcast successfully: %s (spending TX_C carrier output %s:%d)\n",
+              txr_txid_out.GetHex(), txc.GetHash().GetHex(), carrierOutputIndex);
+
+    return true;
+}
+#endif
 {
     return optionsModel;
 }

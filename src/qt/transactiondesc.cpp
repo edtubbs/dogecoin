@@ -22,8 +22,10 @@ EXPERIMENTAL_FEATURE
 #endif
 #include "validation.h"
 #include "script/script.h"
+#include "script/standard.h"
 #include "timedata.h"
 #include "util.h"
+#include "utilstrencodings.h"
 #include "wallet/db.h"
 #include "wallet/wallet.h"
 
@@ -247,23 +249,270 @@ QString TransactionDesc::toHTML(CWallet *wallet, CWalletTx &wtx, TransactionReco
     PQCCommitmentType pqcType;
     uint256 pqcCommitment;
     uint32_t pqcOutputIndex = 0;
-    if (PQCExtractCommitmentFromTx(*wtx.tx, pqcType, pqcCommitment, pqcOutputIndex)) {
-        QString pqcTypeStr = QString::fromLatin1(PQCCommitmentTypeToString(pqcType));
-        strHTML += "<b>" + tr("PQC validation") + ":</b> " + tr("valid commitment detected") + " (" + pqcTypeStr + ")<br>";
-        strHTML += "<b>" + tr("PQC commitment") + ":</b> " + QString::fromStdString(pqcCommitment.GetHex()) + "<br>";
-        strHTML += "<b>" + tr("PQC output index") + ":</b> " + QString::number(pqcOutputIndex) + "<br>";
+    bool hasPqcCommitment = PQCExtractCommitmentFromTx(*wtx.tx, pqcType, pqcCommitment, pqcOutputIndex);
 
-        // Check carrier mode validation (P2SH data carrier)
-        PQCCommitmentType carrierType;
-        uint32_t carrierInputIndex = 0;
-        uint16_t carrierPkLen = 0;
-        uint16_t carrierSigLen = 0;
-        const bool carrierValidated = PQCValidateCommitmentFromCarrier(*wtx.tx, pqcCommitment, carrierType, carrierInputIndex, carrierPkLen, carrierSigLen);
-        strHTML += "<b>" + tr("PQC carrier validation") + ":</b> " + (carrierValidated ? tr("matched carrier scriptSig") : tr("no carrier match")) + "<br>";
-        if (carrierValidated) {
-            strHTML += "<b>" + tr("PQC carrier input index") + ":</b> " + QString::number(carrierInputIndex) + "<br>";
-            strHTML += "<b>" + tr("PQC carrier pk_len") + ":</b> " + QString::number(carrierPkLen) + "<br>";
-            strHTML += "<b>" + tr("PQC carrier sig_len") + ":</b> " + QString::number(carrierSigLen) + "<br>";
+    // Also detect if this transaction IS a TX_R (carrier reveal) by checking inputs for carrier scriptSig
+    bool isTxR = false;
+    {
+        for (uint32_t i = 0; i < wtx.tx->vin.size(); ++i) {
+            PQCCommitmentType inputType;
+            if (PQCDetectCarrierScriptSig(wtx.tx->vin[i].scriptSig, inputType)) {
+                isTxR = true;
+                break;
+            }
+        }
+    }
+
+    if (hasPqcCommitment) {
+        // --- TX_C display ---
+        QString pqcTypeStr = QString::fromLatin1(PQCCommitmentTypeToString(pqcType));
+        strHTML += "<br><b>" + tr("TX_C (Commitment Transaction)") + ":</b><br>";
+        strHTML += "<b>" + tr("PQC algorithm") + ":</b> " + pqcTypeStr + "<br>";
+        strHTML += "<b>" + tr("PQC commitment") + ":</b> " + QString::fromStdString(pqcCommitment.GetHex()) + "<br>";
+        strHTML += "<b>" + tr("PQC OP_RETURN output index") + ":</b> " + QString::number(pqcOutputIndex) + "<br>";
+
+        // Show the OP_RETURN scriptPubKey hex
+        if (pqcOutputIndex < wtx.tx->vout.size()) {
+            const std::string opReturnHex = HexStr(wtx.tx->vout[pqcOutputIndex].scriptPubKey.begin(),
+                                                    wtx.tx->vout[pqcOutputIndex].scriptPubKey.end());
+            strHTML += "<b>" + tr("OP_RETURN scriptPubKey") + ":</b> " + GUIUtil::HtmlEscape(QString::fromStdString(opReturnHex)) + "<br>";
+        }
+
+        // Find P2SH carrier output in this TX_C
+        CScript carrierScriptPubKey;
+        int carrierOutputIdx = -1;
+        if (PQCBuildCarrierScriptPubKey(carrierScriptPubKey)) {
+            for (unsigned int i = 0; i < wtx.tx->vout.size(); ++i) {
+                if (wtx.tx->vout[i].scriptPubKey == carrierScriptPubKey) {
+                    carrierOutputIdx = static_cast<int>(i);
+                    break;
+                }
+            }
+        }
+
+        if (carrierOutputIdx >= 0) {
+            const std::string carrierSpkHex = HexStr(carrierScriptPubKey.begin(), carrierScriptPubKey.end());
+            strHTML += "<b>" + tr("Carrier P2SH output index") + ":</b> " + QString::number(carrierOutputIdx) + "<br>";
+            strHTML += "<b>" + tr("Carrier P2SH scriptPubKey") + ":</b> " + GUIUtil::HtmlEscape(QString::fromStdString(carrierSpkHex)) + "<br>";
+
+            CTxDestination dest;
+            if (ExtractDestination(carrierScriptPubKey, dest)) {
+                strHTML += "<b>" + tr("Carrier P2SH address") + ":</b> " + GUIUtil::HtmlEscape(QString::fromStdString(CBitcoinAddress(dest).ToString())) + "<br>";
+            }
+
+            CScript redeemScript;
+            if (PQCBuildCarrierRedeemScript(redeemScript)) {
+                strHTML += "<b>" + tr("Carrier redeemScript") + ":</b> "
+                          + GUIUtil::HtmlEscape(QString::fromStdString(HexStr(redeemScript.begin(), redeemScript.end())))
+                          + " (OP_DROP×5 OP_TRUE)<br>";
+            }
+
+            strHTML += "<b>" + tr("Carrier output value") + ":</b> "
+                      + BitcoinUnits::formatHtmlWithUnit(unit, wtx.tx->vout[carrierOutputIdx].nValue) + "<br>";
+
+            // Search for TX_R that spends this carrier output
+            COutPoint carrierOutpoint(wtx.tx->GetHash(), carrierOutputIdx);
+            CTransactionRef txrRef;
+            bool foundTxR = false;
+
+            // Search wallet transactions for the TX_R
+            {
+                LOCK(wallet->cs_wallet);
+                for (const auto& item : wallet->mapWallet) {
+                    const CWalletTx& candidate = item.second;
+                    for (const auto& vin : candidate.tx->vin) {
+                        if (vin.prevout == carrierOutpoint) {
+                            txrRef = candidate.tx;
+                            foundTxR = true;
+                            break;
+                        }
+                    }
+                    if (foundTxR) break;
+                }
+            }
+
+            if (foundTxR) {
+                strHTML += "<br><b>" + tr("TX_R (Reveal Transaction)") + ":</b><br>";
+                strHTML += "<b>" + tr("TX_R txid") + ":</b> " + QString::fromStdString(txrRef->GetHash().GetHex()) + "<br>";
+
+                // Extract carrier payload from TX_R
+                PQCCommitmentType txrCarrierType;
+                std::vector<unsigned char> txrPubkey, txrSig;
+                if (PQCExtractKeyMaterialFromCarrier(*txrRef, txrCarrierType, txrPubkey, txrSig)) {
+                    strHTML += "<b>" + tr("TX_R PQC public key") + ":</b> "
+                              + GUIUtil::HtmlEscape(QString::fromStdString(HexStr(txrPubkey.begin(), txrPubkey.end()))) + "<br>";
+                    strHTML += "<b>" + tr("TX_R PQC public key size") + ":</b> " + QString::number(txrPubkey.size()) + " " + tr("bytes") + "<br>";
+                    strHTML += "<b>" + tr("TX_R PQC signature") + ":</b> "
+                              + GUIUtil::HtmlEscape(QString::fromStdString(HexStr(txrSig.begin(), txrSig.end()))) + "<br>";
+                    strHTML += "<b>" + tr("TX_R PQC signature size") + ":</b> " + QString::number(txrSig.size()) + " " + tr("bytes") + "<br>";
+
+                    // Verify commitment: SHA256(pk||sig) == commitment
+                    uint256 recomputed;
+                    bool commitmentMatch = false;
+                    if (PQCComputeCommitment(txrPubkey, txrSig, recomputed)) {
+                        commitmentMatch = (recomputed == pqcCommitment);
+                        strHTML += "<b>" + tr("SHA256(pk||sig)") + ":</b> " + QString::fromStdString(recomputed.GetHex()) + "<br>";
+                        strHTML += "<b>" + tr("Commitment matches") + ":</b> "
+                                  + (commitmentMatch
+                                      ? "<span style=\"color:green;\">" + tr("yes") + "</span>"
+                                      : "<span style=\"color:red;\">" + tr("NO — MISMATCH") + "</span>") + "<br>";
+                    }
+
+                    // Perform OQS_SIG_verify() cryptographic verification
+                    // Retrieve the signing message stored during TX_C creation
+                    bool cryptoVerified = false;
+                    std::string signingMsgHex;
+                    {
+                        auto it = wtx.mapValue.find("pqcSigningMessage");
+                        if (it != wtx.mapValue.end()) {
+                            signingMsgHex = it->second;
+                        }
+                    }
+                    if (commitmentMatch && !signingMsgHex.empty() && IsHex(signingMsgHex)) {
+                        std::vector<unsigned char> messageBytes = ParseHex(signingMsgHex);
+                        cryptoVerified = PQCVerify(pqcType, txrPubkey,
+                                                    messageBytes.data(), messageBytes.size(),
+                                                    txrSig);
+                        strHTML += "<b>" + tr("Signing message (hex)") + ":</b> "
+                                  + GUIUtil::HtmlEscape(QString::fromStdString(signingMsgHex)) + "<br>";
+                    } else if (signingMsgHex.empty()) {
+                        strHTML += "<b>" + tr("Signing message") + ":</b> "
+                                  + tr("not stored (created before TX_R signing message storage was added)") + "<br>";
+                    }
+
+                    strHTML += "<b>" + tr("OQS_SIG_verify() cryptographic check") + ":</b> "
+                              + (cryptoVerified
+                                  ? "<span style=\"color:green;\">" + tr("PASSED") + "</span>"
+                                  : "<span style=\"color:red;\">" + tr("FAILED") + "</span>") + "<br>";
+
+                    // Overall summary
+                    if (commitmentMatch && cryptoVerified) {
+                        strHTML += "<b>" + tr("PQC signature validation") + ":</b> <span style=\"color:green;\">"
+                                  + tr("PASSED — commitment and cryptographic verification both verified") + "</span><br>";
+                    } else {
+                        QString failReason;
+                        if (!commitmentMatch) failReason += tr("commitment mismatch") + "; ";
+                        if (!cryptoVerified) failReason += tr("OQS_SIG_verify() failed") + "; ";
+                        strHTML += "<b>" + tr("PQC signature validation") + ":</b> <span style=\"color:red;\">"
+                                  + tr("FAILED — %1").arg(failReason) + "</span><br>";
+                    }
+                } else {
+                    strHTML += "<b>" + tr("TX_R carrier data") + ":</b> " + tr("failed to parse carrier scriptSig") + "<br>";
+                }
+            } else {
+                strHTML += "<b>" + tr("TX_R status") + ":</b> " + tr("not yet found (TX_R may not have been broadcast yet)") + "<br>";
+            }
+        } else {
+            strHTML += "<b>" + tr("Carrier mode") + ":</b> " + tr("disabled (commitment-only, no P2SH carrier output)") + "<br>";
+        }
+    } else if (isTxR) {
+        // --- TX_R display (this transaction is a carrier reveal) ---
+        strHTML += "<br><b>" + tr("TX_R (Reveal Transaction)") + ":</b><br>";
+
+        // Extract carrier payload
+        PQCCommitmentType txrType;
+        std::vector<unsigned char> txrPubkey, txrSig;
+        if (PQCExtractKeyMaterialFromCarrier(*wtx.tx, txrType, txrPubkey, txrSig)) {
+            QString txrTypeStr = QString::fromLatin1(PQCCommitmentTypeToString(txrType));
+            strHTML += "<b>" + tr("PQC algorithm") + ":</b> " + txrTypeStr + "<br>";
+            strHTML += "<b>" + tr("PQC public key") + ":</b> "
+                      + GUIUtil::HtmlEscape(QString::fromStdString(HexStr(txrPubkey.begin(), txrPubkey.end()))) + "<br>";
+            strHTML += "<b>" + tr("PQC public key size") + ":</b> " + QString::number(txrPubkey.size()) + " " + tr("bytes") + "<br>";
+            strHTML += "<b>" + tr("PQC signature") + ":</b> "
+                      + GUIUtil::HtmlEscape(QString::fromStdString(HexStr(txrSig.begin(), txrSig.end()))) + "<br>";
+            strHTML += "<b>" + tr("PQC signature size") + ":</b> " + QString::number(txrSig.size()) + " " + tr("bytes") + "<br>";
+
+            // Find the TX_C by looking at the prevout of the first carrier input
+            // Scan for the carrier input index
+            uint32_t txrInputIdx = 0;
+            for (uint32_t i = 0; i < wtx.tx->vin.size(); ++i) {
+                PQCCommitmentType inputType;
+                if (PQCDetectCarrierScriptSig(wtx.tx->vin[i].scriptSig, inputType)) {
+                    txrInputIdx = i;
+                    break;
+                }
+            }
+            const COutPoint& prevout = wtx.tx->vin[txrInputIdx].prevout;
+            strHTML += "<b>" + tr("TX_C txid") + ":</b> " + QString::fromStdString(prevout.hash.GetHex()) + "<br>";
+            strHTML += "<b>" + tr("TX_C carrier output index") + ":</b> " + QString::number(prevout.n) + "<br>";
+
+            // Look up TX_C in wallet
+            uint256 txcCommitment;
+            PQCCommitmentType txcType;
+            bool foundCommitment = false;
+            {
+                LOCK(wallet->cs_wallet);
+                auto it = wallet->mapWallet.find(prevout.hash);
+                if (it != wallet->mapWallet.end()) {
+                    uint32_t commitOutIdx = 0;
+                    if (PQCExtractCommitmentFromTx(*it->second.tx, txcType, txcCommitment, commitOutIdx)) {
+                        foundCommitment = true;
+                        strHTML += "<b>" + tr("TX_C commitment") + ":</b> " + QString::fromStdString(txcCommitment.GetHex()) + "<br>";
+                    }
+                }
+            }
+
+            // Verify commitment: SHA256(pk||sig) == commitment from TX_C
+            uint256 recomputed;
+            bool commitmentMatch = false;
+            if (PQCComputeCommitment(txrPubkey, txrSig, recomputed)) {
+                strHTML += "<b>" + tr("SHA256(pk||sig)") + ":</b> " + QString::fromStdString(recomputed.GetHex()) + "<br>";
+                if (foundCommitment) {
+                    commitmentMatch = (recomputed == txcCommitment);
+                    strHTML += "<b>" + tr("Commitment matches TX_C") + ":</b> "
+                              + (commitmentMatch
+                                  ? "<span style=\"color:green;\">" + tr("yes") + "</span>"
+                                  : "<span style=\"color:red;\">" + tr("NO — MISMATCH") + "</span>") + "<br>";
+                } else {
+                    strHTML += "<b>" + tr("TX_C commitment") + ":</b> " + tr("TX_C not found in wallet") + "<br>";
+                }
+            }
+
+            // Perform OQS_SIG_verify() cryptographic verification
+            // Retrieve signing message from TX_C's mapValue
+            bool cryptoVerified = false;
+            std::string signingMsgHex;
+            {
+                LOCK(wallet->cs_wallet);
+                auto it = wallet->mapWallet.find(prevout.hash);
+                if (it != wallet->mapWallet.end()) {
+                    auto msgIt = it->second.mapValue.find("pqcSigningMessage");
+                    if (msgIt != it->second.mapValue.end()) {
+                        signingMsgHex = msgIt->second;
+                    }
+                }
+            }
+            if (foundCommitment && commitmentMatch && !signingMsgHex.empty() && IsHex(signingMsgHex)) {
+                std::vector<unsigned char> messageBytes = ParseHex(signingMsgHex);
+                cryptoVerified = PQCVerify(txrType, txrPubkey,
+                                            messageBytes.data(), messageBytes.size(),
+                                            txrSig);
+                strHTML += "<b>" + tr("Signing message (hex)") + ":</b> "
+                          + GUIUtil::HtmlEscape(QString::fromStdString(signingMsgHex)) + "<br>";
+            } else if (signingMsgHex.empty()) {
+                strHTML += "<b>" + tr("Signing message") + ":</b> "
+                          + tr("not stored (created before TX_R signing message storage was added)") + "<br>";
+            }
+
+            strHTML += "<b>" + tr("OQS_SIG_verify() cryptographic check") + ":</b> "
+                      + (cryptoVerified
+                          ? "<span style=\"color:green;\">" + tr("PASSED") + "</span>"
+                          : "<span style=\"color:red;\">" + tr("FAILED") + "</span>") + "<br>";
+
+            // Overall summary
+            if (foundCommitment && commitmentMatch && cryptoVerified) {
+                strHTML += "<b>" + tr("PQC signature validation") + ":</b> <span style=\"color:green;\">"
+                          + tr("PASSED — commitment and cryptographic verification both verified") + "</span><br>";
+            } else {
+                QString failReason;
+                if (!foundCommitment) failReason += tr("TX_C not found") + "; ";
+                if (!commitmentMatch) failReason += tr("commitment mismatch") + "; ";
+                if (!cryptoVerified) failReason += tr("OQS_SIG_verify() failed") + "; ";
+                strHTML += "<b>" + tr("PQC signature validation") + ":</b> <span style=\"color:red;\">"
+                          + tr("FAILED — %1").arg(failReason) + "</span><br>";
+            }
+        } else {
+            strHTML += "<b>" + tr("Carrier data") + ":</b> " + tr("failed to parse carrier scriptSig") + "<br>";
         }
     } else {
         strHTML += "<b>" + tr("PQC validation") + ":</b> " + tr("no commitment detected") + "<br>";
