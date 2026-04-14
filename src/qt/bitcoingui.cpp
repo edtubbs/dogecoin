@@ -20,6 +20,7 @@
 #include "optionsdialog.h"
 #include "optionsmodel.h"
 #include "platformstyle.h"
+#include "qtcompat.h"
 #include "rpcconsole.h"
 #include "utilitydialog.h"
 
@@ -1241,7 +1242,7 @@ UnitDisplayStatusBarControl::UnitDisplayStatusBarControl(const PlatformStyle *pl
     const QFontMetrics fm(font());
     Q_FOREACH (const BitcoinUnits::Unit unit, units)
     {
-        max_width = qMax(max_width, fm.width(BitcoinUnits::name(unit)));
+        max_width = qMax(max_width, GUIUtil_fm_width(fm, BitcoinUnits::name(unit)));
     }
     setMinimumSize(max_width, 0);
     setAlignment(Qt::AlignRight | Qt::AlignVCenter);

@@ -13,6 +13,7 @@
 #include "guiutil.h"
 #include "optionsmodel.h"
 #include "platformstyle.h"
+#include "qtcompat.h"
 #include "sendcoinsentry.h"
 #include "walletmodel.h"
 
@@ -653,7 +654,7 @@ void SendCoinsDialog::updateFeeLabel()
         int lightness = ui->fallbackFeeWarningLabel->palette().color(QPalette::WindowText).lightness();
         QColor warning_colour(255 - (lightness / 5), 176 - (lightness / 3), 48 - (lightness / 14));
         ui->fallbackFeeWarningLabel->setStyleSheet("QLabel { color: " + warning_colour.name() + "; }");
-        ui->fallbackFeeWarningLabel->setIndent(QFontMetrics(ui->fallbackFeeWarningLabel->font()).width("x"));
+        ui->fallbackFeeWarningLabel->setIndent(GUIUtil_fm_width(QFontMetrics(ui->fallbackFeeWarningLabel->font()), "x"));
     }
     else
     {

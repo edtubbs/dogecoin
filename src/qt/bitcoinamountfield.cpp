@@ -7,6 +7,7 @@
 
 #include "bitcoinunits.h"
 #include "guiconstants.h"
+#include "qtcompat.h"
 #include "qvaluecombobox.h"
 
 #include <QApplication>
@@ -100,7 +101,7 @@ public:
 
             const QFontMetrics fm(fontMetrics());
             int h = lineEdit()->minimumSizeHint().height();
-            int w = fm.width(BitcoinUnits::format(BitcoinUnits::BTC, BitcoinUnits::maxMoney(), false, BitcoinUnits::separatorAlways));
+            int w = GUIUtil_fm_width(fm, BitcoinUnits::format(BitcoinUnits::BTC, BitcoinUnits::maxMoney(), false, BitcoinUnits::separatorAlways));
             w += 2; // cursor blinking space
 
             QStyleOptionSpinBox opt;
@@ -119,8 +120,12 @@ public:
 
             opt.rect = rect();
 
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+            cachedMinimumSizeHint = style()->sizeFromContents(QStyle::CT_SpinBox, &opt, hint, this);
+#else
             cachedMinimumSizeHint = style()->sizeFromContents(QStyle::CT_SpinBox, &opt, hint, this)
                                     .expandedTo(QApplication::globalStrut());
+#endif
         }
         return cachedMinimumSizeHint;
     }
@@ -172,7 +177,7 @@ protected:
         if (text().isEmpty()) // Allow step-up with empty field
             return StepUpEnabled;
 
-        StepEnabled rv = 0;
+        StepEnabled rv = StepNone;
         bool valid = false;
         CAmount val = value(&valid);
         if(valid)
