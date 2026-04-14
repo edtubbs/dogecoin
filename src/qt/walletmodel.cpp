@@ -499,6 +499,8 @@ bool WalletModel::sendCarrierTx(const CTransaction& txc,
     return true;
 }
 #endif
+
+OptionsModel *WalletModel::getOptionsModel()
 {
     return optionsModel;
 }
