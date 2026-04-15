@@ -266,7 +266,7 @@ QString TransactionDesc::toHTML(CWallet *wallet, CWalletTx &wtx, TransactionReco
     if (hasPqcCommitment) {
         // --- TX_C display ---
         QString pqcTypeStr = QString::fromLatin1(PQCCommitmentTypeToString(pqcType));
-        strHTML += "<br><b>" + tr("TX_C (Commitment Transaction)") + ":</b><br>";
+        strHTML += "<br><b>" + tr("Commitment Transaction (TX_C)") + ":</b><br>";
         strHTML += "<b>" + tr("PQC algorithm") + ":</b> " + pqcTypeStr + "<br>";
         strHTML += "<b>" + tr("PQC commitment") + ":</b> " + QString::fromStdString(pqcCommitment.GetHex()) + "<br>";
         strHTML += "<b>" + tr("PQC OP_RETURN output index") + ":</b> " + QString::number(pqcOutputIndex) + "<br>";
@@ -332,7 +332,7 @@ QString TransactionDesc::toHTML(CWallet *wallet, CWalletTx &wtx, TransactionReco
             }
 
             if (foundTxR) {
-                strHTML += "<br><b>" + tr("TX_R (Reveal Transaction)") + ":</b><br>";
+                strHTML += "<br><b>" + tr("Reveal Transaction (TX_R)") + ":</b><br>";
                 strHTML += "<b>" + tr("TX_R txid") + ":</b> " + QString::fromStdString(txrRef->GetHash().GetHex()) + "<br>";
 
                 // Extract carrier payload from TX_R
@@ -452,7 +452,7 @@ QString TransactionDesc::toHTML(CWallet *wallet, CWalletTx &wtx, TransactionReco
             }
         }
 
-        strHTML += "<br><b>" + tr("TX_R (Reveal Transaction)") + ":</b><br>";
+        strHTML += "<br><b>" + tr("Reveal Transaction (TX_R)") + ":</b><br>";
 
         // Extract carrier payload
         PQCCommitmentType txrType;

@@ -386,14 +386,14 @@ QString TransactionTableModel::formatTxType(const TransactionRecord *wtx) const
         break;
     }
 
-    // Append PQC role label
+    // Append PQC role label in parentheses
     switch(wtx->pqcRole)
     {
     case TransactionRecord::PqcTxC:
-        base += (base.isEmpty() ? "" : " ") + QString("TX_C");
+        base += (base.isEmpty() ? "" : " ") + QString("(TX_C)");
         break;
     case TransactionRecord::PqcTxR:
-        base += (base.isEmpty() ? "" : " ") + QString("TX_R");
+        base += (base.isEmpty() ? "" : " ") + QString("(TX_R)");
         break;
     default:
         break;
@@ -404,6 +404,12 @@ QString TransactionTableModel::formatTxType(const TransactionRecord *wtx) const
 
 QVariant TransactionTableModel::txAddressDecoration(const TransactionRecord *wtx) const
 {
+    // Use PQC-specific icons when this is a PQC transaction
+    if (wtx->pqcRole == TransactionRecord::PqcTxC)
+        return QIcon(":/icons/tx_pqc_c");
+    if (wtx->pqcRole == TransactionRecord::PqcTxR)
+        return QIcon(":/icons/tx_pqc_r");
+
     switch(wtx->type)
     {
     case TransactionRecord::Generated:
