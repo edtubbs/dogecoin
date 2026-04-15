@@ -407,6 +407,51 @@ QString TransactionDesc::toHTML(CWallet *wallet, CWalletTx &wtx, TransactionReco
         }
     } else if (isTxR) {
         // --- TX_R display (this transaction is a carrier reveal) ---
+
+        // Show From/To/Fee fields that the standard flow skips for TX_R
+        // (carrier P2SH input is not IsMine so the normal debit/credit path
+        //  only shows Credit and Net amount, missing From/To/Fee)
+        {
+            // From: carrier P2SH address (from the spent input)
+            CScript carrierSpk;
+            if (PQCBuildCarrierScriptPubKey(carrierSpk)) {
+                CTxDestination carrierDest;
+                if (ExtractDestination(carrierSpk, carrierDest)) {
+                    strHTML += "<b>" + tr("From") + ":</b> "
+                              + GUIUtil::HtmlEscape(QString::fromStdString(CBitcoinAddress(carrierDest).ToString()))
+                              + " (" + tr("PQC carrier P2SH") + ")<br>";
+                }
+            }
+
+            // To: output addresses
+            for (unsigned int i = 0; i < wtx.tx->vout.size(); ++i) {
+                CTxDestination dest;
+                if (ExtractDestination(wtx.tx->vout[i].scriptPubKey, dest)) {
+                    QString addressOwned = (::IsMine(*wallet, dest) == ISMINE_SPENDABLE) ? tr("own address") : "";
+                    strHTML += "<b>" + tr("To") + ":</b> "
+                              + GUIUtil::HtmlEscape(QString::fromStdString(CBitcoinAddress(dest).ToString()));
+                    if (!addressOwned.isEmpty())
+                        strHTML += " (" + addressOwned + ")";
+                    strHTML += "<br>";
+                }
+            }
+
+            // Transaction fee: sum of inputs - sum of outputs
+            CAmount totalIn = 0;
+            for (const auto& vin : wtx.tx->vin) {
+                // Look up the prevout value (cs_wallet already held from LOCK2 above)
+                auto it = wallet->mapWallet.find(vin.prevout.hash);
+                if (it != wallet->mapWallet.end() && vin.prevout.n < it->second.tx->vout.size()) {
+                    totalIn += it->second.tx->vout[vin.prevout.n].nValue;
+                }
+            }
+            CAmount totalOut = wtx.tx->GetValueOut();
+            if (totalIn > totalOut) {
+                strHTML += "<b>" + tr("Transaction fee") + ":</b> "
+                          + BitcoinUnits::formatHtmlWithUnit(unit, -(totalIn - totalOut)) + "<br>";
+            }
+        }
+
         strHTML += "<br><b>" + tr("TX_R (Reveal Transaction)") + ":</b><br>";
 
         // Extract carrier payload

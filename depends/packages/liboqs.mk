@@ -2,10 +2,10 @@ package=liboqs
 
 ifneq ($(LIBOQS_RACCOON),)
 # Raccoon fork (edtubbs/liboqs) — Falcon-512, Dilithium2, and Raccoon-G-44
-$(package)_version=v0.0.2
+$(package)_version=v0.0.3
 $(package)_download_path=https://github.com/edtubbs/liboqs/archive/refs/tags
 $(package)_file_name=$($(package)_version).tar.gz
-$(package)_sha256_hash=3f34b7eba1121a50af3e97adfd36c0e81351efb08d33eef82acb850413a2b0e9
+$(package)_sha256_hash=fcacef5451fd63610b53f4483f7ef79eaa28173ffb1fcce353400ec992d4c846
 
 define $(package)_build_cmds
 	mkdir -p build && cd build && \

@@ -3,6 +3,8 @@
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
+#include "config/bitcoin-config.h"
+
 #include "transactionrecord.h"
 
 #include "base58.h"
@@ -10,6 +12,10 @@
 #include "validation.h"
 #include "timedata.h"
 #include "wallet/wallet.h"
+
+#if ENABLE_LIBOQS
+#include "pqc/pqc_commitment.h"
+#endif
 
 #include <stdint.h>
 
@@ -165,6 +171,36 @@ QList<TransactionRecord> TransactionRecord::decomposeTransaction(const CWallet *
             parts.last().involvesWatchAddress = involvesWatchAddress;
         }
     }
+
+#if ENABLE_LIBOQS
+    // Detect PQC transaction roles and tag the records
+    {
+        // Check if TX_C (has PQC commitment OP_RETURN)
+        PQCCommitmentType pqcType;
+        uint256 pqcCommitment;
+        uint32_t pqcOutputIndex = 0;
+        bool isTxC = PQCExtractCommitmentFromTx(*wtx.tx, pqcType, pqcCommitment, pqcOutputIndex);
+
+        // Check if TX_R (has carrier scriptSig in inputs)
+        bool isTxR = false;
+        if (!isTxC) {
+            for (uint32_t i = 0; i < wtx.tx->vin.size(); ++i) {
+                PQCCommitmentType inputType;
+                if (PQCDetectCarrierScriptSig(wtx.tx->vin[i].scriptSig, inputType)) {
+                    isTxR = true;
+                    break;
+                }
+            }
+        }
+
+        if (isTxC || isTxR) {
+            PqcRole role = isTxC ? PqcTxC : PqcTxR;
+            for (int i = 0; i < parts.size(); ++i) {
+                parts[i].pqcRole = role;
+            }
+        }
+    }
+#endif
 
     return parts;
 }

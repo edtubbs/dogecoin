@@ -363,22 +363,43 @@ QString TransactionTableModel::lookupAddress(const std::string &address, bool to
 
 QString TransactionTableModel::formatTxType(const TransactionRecord *wtx) const
 {
+    QString base;
     switch(wtx->type)
     {
     case TransactionRecord::RecvWithAddress:
-        return tr("Received with");
+        base = tr("Received with");
+        break;
     case TransactionRecord::RecvFromOther:
-        return tr("Received from");
+        base = tr("Received from");
+        break;
     case TransactionRecord::SendToAddress:
     case TransactionRecord::SendToOther:
-        return tr("Sent to");
+        base = tr("Sent to");
+        break;
     case TransactionRecord::SendToSelf:
-        return tr("Payment to yourself");
+        base = tr("Payment to yourself");
+        break;
     case TransactionRecord::Generated:
-        return tr("Mined");
+        base = tr("Mined");
+        break;
     default:
-        return QString();
+        break;
     }
+
+    // Append PQC role label
+    switch(wtx->pqcRole)
+    {
+    case TransactionRecord::PqcTxC:
+        base += (base.isEmpty() ? "" : " ") + QString("TX_C");
+        break;
+    case TransactionRecord::PqcTxR:
+        base += (base.isEmpty() ? "" : " ") + QString("TX_R");
+        break;
+    default:
+        break;
+    }
+
+    return base;
 }
 
 QVariant TransactionTableModel::txAddressDecoration(const TransactionRecord *wtx) const
@@ -507,6 +528,18 @@ QString TransactionTableModel::formatTooltip(const TransactionRecord *rec) const
        rec->type==TransactionRecord::SendToAddress || rec->type==TransactionRecord::RecvWithAddress)
     {
         tooltip += QString(" ") + formatTxToAddress(rec, true);
+    }
+    // Add PQC role description on hover
+    switch(rec->pqcRole)
+    {
+    case TransactionRecord::PqcTxC:
+        tooltip += QString("\n") + tr("PQC Commitment — contains OP_RETURN commitment hash and P2SH carrier output");
+        break;
+    case TransactionRecord::PqcTxR:
+        tooltip += QString("\n") + tr("PQC Reveal — carries the post-quantum public key and signature in scriptSig");
+        break;
+    default:
+        break;
     }
     return tooltip;
 }
