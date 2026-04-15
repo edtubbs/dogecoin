@@ -195,6 +195,10 @@ ifneq ($(host),$(build))
 $(package)_cmake_opts += -DCMAKE_SYSTEM_NAME=$($(host_os)_cmake_system_name)
 $(package)_cmake_opts += -DCMAKE_SYSTEM_VERSION=$($(host_os)_cmake_system_version)
 $(package)_cmake_opts += -DCMAKE_SYSTEM_PROCESSOR=$(host_arch)
+# Ensure cross-compilation uses correct AR and RANLIB (especially important for
+# macOS targets where GNU ar archives can't be read by Apple's ld)
+$(package)_cmake_opts += -DCMAKE_AR=$$($(package)_ar)
+$(package)_cmake_opts += -DCMAKE_RANLIB=$$($(package)_ranlib)
 # Native packages cannot be used during cross-compiling. However,
 # Qt still unconditionally tries to find them, which causes issues
 # in some cases, such as when cross-compiling from macOS to Windows.
@@ -297,5 +301,88 @@ define $(package)_stage_cmds
 endef
 
 define $(package)_postprocess_cmds
-  rm -rf doc/
+  rm -rf doc/ && \
+  if test ! -f include/QtGui/qwindowdefs_win.h && test -f lib/cmake/Qt6/Qt6Config.cmake; then \
+    echo "Installing missing qwindowdefs_win.h for Windows cross-compilation" && \
+    printf '%s\n' \
+      '// Copyright (C) 2016 The Qt Company Ltd.' \
+      '// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only' \
+      '' \
+      '#ifndef QWINDOWDEFS_WIN_H' \
+      '#define QWINDOWDEFS_WIN_H' \
+      '' \
+      '#include <QtGui/qtguiglobal.h>' \
+      '' \
+      'QT_BEGIN_NAMESPACE' \
+      'QT_END_NAMESPACE' \
+      '' \
+      '#if !defined(Q_NOWINSTRICT)' \
+      '#define Q_WINSTRICT' \
+      '#endif' \
+      '' \
+      '#if defined(Q_WINSTRICT)' \
+      '#if !defined(STRICT)' \
+      '#define STRICT' \
+      '#endif' \
+      '#undef NO_STRICT' \
+      '#define Q_DECLARE_HANDLE(name) struct name##__; typedef struct name##__ *name' \
+      '#else' \
+      '#if !defined(NO_STRICT)' \
+      '#define NO_STRICT' \
+      '#endif' \
+      '#undef  STRICT' \
+      '#define Q_DECLARE_HANDLE(name) typedef HANDLE name' \
+      '#endif' \
+      '' \
+      '#ifndef HINSTANCE' \
+      'Q_DECLARE_HANDLE(HINSTANCE);' \
+      '#endif' \
+      '#ifndef HMODULE' \
+      'typedef HINSTANCE HMODULE;' \
+      '#endif' \
+      '#ifndef HDC' \
+      'Q_DECLARE_HANDLE(HDC);' \
+      '#endif' \
+      '#ifndef HWND' \
+      'Q_DECLARE_HANDLE(HWND);' \
+      '#endif' \
+      '#ifndef HFONT' \
+      'Q_DECLARE_HANDLE(HFONT);' \
+      '#endif' \
+      '#ifndef HPEN' \
+      'Q_DECLARE_HANDLE(HPEN);' \
+      '#endif' \
+      '#ifndef HBRUSH' \
+      'Q_DECLARE_HANDLE(HBRUSH);' \
+      '#endif' \
+      '#ifndef HBITMAP' \
+      'Q_DECLARE_HANDLE(HBITMAP);' \
+      '#endif' \
+      '#ifndef HICON' \
+      'Q_DECLARE_HANDLE(HICON);' \
+      '#endif' \
+      '#ifndef HCURSOR' \
+      'typedef HICON HCURSOR;' \
+      '#endif' \
+      '#ifndef HPALETTE' \
+      'Q_DECLARE_HANDLE(HPALETTE);' \
+      '#endif' \
+      '#ifndef HRGN' \
+      'Q_DECLARE_HANDLE(HRGN);' \
+      '#endif' \
+      '#ifndef HMONITOR' \
+      'Q_DECLARE_HANDLE(HMONITOR);' \
+      '#endif' \
+      '#ifndef HGLRC' \
+      'Q_DECLARE_HANDLE(HGLRC);' \
+      '#endif' \
+      '#ifndef _HRESULT_DEFINED' \
+      'typedef long HRESULT;' \
+      '#endif' \
+      '' \
+      'typedef struct tagMSG MSG;' \
+      '' \
+      '#endif // QWINDOWDEFS_WIN_H' \
+      > include/QtGui/qwindowdefs_win.h; \
+  fi
 endef

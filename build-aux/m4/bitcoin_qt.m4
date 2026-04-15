@@ -453,16 +453,42 @@ AC_DEFUN([_BITCOIN_QT_FIND_LIBS_WITHOUT_PKGCONFIG],[
   BITCOIN_QT_CHECK(AC_CHECK_LIB([z] ,[main],,AC_MSG_WARN([zlib not found. Assuming qt has it built-in])))
   if test x$bitcoin_qt_got_major_vers = x6; then
     AC_MSG_NOTICE([Skipping optional jpeg/pcre/harfbuzz library checks for Qt6 static builds])
+    dnl For Qt6 static builds, AC_CHECK_LIB often fails because static Qt6
+    dnl libraries have complex inter-dependencies. Instead of trying to link,
+    dnl just verify the library files exist.
+    if test x$qt_lib_path != x; then
+      for _qt6lib in Core Gui Network Widgets; do
+        _qt6libfile="$qt_lib_path/lib${QT_LIB_PREFIX}${_qt6lib}.a"
+        if test ! -f "$_qt6libfile"; then
+          _qt6libfile="$qt_lib_path/lib${QT_LIB_PREFIX}${_qt6lib}.so"
+        fi
+        if test ! -f "$_qt6libfile"; then
+          _qt6libfile="$qt_lib_path/lib${QT_LIB_PREFIX}${_qt6lib}.dylib"
+        fi
+        if test ! -f "$_qt6libfile"; then
+          BITCOIN_QT_FAIL([lib${QT_LIB_PREFIX}${_qt6lib} not found in $qt_lib_path])
+        else
+          AC_MSG_NOTICE([Found lib${QT_LIB_PREFIX}${_qt6lib}: $_qt6libfile])
+          LIBS="$LIBS -l${QT_LIB_PREFIX}${_qt6lib}"
+        fi
+      done
+    else
+      dnl No explicit lib path - try the standard AC_CHECK_LIB approach
+      BITCOIN_QT_CHECK(AC_CHECK_LIB([${QT_LIB_PREFIX}Core]   ,[main],,BITCOIN_QT_FAIL(lib$QT_LIB_PREFIXCore not found)))
+      BITCOIN_QT_CHECK(AC_CHECK_LIB([${QT_LIB_PREFIX}Gui]    ,[main],,BITCOIN_QT_FAIL(lib$QT_LIB_PREFIXGui not found)))
+      BITCOIN_QT_CHECK(AC_CHECK_LIB([${QT_LIB_PREFIX}Network],[main],,BITCOIN_QT_FAIL(lib$QT_LIB_PREFIXNetwork not found)))
+      BITCOIN_QT_CHECK(AC_CHECK_LIB([${QT_LIB_PREFIX}Widgets],[main],,BITCOIN_QT_FAIL(lib$QT_LIB_PREFIXWidgets not found)))
+    fi
   else
     BITCOIN_QT_CHECK(AC_SEARCH_LIBS([png_error] ,[qtpng png],,AC_MSG_WARN([libpng not found. Assuming qt has it built-in])))
     BITCOIN_QT_CHECK(AC_SEARCH_LIBS([jpeg_create_decompress] ,[qtjpeg jpeg],,AC_MSG_WARN([libjpeg not found. Assuming qt has it built-in])))
     BITCOIN_QT_CHECK(AC_SEARCH_LIBS([pcre16_exec], [qtpcre pcre16],,AC_MSG_WARN([libpcre16 not found. Assuming qt has it built-in])))
     BITCOIN_QT_CHECK(AC_SEARCH_LIBS([hb_ot_tags_from_script] ,[qtharfbuzzng harfbuzz],,AC_MSG_WARN([libharfbuzz not found. Assuming qt has it built-in or support is disabled])))
+    BITCOIN_QT_CHECK(AC_CHECK_LIB([${QT_LIB_PREFIX}Core]   ,[main],,BITCOIN_QT_FAIL(lib$QT_LIB_PREFIXCore not found)))
+    BITCOIN_QT_CHECK(AC_CHECK_LIB([${QT_LIB_PREFIX}Gui]    ,[main],,BITCOIN_QT_FAIL(lib$QT_LIB_PREFIXGui not found)))
+    BITCOIN_QT_CHECK(AC_CHECK_LIB([${QT_LIB_PREFIX}Network],[main],,BITCOIN_QT_FAIL(lib$QT_LIB_PREFIXNetwork not found)))
+    BITCOIN_QT_CHECK(AC_CHECK_LIB([${QT_LIB_PREFIX}Widgets],[main],,BITCOIN_QT_FAIL(lib$QT_LIB_PREFIXWidgets not found)))
   fi
-  BITCOIN_QT_CHECK(AC_CHECK_LIB([${QT_LIB_PREFIX}Core]   ,[main],,BITCOIN_QT_FAIL(lib$QT_LIB_PREFIXCore not found)))
-  BITCOIN_QT_CHECK(AC_CHECK_LIB([${QT_LIB_PREFIX}Gui]    ,[main],,BITCOIN_QT_FAIL(lib$QT_LIB_PREFIXGui not found)))
-  BITCOIN_QT_CHECK(AC_CHECK_LIB([${QT_LIB_PREFIX}Network],[main],,BITCOIN_QT_FAIL(lib$QT_LIB_PREFIXNetwork not found)))
-  BITCOIN_QT_CHECK(AC_CHECK_LIB([${QT_LIB_PREFIX}Widgets],[main],,BITCOIN_QT_FAIL(lib$QT_LIB_PREFIXWidgets not found)))
   QT_LIBS="$LIBS"
   LIBS="$TEMP_LIBS"
 
@@ -471,7 +497,18 @@ AC_DEFUN([_BITCOIN_QT_FIND_LIBS_WITHOUT_PKGCONFIG],[
     if test x$qt_lib_path != x; then
       LIBS="-L$qt_lib_path"
     fi
-    AC_CHECK_LIB([${QT_LIB_PREFIX}Test],      [main],, have_qt_test=no)
+    if test x$bitcoin_qt_got_major_vers = x6 && test x$qt_lib_path != x; then
+      dnl Qt6 static: verify file exists instead of AC_CHECK_LIB
+      _qt6testlib="$qt_lib_path/lib${QT_LIB_PREFIX}Test.a"
+      if test -f "$_qt6testlib"; then
+        AC_MSG_NOTICE([Found lib${QT_LIB_PREFIX}Test: $_qt6testlib])
+        LIBS="$LIBS -l${QT_LIB_PREFIX}Test"
+      else
+        have_qt_test=no
+      fi
+    else
+      AC_CHECK_LIB([${QT_LIB_PREFIX}Test],      [main],, have_qt_test=no)
+    fi
     AC_CHECK_HEADER([QtTest/qtest.h],, have_qt_test=no)
     QT_TEST_LIBS="$LIBS"
     if test x$use_dbus != xno; then
@@ -479,7 +516,17 @@ AC_DEFUN([_BITCOIN_QT_FIND_LIBS_WITHOUT_PKGCONFIG],[
       if test x$qt_lib_path != x; then
         LIBS="-L$qt_lib_path"
       fi
-      AC_CHECK_LIB([${QT_LIB_PREFIX}DBus],      [main],, have_qt_dbus=no)
+      if test x$bitcoin_qt_got_major_vers = x6 && test x$qt_lib_path != x; then
+        _qt6dbuslib="$qt_lib_path/lib${QT_LIB_PREFIX}DBus.a"
+        if test -f "$_qt6dbuslib"; then
+          AC_MSG_NOTICE([Found lib${QT_LIB_PREFIX}DBus: $_qt6dbuslib])
+          LIBS="$LIBS -l${QT_LIB_PREFIX}DBus"
+        else
+          have_qt_dbus=no
+        fi
+      else
+        AC_CHECK_LIB([${QT_LIB_PREFIX}DBus],      [main],, have_qt_dbus=no)
+      fi
       AC_CHECK_HEADER([QtDBus/qdbusconnection.h],, have_qt_dbus=no)
       QT_DBUS_LIBS="$LIBS"
     fi
