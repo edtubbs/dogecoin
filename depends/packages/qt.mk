@@ -195,10 +195,6 @@ ifneq ($(host),$(build))
 $(package)_cmake_opts += -DCMAKE_SYSTEM_NAME=$($(host_os)_cmake_system_name)
 $(package)_cmake_opts += -DCMAKE_SYSTEM_VERSION=$($(host_os)_cmake_system_version)
 $(package)_cmake_opts += -DCMAKE_SYSTEM_PROCESSOR=$(host_arch)
-# Ensure cross-compilation uses correct AR and RANLIB (especially important for
-# macOS targets where GNU ar archives can't be read by Apple's ld)
-$(package)_cmake_opts += -DCMAKE_AR=$$($(package)_ar)
-$(package)_cmake_opts += -DCMAKE_RANLIB=$$($(package)_ranlib)
 # Native packages cannot be used during cross-compiling. However,
 # Qt still unconditionally tries to find them, which causes issues
 # in some cases, such as when cross-compiling from macOS to Windows.
@@ -209,6 +205,10 @@ $(package)_cmake_opts += -DCMAKE_DISABLE_FIND_PACKAGE_WrapSystemMd4c=TRUE
 $(package)_cmake_opts += -DCMAKE_DISABLE_FIND_PACKAGE_WrapZSTD=TRUE
 endif
 ifeq ($(host_os),darwin)
+# macOS cross-compilation needs correct AR/RANLIB to create archives
+# Apple's ld can't read GNU ar format; use the toolchain's ar
+$(package)_cmake_opts += -DCMAKE_AR=$(toolchain_path)$(host_AR)
+$(package)_cmake_opts += -DCMAKE_RANLIB=$(toolchain_path)$(host_RANLIB)
 $(package)_cmake_opts += -DCMAKE_INSTALL_NAME_TOOL=true
 $(package)_cmake_opts += -DCMAKE_FRAMEWORK_PATH=$(OSX_SDK)/System/Library/Frameworks
 $(package)_cmake_opts += -DQT_INTERNAL_APPLE_SDK_VERSION=$(OSX_SDK_VERSION)
