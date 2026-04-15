@@ -500,6 +500,12 @@ AC_DEFUN([_BITCOIN_QT_FIND_LIBS_WITHOUT_PKGCONFIG],[
     if test x$bitcoin_qt_got_major_vers = x6 && test x$qt_lib_path != x; then
       dnl Qt6 static: verify file exists instead of AC_CHECK_LIB
       _qt6testlib="$qt_lib_path/lib${QT_LIB_PREFIX}Test.a"
+      if test ! -f "$_qt6testlib"; then
+        _qt6testlib="$qt_lib_path/lib${QT_LIB_PREFIX}Test.so"
+      fi
+      if test ! -f "$_qt6testlib"; then
+        _qt6testlib="$qt_lib_path/lib${QT_LIB_PREFIX}Test.dylib"
+      fi
       if test -f "$_qt6testlib"; then
         AC_MSG_NOTICE([Found lib${QT_LIB_PREFIX}Test: $_qt6testlib])
         LIBS="$LIBS -l${QT_LIB_PREFIX}Test"
@@ -518,6 +524,12 @@ AC_DEFUN([_BITCOIN_QT_FIND_LIBS_WITHOUT_PKGCONFIG],[
       fi
       if test x$bitcoin_qt_got_major_vers = x6 && test x$qt_lib_path != x; then
         _qt6dbuslib="$qt_lib_path/lib${QT_LIB_PREFIX}DBus.a"
+        if test ! -f "$_qt6dbuslib"; then
+          _qt6dbuslib="$qt_lib_path/lib${QT_LIB_PREFIX}DBus.so"
+        fi
+        if test ! -f "$_qt6dbuslib"; then
+          _qt6dbuslib="$qt_lib_path/lib${QT_LIB_PREFIX}DBus.dylib"
+        fi
         if test -f "$_qt6dbuslib"; then
           AC_MSG_NOTICE([Found lib${QT_LIB_PREFIX}DBus: $_qt6dbuslib])
           LIBS="$LIBS -l${QT_LIB_PREFIX}DBus"
