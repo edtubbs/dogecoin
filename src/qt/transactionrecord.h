@@ -82,9 +82,10 @@ public:
     /** PQC transaction role (if any) */
     enum PqcRole
     {
-        PqcNone,     /**< Not a PQC transaction */
-        PqcTxC,      /**< PQC Commitment transaction (TX_C) */
-        PqcTxR       /**< PQC Reveal transaction (TX_R) */
+        PqcNone,          /**< Not a PQC transaction */
+        PqcTxC,           /**< PQC Commitment transaction (TX_C) — payment output */
+        PqcTxCCommitment, /**< PQC Commitment transaction (TX_C) — OP_RETURN commitment output */
+        PqcTxR            /**< PQC Reveal transaction (TX_R) */
     };
 
     /** Number of confirmation recommended for accepting a transaction */
@@ -130,6 +131,9 @@ public:
 
     /** PQC transaction role (TX_C, TX_R, or none) */
     PqcRole pqcRole;
+
+    /** PQC commitment hash (hex) — only set for PqcTxCCommitment records */
+    std::string pqcCommitmentHash;
 
     /** Status: can change with block chain update */
     TransactionStatus status;

@@ -136,9 +136,28 @@ QList<TransactionRecord> TransactionRecord::decomposeTransaction(const CWallet *
                     continue;
                 }
 
-                // Skip unspendable outputs (OP_RETURN) that carry no value.
-                // These are data-only outputs (e.g. PQC commitment metadata)
-                // and should not appear as separate transaction list entries.
+                // Skip unspendable outputs (OP_RETURN) that carry no value,
+                // unless this is a PQC commitment output (handled below).
+#if ENABLE_LIBOQS
+                {
+                    PQCCommitmentType opRetType;
+                    uint256 opRetCommitment;
+                    if (txout.scriptPubKey.IsUnspendable() && txout.nValue == 0 &&
+                        PQCExtractCommitment(txout.scriptPubKey, opRetType, opRetCommitment))
+                    {
+                        // PQC commitment OP_RETURN — show as a distinct entry
+                        sub.type = TransactionRecord::SendToOther;
+                        sub.address = opRetCommitment.GetHex();
+                        sub.debit = 0;
+                        sub.pqcRole = PqcTxCCommitment;
+                        sub.pqcCommitmentHash = opRetCommitment.GetHex();
+                        parts.append(sub);
+                        continue;
+                    }
+                }
+#endif
+                // Non-PQC OP_RETURN data-only outputs should not appear as
+                // separate transaction list entries.
                 if (txout.scriptPubKey.IsUnspendable() && txout.nValue == 0)
                 {
                     continue;
@@ -204,7 +223,10 @@ QList<TransactionRecord> TransactionRecord::decomposeTransaction(const CWallet *
         if (isTxC || isTxR) {
             PqcRole role = isTxC ? PqcTxC : PqcTxR;
             for (int i = 0; i < parts.size(); ++i) {
-                parts[i].pqcRole = role;
+                // Don't overwrite PqcTxCCommitment — it was already set
+                // for the OP_RETURN commitment output during debit processing.
+                if (parts[i].pqcRole == PqcNone)
+                    parts[i].pqcRole = role;
             }
         }
     }
