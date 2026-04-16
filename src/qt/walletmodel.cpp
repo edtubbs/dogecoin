@@ -263,9 +263,12 @@ WalletModel::SendCoinsReturn WalletModel::prepareTransaction(WalletModelTransact
         if (rcp.pqcCarrierMode) {
             CScript carrierScriptPubKey;
             if (PQCBuildCarrierScriptPubKey(carrierScriptPubKey)) {
-                // Carrier output value: 1 DOGE (100000000 koinu) to avoid dust rejection
-                CRecipient carrierRecipient = {carrierScriptPubKey, 100000000, false};
-                vecSend.push_back(carrierRecipient);
+                // One carrier output per part needed (1 DOGE each to avoid dust rejection)
+                uint8_t parts = rcp.pqcCarrierParts > 0 ? rcp.pqcCarrierParts : 1;
+                for (uint8_t p = 0; p < parts; ++p) {
+                    CRecipient carrierRecipient = {carrierScriptPubKey, 100000000, false};
+                    vecSend.push_back(carrierRecipient);
+                }
             }
         }
 #endif
@@ -381,23 +384,20 @@ bool WalletModel::sendCarrierTx(const CTransaction& txc,
                                  uint256& txr_txid_out,
                                  QString& error_out)
 {
-    // Step 1: Find the P2SH carrier output in TX_C
+    // Step 1: Find ALL P2SH carrier outputs in TX_C
     CScript carrierScriptPubKey;
     if (!PQCBuildCarrierScriptPubKey(carrierScriptPubKey)) {
         error_out = tr("Failed to build carrier scriptPubKey");
         return false;
     }
 
-    int carrierOutputIndex = -1;
-    CAmount carrierValue = 0;
+    std::vector<std::pair<int, CAmount> > carrierOutputs; // (index, value)
     for (unsigned int i = 0; i < txc.vout.size(); ++i) {
         if (txc.vout[i].scriptPubKey == carrierScriptPubKey) {
-            carrierOutputIndex = static_cast<int>(i);
-            carrierValue = txc.vout[i].nValue;
-            break;
+            carrierOutputs.push_back(std::make_pair(static_cast<int>(i), txc.vout[i].nValue));
         }
     }
-    if (carrierOutputIndex < 0) {
+    if (carrierOutputs.empty()) {
         error_out = tr("No P2SH carrier output found in TX_C");
         return false;
     }
@@ -410,29 +410,33 @@ bool WalletModel::sendCarrierTx(const CTransaction& txc,
         return false;
     }
 
-    // Step 3: Build TX_R as a raw transaction
+    if (static_cast<size_t>(partsNeeded) > carrierOutputs.size()) {
+        error_out = tr("TX_C has %1 carrier output(s) but %2 needed for payload")
+            .arg(carrierOutputs.size()).arg(partsNeeded);
+        return false;
+    }
+
+    // Step 3: Build TX_R as a raw transaction with one input per carrier part
     CMutableTransaction txr;
     txr.nVersion = 1;
     txr.nLockTime = 0;
 
-    // For simplicity, Falcon-512 payload is ~1557 bytes, fits in 1 part (1560 bytes per part).
-    // We only have 1 carrier output in TX_C, so we use 1 input.
-    if (partsNeeded > 1) {
-        error_out = tr("Multi-part carrier not yet supported (payload too large for single carrier input)");
-        return false;
+    CAmount totalCarrierValue = 0;
+    for (uint8_t p = 0; p < partsNeeded; ++p) {
+        CTxIn carrierInput(COutPoint(txc.GetHash(), carrierOutputs[p].first), CScript(), CTxIn::SEQUENCE_FINAL);
+        txr.vin.push_back(carrierInput);
+        totalCarrierValue += carrierOutputs[p].second;
     }
 
-    // Single carrier input spending the P2SH output from TX_C
-    CTxIn carrierInput(COutPoint(txc.GetHash(), carrierOutputIndex), CScript(), CTxIn::SEQUENCE_FINAL);
-    txr.vin.push_back(carrierInput);
-
-    // Step 4: Build the carrier scriptSig
-    CScript carrierScriptSig;
-    if (!PQCBuildCarrierPartScriptSig(pqcType, pubkey, signature, 0, carrierScriptSig)) {
-        error_out = tr("Failed to build carrier scriptSig");
-        return false;
+    // Step 4: Build carrier scriptSig for each part
+    for (uint8_t p = 0; p < partsNeeded; ++p) {
+        CScript carrierScriptSig;
+        if (!PQCBuildCarrierPartScriptSig(pqcType, pubkey, signature, p, carrierScriptSig)) {
+            error_out = tr("Failed to build carrier scriptSig for part %1").arg(p);
+            return false;
+        }
+        txr.vin[p].scriptSig = carrierScriptSig;
     }
-    txr.vin[0].scriptSig = carrierScriptSig;
 
     // Step 5: Estimate fee and set output
     // Get a change address from the wallet first (to estimate full tx size)
@@ -455,7 +459,7 @@ bool WalletModel::sendCarrierTx(const CTransaction& txc,
     // Ensure fee is at least the minimum relay fee
     if (fee < 100000) fee = 100000; // 0.001 DOGE minimum
 
-    CAmount outputValue = carrierValue - fee;
+    CAmount outputValue = totalCarrierValue - fee;
     if (outputValue <= 0) {
         error_out = tr("Carrier output value too small to cover TX_R fee");
         return false;
@@ -494,8 +498,8 @@ bool WalletModel::sendCarrierTx(const CTransaction& txc,
         });
     }
 
-    LogPrintf("PQC: TX_R broadcast successfully: %s (spending TX_C carrier output %s:%d)\n",
-              txr_txid_out.GetHex(), txc.GetHash().GetHex(), carrierOutputIndex);
+    LogPrintf("PQC: TX_R broadcast successfully: %s (spending %d TX_C carrier output(s) from %s)\n",
+              txr_txid_out.GetHex(), partsNeeded, txc.GetHash().GetHex());
 
     return true;
 }

@@ -365,6 +365,14 @@ void SendCoinsDialog::on_sendButton_clicked()
         recipients[0].includePqcCommitment = true;
         recipients[0].pqcCommitmentScriptPubKey = pqcCommitmentScriptPubKeyHex.trimmed();
         recipients[0].pqcCarrierMode = (pqcCarrierModeCheckBox && pqcCarrierModeCheckBox->isChecked());
+        if (recipients[0].pqcCarrierMode &&
+            !pqcSelectedPublicKeyHex.isEmpty() && !pqcSelectedSignatureHex.isEmpty() &&
+            IsHex(pqcSelectedPublicKeyHex.toStdString()) && IsHex(pqcSelectedSignatureHex.toStdString())) {
+            size_t payloadSize = ParseHex(pqcSelectedPublicKeyHex.toStdString()).size() +
+                                 ParseHex(pqcSelectedSignatureHex.toStdString()).size();
+            recipients[0].pqcCarrierParts = PQCCarrierPartsNeeded(payloadSize);
+            if (recipients[0].pqcCarrierParts == 0) recipients[0].pqcCarrierParts = 1;
+        }
     }
 
     fNewRecipientAllowed = false;
