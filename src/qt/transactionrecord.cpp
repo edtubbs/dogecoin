@@ -136,6 +136,14 @@ QList<TransactionRecord> TransactionRecord::decomposeTransaction(const CWallet *
                     continue;
                 }
 
+                // Skip unspendable outputs (OP_RETURN) that carry no value.
+                // These are data-only outputs (e.g. PQC commitment metadata)
+                // and should not appear as separate transaction list entries.
+                if (txout.scriptPubKey.IsUnspendable() && txout.nValue == 0)
+                {
+                    continue;
+                }
+
                 CTxDestination address;
                 if (ExtractDestination(txout.scriptPubKey, address))
                 {
