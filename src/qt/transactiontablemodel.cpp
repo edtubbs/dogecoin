@@ -564,6 +564,11 @@ QVariant TransactionTableModel::data(const QModelIndex &index, int role) const
     case Qt::DecorationRole:
     {
         QIcon icon = qvariant_cast<QIcon>(index.data(RawDecorationRole));
+        // PQC icons are grayscale+alpha with shading detail; skip
+        // TextColorIcon which would replace all RGB with a single color,
+        // turning the detailed shield into a solid-color blob.
+        if (index.column() == Type && rec->pqcRole != TransactionRecord::PqcNone)
+            return icon;
         return platformStyle->TextColorIcon(icon);
     }
     case Qt::DisplayRole:
