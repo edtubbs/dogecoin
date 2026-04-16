@@ -27,6 +27,7 @@
 #include "ui_interface.h"
 #include "wallet/crypter.h"
 
+#include "crypto/aes.h"
 #include "crypto/sha256.h"
 #include "crypto/sha512.h"
 #include "random.h"
@@ -93,6 +94,26 @@ QByteArray DeriveKeyMaterial(const QByteArray& secret, const QByteArray& context
     }
     out.truncate(outLen);
     return out;
+}
+
+/**
+ * Derive an AES-256-CBC key (32 bytes) and IV (16 bytes) from passphrase + salt
+ * using the same SHA-512 KDF as CCrypter::BytesToKeySHA512AES.
+ * Stores key in keyOut[0..31] and IV in keyOut[32..47].
+ * Caller must memory_cleanse the buffer after use.
+ */
+void DeriveAesKeyIV(const SecureString& passphrase,
+                    const std::vector<unsigned char>& salt,
+                    unsigned int rounds,
+                    unsigned char keyOut[CSHA512::OUTPUT_SIZE])
+{
+    CSHA512 di;
+    di.Write(reinterpret_cast<const unsigned char*>(passphrase.c_str()), passphrase.size());
+    if (!salt.empty())
+        di.Write(salt.data(), salt.size());
+    di.Finalize(keyOut);
+    for (unsigned int i = 0; i < rounds - 1; i++)
+        di.Reset().Write(keyOut, CSHA512::OUTPUT_SIZE).Finalize(keyOut);
 }
 
 } // namespace
@@ -400,32 +421,33 @@ void WalletView::backupWalletEncrypted()
     }
 
     // --- Layer 1: AES-256-CBC encryption with passphrase-derived key ---
+    // NOTE: We use AES256CBCEncrypt directly instead of CCrypter::Encrypt
+    // because CCrypter requires CKeyingMaterial (secure_allocator) which has
+    // a 256 KB arena limit and would segfault for wallet files > 256 KB.
     std::vector<unsigned char> aesSalt(WALLET_CRYPTO_SALT_SIZE);
     GetStrongRandBytes(aesSalt.data(), WALLET_CRYPTO_SALT_SIZE);
     QByteArray aesPassphraseBytes = aesPassphrase.toUtf8();
     SecureString aesPass(aesPassphraseBytes.constData(), aesPassphraseBytes.constData() + aesPassphraseBytes.size());
 
-    CCrypter aesCrypter;
-    if (!aesCrypter.SetKeyFromPassphrase(aesPass, aesSalt, 25000, 0)) {
-        if (!aesPassphraseBytes.isEmpty()) memory_cleanse(aesPassphraseBytes.data(), aesPassphraseBytes.size());
-        if (!plain.isEmpty()) memory_cleanse(plain.data(), plain.size());
-        Q_EMIT message(tr("Encryption Failed"), tr("Unable to derive AES passphrase key."),
-            CClientUIInterface::MSG_ERROR);
-        return;
-    }
+    unsigned char aesKeyBuf[CSHA512::OUTPUT_SIZE];
+    DeriveAesKeyIV(aesPass, aesSalt, 25000, aesKeyBuf);
 
-    CKeyingMaterial plainMaterial(reinterpret_cast<const unsigned char*>(plain.constData()),
-                                  reinterpret_cast<const unsigned char*>(plain.constData()) + plain.size());
-    std::vector<unsigned char> aesCipher;
-    if (!aesCrypter.Encrypt(plainMaterial, aesCipher)) {
-        if (!aesPassphraseBytes.isEmpty()) memory_cleanse(aesPassphraseBytes.data(), aesPassphraseBytes.size());
-        if (!plainMaterial.empty()) memory_cleanse(&plainMaterial[0], plainMaterial.size());
-        if (!plain.isEmpty()) memory_cleanse(plain.data(), plain.size());
-        Q_EMIT message(tr("Encryption Failed"), tr("Unable to encrypt wallet backup data with AES layer."),
-            CClientUIInterface::MSG_ERROR);
-        return;
+    std::vector<unsigned char> aesCipher(plain.size() + AES_BLOCKSIZE);
+    {
+        AES256CBCEncrypt aesEnc(aesKeyBuf, aesKeyBuf + WALLET_CRYPTO_KEY_SIZE, true);
+        int nLen = aesEnc.Encrypt(
+            reinterpret_cast<const unsigned char*>(plain.constData()),
+            plain.size(), aesCipher.data());
+        memory_cleanse(aesKeyBuf, sizeof(aesKeyBuf));
+        if (nLen < plain.size()) {
+            if (!aesPassphraseBytes.isEmpty()) memory_cleanse(aesPassphraseBytes.data(), aesPassphraseBytes.size());
+            if (!plain.isEmpty()) memory_cleanse(plain.data(), plain.size());
+            Q_EMIT message(tr("Encryption Failed"), tr("Unable to encrypt wallet backup data with AES layer."),
+                CClientUIInterface::MSG_ERROR);
+            return;
+        }
+        aesCipher.resize(nLen);
     }
-    if (!plainMaterial.empty()) memory_cleanse(&plainMaterial[0], plainMaterial.size());
     if (!plain.isEmpty()) memory_cleanse(plain.data(), plain.size());
 
 #if ENABLE_LIBOQS
@@ -473,32 +495,21 @@ void WalletView::backupWalletEncrypted()
     CSHA512().Write(sharedSecret.data(), sharedSecret.size()).Finalize(kemDerived);
     memory_cleanse(sharedSecret.data(), sharedSecret.size());
 
-    CCrypter kemCrypter;
-    CKeyingMaterial kemKey(kemDerived, kemDerived + WALLET_CRYPTO_KEY_SIZE);
-    std::vector<unsigned char> kemIV(kemDerived + WALLET_CRYPTO_KEY_SIZE,
-                                     kemDerived + WALLET_CRYPTO_KEY_SIZE + WALLET_CRYPTO_IV_SIZE);
-    memory_cleanse(kemDerived, sizeof(kemDerived));
-
-    if (!kemCrypter.SetKey(kemKey, kemIV)) {
-        memory_cleanse(kemSk.data(), kemSk.size());
-        if (!aesPassphraseBytes.isEmpty()) memory_cleanse(aesPassphraseBytes.data(), aesPassphraseBytes.size());
-        Q_EMIT message(tr("Encryption Failed"), tr("Unable to set KEM-derived encryption key."),
-            CClientUIInterface::MSG_ERROR);
-        return;
+    // Use AES256CBCEncrypt directly to avoid CKeyingMaterial 256 KB limit
+    std::vector<unsigned char> outerCipher(aesCipher.size() + AES_BLOCKSIZE);
+    {
+        AES256CBCEncrypt kemEnc(kemDerived, kemDerived + WALLET_CRYPTO_KEY_SIZE, true);
+        int kemLen = kemEnc.Encrypt(aesCipher.data(), aesCipher.size(), outerCipher.data());
+        memory_cleanse(kemDerived, sizeof(kemDerived));
+        if (kemLen < (int)aesCipher.size()) {
+            memory_cleanse(kemSk.data(), kemSk.size());
+            if (!aesPassphraseBytes.isEmpty()) memory_cleanse(aesPassphraseBytes.data(), aesPassphraseBytes.size());
+            Q_EMIT message(tr("Encryption Failed"), tr("Unable to encrypt with KEM-derived key."),
+                CClientUIInterface::MSG_ERROR);
+            return;
+        }
+        outerCipher.resize(kemLen);
     }
-    memory_cleanse(&kemKey[0], kemKey.size());
-
-    CKeyingMaterial aesCipherMaterial(aesCipher.begin(), aesCipher.end());
-    std::vector<unsigned char> outerCipher;
-    if (!kemCrypter.Encrypt(aesCipherMaterial, outerCipher)) {
-        memory_cleanse(kemSk.data(), kemSk.size());
-        if (!aesPassphraseBytes.isEmpty()) memory_cleanse(aesPassphraseBytes.data(), aesPassphraseBytes.size());
-        if (!aesCipherMaterial.empty()) memory_cleanse(&aesCipherMaterial[0], aesCipherMaterial.size());
-        Q_EMIT message(tr("Encryption Failed"), tr("Unable to encrypt with KEM-derived key."),
-            CClientUIInterface::MSG_ERROR);
-        return;
-    }
-    if (!aesCipherMaterial.empty()) memory_cleanse(&aesCipherMaterial[0], aesCipherMaterial.size());
 
     // Encrypt the KEM secret key with the PQC passphrase
     std::vector<unsigned char> pqcSalt(WALLET_CRYPTO_SALT_SIZE);
@@ -701,7 +712,10 @@ void WalletView::restoreWalletEncrypted()
     QByteArray aesPassphraseBytes = aesPassphrase.toUtf8();
     QByteArray pqcPassphraseBytes = pqcPassphrase.toUtf8();
 
-    CKeyingMaterial aesCipherMaterial;
+    // NOTE: We use AES256CBCDecrypt directly instead of CCrypter::Decrypt
+    // because CCrypter requires CKeyingMaterial (secure_allocator) which has
+    // a 256 KB arena limit and would segfault for wallet files > 256 KB.
+    std::vector<unsigned char> aesCipherData;
 
     if (isV4) {
 #if ENABLE_LIBOQS
@@ -798,28 +812,20 @@ void WalletView::restoreWalletEncrypted()
         CSHA512().Write(sharedSecret.data(), sharedSecret.size()).Finalize(kemDerived);
         memory_cleanse(sharedSecret.data(), sharedSecret.size());
 
-        CCrypter kemCrypter;
-        CKeyingMaterial kemKey(kemDerived, kemDerived + WALLET_CRYPTO_KEY_SIZE);
-        std::vector<unsigned char> kemIV(kemDerived + WALLET_CRYPTO_KEY_SIZE,
-                                         kemDerived + WALLET_CRYPTO_KEY_SIZE + WALLET_CRYPTO_IV_SIZE);
-        memory_cleanse(kemDerived, sizeof(kemDerived));
-
-        if (!kemCrypter.SetKey(kemKey, kemIV)) {
-            memory_cleanse(&kemKey[0], kemKey.size());
-            if (!aesPassphraseBytes.isEmpty()) memory_cleanse(aesPassphraseBytes.data(), aesPassphraseBytes.size());
-            if (!pqcPassphraseBytes.isEmpty()) memory_cleanse(pqcPassphraseBytes.data(), pqcPassphraseBytes.size());
-            Q_EMIT message(tr("Restore Failed"), tr("Unable to set KEM-derived decryption key."),
-                CClientUIInterface::MSG_ERROR);
-            return;
-        }
-        memory_cleanse(&kemKey[0], kemKey.size());
-
-        if (!kemCrypter.Decrypt(outerCipher, aesCipherMaterial)) {
-            if (!aesPassphraseBytes.isEmpty()) memory_cleanse(aesPassphraseBytes.data(), aesPassphraseBytes.size());
-            if (!pqcPassphraseBytes.isEmpty()) memory_cleanse(pqcPassphraseBytes.data(), pqcPassphraseBytes.size());
-            Q_EMIT message(tr("Restore Failed"), tr("KEM-layer decryption failed."),
-                CClientUIInterface::MSG_ERROR);
-            return;
+        // Use AES256CBCDecrypt directly to avoid CKeyingMaterial 256 KB limit
+        aesCipherData.resize(outerCipher.size());
+        {
+            AES256CBCDecrypt kemDec(kemDerived, kemDerived + WALLET_CRYPTO_KEY_SIZE, true);
+            int kemLen = kemDec.Decrypt(outerCipher.data(), outerCipher.size(), aesCipherData.data());
+            memory_cleanse(kemDerived, sizeof(kemDerived));
+            if (kemLen == 0) {
+                if (!aesPassphraseBytes.isEmpty()) memory_cleanse(aesPassphraseBytes.data(), aesPassphraseBytes.size());
+                if (!pqcPassphraseBytes.isEmpty()) memory_cleanse(pqcPassphraseBytes.data(), pqcPassphraseBytes.size());
+                Q_EMIT message(tr("Restore Failed"), tr("KEM-layer decryption failed."),
+                    CClientUIInterface::MSG_ERROR);
+                return;
+            }
+            aesCipherData.resize(kemLen);
         }
 #else
         if (!aesPassphraseBytes.isEmpty()) memory_cleanse(aesPassphraseBytes.data(), aesPassphraseBytes.size());
@@ -851,53 +857,57 @@ void WalletView::restoreWalletEncrypted()
         }
 
         SecureString pqcPass(pqcPassphraseBytes.constData(), pqcPassphraseBytes.constData() + pqcPassphraseBytes.size());
-        CCrypter pqcPassCrypter;
         std::vector<unsigned char> pqcSaltBytes(pqcSalt.begin(), pqcSalt.end());
-        if (!pqcPassCrypter.SetKeyFromPassphrase(pqcPass, pqcSaltBytes, pqcRounds, 0)) {
-            if (!aesPassphraseBytes.isEmpty()) memory_cleanse(aesPassphraseBytes.data(), aesPassphraseBytes.size());
-            if (!pqcPassphraseBytes.isEmpty()) memory_cleanse(pqcPassphraseBytes.data(), pqcPassphraseBytes.size());
-            Q_EMIT message(tr("Restore Failed"), tr("Unable to derive PQC passphrase key."),
-                CClientUIInterface::MSG_ERROR);
-            return;
-        }
-        if (!pqcPassCrypter.Decrypt(outerCipher, aesCipherMaterial)) {
-            if (!aesPassphraseBytes.isEmpty()) memory_cleanse(aesPassphraseBytes.data(), aesPassphraseBytes.size());
-            if (!pqcPassphraseBytes.isEmpty()) memory_cleanse(pqcPassphraseBytes.data(), pqcPassphraseBytes.size());
-            Q_EMIT message(tr("Restore Failed"), tr("PQC password decryption failed."),
-                CClientUIInterface::MSG_ERROR);
-            return;
+
+        // Use AES256CBCDecrypt directly to avoid CKeyingMaterial 256 KB limit
+        unsigned char pqcKeyBuf[CSHA512::OUTPUT_SIZE];
+        DeriveAesKeyIV(pqcPass, pqcSaltBytes, pqcRounds, pqcKeyBuf);
+
+        aesCipherData.resize(outerCipher.size());
+        {
+            AES256CBCDecrypt pqcDec(pqcKeyBuf, pqcKeyBuf + WALLET_CRYPTO_KEY_SIZE, true);
+            int pqcLen = pqcDec.Decrypt(outerCipher.data(), outerCipher.size(), aesCipherData.data());
+            memory_cleanse(pqcKeyBuf, sizeof(pqcKeyBuf));
+            if (pqcLen == 0) {
+                if (!aesPassphraseBytes.isEmpty()) memory_cleanse(aesPassphraseBytes.data(), aesPassphraseBytes.size());
+                if (!pqcPassphraseBytes.isEmpty()) memory_cleanse(pqcPassphraseBytes.data(), pqcPassphraseBytes.size());
+                Q_EMIT message(tr("Restore Failed"), tr("PQC password decryption failed."),
+                    CClientUIInterface::MSG_ERROR);
+                return;
+            }
+            aesCipherData.resize(pqcLen);
         }
     }
 
     // --- AES layer decryption (common to both V3 and V4) ---
+    // Use AES256CBCDecrypt directly to avoid CKeyingMaterial 256 KB limit
     SecureString aesPass(aesPassphraseBytes.constData(), aesPassphraseBytes.constData() + aesPassphraseBytes.size());
-    CCrypter aesCrypter;
     std::vector<unsigned char> aesSaltBytes(aesSalt.begin(), aesSalt.end());
-    if (!aesCrypter.SetKeyFromPassphrase(aesPass, aesSaltBytes, aesRounds, 0)) {
-        if (!aesPassphraseBytes.isEmpty()) memory_cleanse(aesPassphraseBytes.data(), aesPassphraseBytes.size());
-        if (!pqcPassphraseBytes.isEmpty()) memory_cleanse(pqcPassphraseBytes.data(), pqcPassphraseBytes.size());
-        if (!aesCipherMaterial.empty()) memory_cleanse(&aesCipherMaterial[0], aesCipherMaterial.size());
-        Q_EMIT message(tr("Restore Failed"), tr("Unable to derive AES passphrase key."),
-            CClientUIInterface::MSG_ERROR);
-        return;
-    }
 
-    CKeyingMaterial plainMaterial;
-    std::vector<unsigned char> aesCipher(aesCipherMaterial.begin(), aesCipherMaterial.end());
-    if (!aesCrypter.Decrypt(aesCipher, plainMaterial)) {
-        if (!aesPassphraseBytes.isEmpty()) memory_cleanse(aesPassphraseBytes.data(), aesPassphraseBytes.size());
-        if (!pqcPassphraseBytes.isEmpty()) memory_cleanse(pqcPassphraseBytes.data(), pqcPassphraseBytes.size());
-        if (!aesCipherMaterial.empty()) memory_cleanse(&aesCipherMaterial[0], aesCipherMaterial.size());
-        Q_EMIT message(tr("Restore Failed"), tr("AES password decryption failed."),
-            CClientUIInterface::MSG_ERROR);
-        return;
+    unsigned char aesKeyBuf[CSHA512::OUTPUT_SIZE];
+    DeriveAesKeyIV(aesPass, aesSaltBytes, aesRounds, aesKeyBuf);
+
+    std::vector<unsigned char> plainData(aesCipherData.size());
+    {
+        AES256CBCDecrypt aesDec(aesKeyBuf, aesKeyBuf + WALLET_CRYPTO_KEY_SIZE, true);
+        int aesLen = aesDec.Decrypt(aesCipherData.data(), aesCipherData.size(), plainData.data());
+        memory_cleanse(aesKeyBuf, sizeof(aesKeyBuf));
+        if (aesLen == 0) {
+            if (!aesPassphraseBytes.isEmpty()) memory_cleanse(aesPassphraseBytes.data(), aesPassphraseBytes.size());
+            if (!pqcPassphraseBytes.isEmpty()) memory_cleanse(pqcPassphraseBytes.data(), pqcPassphraseBytes.size());
+            if (!aesCipherData.empty()) memory_cleanse(aesCipherData.data(), aesCipherData.size());
+            Q_EMIT message(tr("Restore Failed"), tr("AES password decryption failed."),
+                CClientUIInterface::MSG_ERROR);
+            return;
+        }
+        plainData.resize(aesLen);
     }
 
     if (!aesPassphraseBytes.isEmpty()) memory_cleanse(aesPassphraseBytes.data(), aesPassphraseBytes.size());
     if (!pqcPassphraseBytes.isEmpty()) memory_cleanse(pqcPassphraseBytes.data(), pqcPassphraseBytes.size());
-    if (!aesCipherMaterial.empty()) memory_cleanse(&aesCipherMaterial[0], aesCipherMaterial.size());
+    if (!aesCipherData.empty()) memory_cleanse(aesCipherData.data(), aesCipherData.size());
 
-    if (plainMaterial.empty()) {
+    if (plainData.empty()) {
         Q_EMIT message(tr("Restore Failed"), tr("Decrypted wallet backup is empty."),
             CClientUIInterface::MSG_ERROR);
         return;
@@ -906,14 +916,14 @@ void WalletView::restoreWalletEncrypted()
     const QString tempWalletOut = inFilename + ".decrypted.wallet.dat";
     QFile outWallet(tempWalletOut);
     if (!outWallet.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
-        if (!plainMaterial.empty()) memory_cleanse(&plainMaterial[0], plainMaterial.size());
+        if (!plainData.empty()) memory_cleanse(plainData.data(), plainData.size());
         Q_EMIT message(tr("Restore Failed"), tr("Unable to write decrypted wallet data."),
             CClientUIInterface::MSG_ERROR);
         return;
     }
-    outWallet.write(reinterpret_cast<const char*>(plainMaterial.data()), plainMaterial.size());
+    outWallet.write(reinterpret_cast<const char*>(plainData.data()), plainData.size());
     outWallet.close();
-    if (!plainMaterial.empty()) memory_cleanse(&plainMaterial[0], plainMaterial.size());
+    if (!plainData.empty()) memory_cleanse(plainData.data(), plainData.size());
 
     const QMessageBox::StandardButton answer = QMessageBox::question(
         this,
