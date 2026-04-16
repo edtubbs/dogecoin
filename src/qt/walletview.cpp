@@ -43,6 +43,7 @@ EXPERIMENTAL_FEATURE
 
 #include <QAction>
 #include <QActionGroup>
+#include <QApplication>
 #include <QComboBox>
 #include <QFileDialog>
 #include <QGridLayout>
@@ -66,6 +67,23 @@ EXPERIMENTAL_FEATURE
 #include <QVBoxLayout>
 
 namespace {
+
+/** Return the last `n` hex chars of `hex` that are not all-zero,
+ *  skipping trailing '0' pairs so the displayed suffix is meaningful.
+ *  Falls back to the rightmost `n` chars if no non-zero suffix exists. */
+QString hexDisplaySuffix(const QString& hex, int n = 8)
+{
+    // Strip trailing '0' characters to find the last meaningful data
+    int end = hex.size();
+    while (end > 0 && hex.at(end - 1) == '0')
+        --end;
+    if (end <= 0)
+        return hex.right(n);
+    // Take up to n chars ending at the trimmed position
+    int start = qMax(0, end - n);
+    return hex.mid(start, end - start);
+}
+
 const char* PQCSignatureStorageKeyForAlgorithm(const QString& algorithm)
 {
     if (algorithm == "dilithium2") return "pqc_sigkey_dilithium2";
@@ -404,6 +422,16 @@ void WalletView::backupWalletEncrypted()
         return;
     }
 
+    // Show progress dialog during encryption
+    QProgressDialog progress(tr("Encrypting wallet backup..."), QString(), 0, 100, this);
+    progress.setWindowModality(Qt::ApplicationModal);
+    progress.setMinimumDuration(0);
+    progress.setCancelButton(nullptr);
+    progress.setAutoClose(false);
+    progress.setValue(5);
+    progress.setLabelText(tr("Reading wallet file..."));
+    QApplication::processEvents();
+
     QFile walletFile(tempWalletFilename);
     if (!walletFile.open(QIODevice::ReadOnly)) {
         QFile::remove(tempWalletFilename);
@@ -419,6 +447,10 @@ void WalletView::backupWalletEncrypted()
             CClientUIInterface::MSG_ERROR);
         return;
     }
+
+    progress.setValue(15);
+    progress.setLabelText(tr("Encrypting with AES-256-CBC (layer 1)..."));
+    QApplication::processEvents();
 
     // --- Layer 1: AES-256-CBC encryption with passphrase-derived key ---
     // NOTE: We use AES256CBCEncrypt directly instead of CCrypter::Encrypt
@@ -449,6 +481,10 @@ void WalletView::backupWalletEncrypted()
         aesCipher.resize(nLen);
     }
     if (!plain.isEmpty()) memory_cleanse(plain.data(), plain.size());
+
+    progress.setValue(35);
+    progress.setLabelText(tr("Generating ML-KEM-768 keypair (layer 2)..."));
+    QApplication::processEvents();
 
 #if ENABLE_LIBOQS
     // --- Layer 2: ML-KEM-768 key encapsulation + AES-256-CBC ---
@@ -490,6 +526,10 @@ void WalletView::backupWalletEncrypted()
     }
     OQS_KEM_free(kem);
 
+    progress.setValue(50);
+    progress.setLabelText(tr("Encrypting with KEM-derived key..."));
+    QApplication::processEvents();
+
     // Derive an AES key + IV from the KEM shared secret via SHA-512
     unsigned char kemDerived[CSHA512::OUTPUT_SIZE];
     CSHA512().Write(sharedSecret.data(), sharedSecret.size()).Finalize(kemDerived);
@@ -512,6 +552,10 @@ void WalletView::backupWalletEncrypted()
     }
 
     // Encrypt the KEM secret key with the PQC passphrase
+    progress.setValue(65);
+    progress.setLabelText(tr("Encrypting KEM secret key with PQC passphrase..."));
+    QApplication::processEvents();
+
     std::vector<unsigned char> pqcSalt(WALLET_CRYPTO_SALT_SIZE);
     GetStrongRandBytes(pqcSalt.data(), WALLET_CRYPTO_SALT_SIZE);
     QByteArray pqcPassphraseBytes = pqcPassphrase.toUtf8();
@@ -544,6 +588,10 @@ void WalletView::backupWalletEncrypted()
     if (!aesPassphraseBytes.isEmpty()) memory_cleanse(aesPassphraseBytes.data(), aesPassphraseBytes.size());
     if (!pqcPassphraseBytes.isEmpty()) memory_cleanse(pqcPassphraseBytes.data(), pqcPassphraseBytes.size());
 
+    progress.setValue(80);
+    progress.setLabelText(tr("Writing encrypted envelope file..."));
+    QApplication::processEvents();
+
     const QByteArray envelopeAlgo = "AES256-CBC+ML-KEM-768";
     unsigned char digest[CSHA256::OUTPUT_SIZE];
     CSHA256 hasher;
@@ -574,8 +622,11 @@ void WalletView::backupWalletEncrypted()
     outFile.close();
     memory_cleanse(digest, sizeof(digest));
 
-    Q_EMIT message(tr("Backup Successful"), tr("Double-encrypted (AES-256-CBC + ML-KEM-768) wallet backup was successfully saved to %1.").arg(outFilename),
-        CClientUIInterface::MSG_INFORMATION);
+    progress.setValue(100);
+    progress.close();
+
+    QMessageBox::information(this, tr("Backup Successful"),
+        tr("Double-encrypted (AES-256-CBC + ML-KEM-768) wallet backup was successfully saved to %1.").arg(outFilename));
 
 #else
     // liboqs is required for PQC envelope creation (ML-KEM-768)
@@ -1063,7 +1114,7 @@ void WalletView::showPQCSignatureDialog()
             ? tr(" with encrypted private key material.")
             : tr(" without encrypted private key material.");
         if (!pubHex.isEmpty() && pubHex.size() > 16) {
-            summary += tr(" Public key: %1...%2").arg(pubHex.left(8), pubHex.right(8));
+            summary += tr(" Public key: %1...%2").arg(pubHex.left(8), hexDisplaySuffix(pubHex));
         }
         storedStatusLabel->setText(summary);
         publicKeyHex->setText(pubHex);
@@ -1120,7 +1171,7 @@ void WalletView::showPQCSignatureDialog()
             QString label = QString("%1 • %2...%3")
                 .arg(QString::fromLatin1(items[i].algorithm))
                 .arg(pubHex.left(10))
-                .arg(pubHex.right(8));
+                .arg(hexDisplaySuffix(pubHex));
             const QString created = obj.value("created_utc").toString().trimmed();
             if (!created.isEmpty()) {
                 label += tr(" (created %1)").arg(created);

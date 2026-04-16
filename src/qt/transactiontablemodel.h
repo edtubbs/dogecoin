@@ -72,6 +72,8 @@ public:
         StatusRole,
         /** Unprocessed icon */
         RawDecorationRole,
+        /** PQC badge icon (column-independent) */
+        PqcDecorationRole,
     };
 
     int rowCount(const QModelIndex &parent) const;
