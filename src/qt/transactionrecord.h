@@ -135,6 +135,9 @@ public:
     /** PQC commitment hash (hex) — only set for PqcTxCCommitment records */
     std::string pqcCommitmentHash;
 
+    /** PQC commitment algorithm name — only set for PqcTxCCommitment records */
+    std::string pqcCommitmentAlgorithm;
+
     /** Status: can change with block chain update */
     TransactionStatus status;
 

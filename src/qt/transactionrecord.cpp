@@ -151,6 +151,7 @@ QList<TransactionRecord> TransactionRecord::decomposeTransaction(const CWallet *
                         sub.debit = 0;
                         sub.pqcRole = PqcTxCCommitment;
                         sub.pqcCommitmentHash = opRetCommitment.GetHex();
+                        sub.pqcCommitmentAlgorithm = PQCCommitmentTypeToString(opRetType);
                         parts.append(sub);
                         continue;
                     }

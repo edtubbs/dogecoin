@@ -68,20 +68,17 @@ EXPERIMENTAL_FEATURE
 
 namespace {
 
-/** Return the last `n` hex chars of `hex` that are not all-zero,
- *  skipping trailing '0' pairs so the displayed suffix is meaningful.
- *  Falls back to the rightmost `n` chars if no non-zero suffix exists. */
-QString hexDisplaySuffix(const QString& hex, int n = 8)
+/** Return a short SHA-256 fingerprint of the hex-encoded key.
+ *  This avoids problems with algorithms (e.g. Raccoon) whose raw
+ *  serialization has many trailing zeros in the hex representation. */
+QString hexKeyFingerprint(const QString& hex, int n = 8)
 {
-    // Strip trailing '0' characters to find the last meaningful data
-    int end = hex.size();
-    while (end > 0 && hex.at(end - 1) == '0')
-        --end;
-    if (end <= 0)
-        return hex.right(n);
-    // Take up to n chars ending at the trimmed position
-    int start = qMax(0, end - n);
-    return hex.mid(start, end - start);
+    if (hex.isEmpty())
+        return QString();
+    QByteArray raw = QByteArray::fromHex(hex.toLatin1());
+    unsigned char digest[CSHA256::OUTPUT_SIZE];
+    CSHA256().Write(reinterpret_cast<const unsigned char*>(raw.constData()), raw.size()).Finalize(digest);
+    return QString::fromLatin1(QByteArray(reinterpret_cast<const char*>(digest), CSHA256::OUTPUT_SIZE).toHex().left(n));
 }
 
 const char* PQCSignatureStorageKeyForAlgorithm(const QString& algorithm)
@@ -1114,7 +1111,7 @@ void WalletView::showPQCSignatureDialog()
             ? tr(" with encrypted private key material.")
             : tr(" without encrypted private key material.");
         if (!pubHex.isEmpty() && pubHex.size() > 16) {
-            summary += tr(" Public key: %1...%2").arg(pubHex.left(8), hexDisplaySuffix(pubHex));
+            summary += tr(" Public key: %1...fp:%2").arg(pubHex.left(8), hexKeyFingerprint(pubHex));
         }
         storedStatusLabel->setText(summary);
         publicKeyHex->setText(pubHex);
@@ -1168,10 +1165,10 @@ void WalletView::showPQCSignatureDialog()
             if (pubHex.isEmpty()) {
                 continue;
             }
-            QString label = QString("%1 • %2...%3")
+            QString label = QString("%1 • %2...fp:%3")
                 .arg(QString::fromLatin1(items[i].algorithm))
                 .arg(pubHex.left(10))
-                .arg(hexDisplaySuffix(pubHex));
+                .arg(hexKeyFingerprint(pubHex));
             const QString created = obj.value("created_utc").toString().trimmed();
             if (!created.isEmpty()) {
                 label += tr(" (created %1)").arg(created);
@@ -1459,16 +1456,28 @@ void WalletView::showPQCSignatureDialog()
             return;
         }
 
+        // Show progress dialog during key generation and encryption
+        QProgressDialog progress(tr("Generating PQC key pair..."), QString(), 0, 100, &dlg);
+        progress.setWindowModality(Qt::ApplicationModal);
+        progress.setMinimumDuration(0);
+        progress.setCancelButton(nullptr);
+        progress.setAutoClose(false);
+        progress.setValue(5);
+        progress.setLabelText(tr("Generating %1 key pair...").arg(algorithm->currentText()));
+        QApplication::processEvents();
+
 #if ENABLE_LIBOQS
         // Generate real PQC keypair using liboqs (e.g. Falcon-512: pk=897, sk=1281 bytes)
         PQCCommitmentType pqcType;
         if (!ParsePQCCommitmentType(algorithm->currentText().toStdString(), pqcType)) {
+            progress.close();
             actionStatusLabel->setText(tr("Unknown PQC algorithm: %1").arg(algorithm->currentText()));
             return;
         }
         std::vector<unsigned char> realPublicKey;
         std::vector<unsigned char> realSecretKey;
         if (!PQCGenerateKeypair(pqcType, realPublicKey, realSecretKey)) {
+            progress.close();
             actionStatusLabel->setText(tr("Failed to generate %1 keypair via liboqs.").arg(algorithm->currentText()));
             return;
         }
@@ -1477,11 +1486,16 @@ void WalletView::showPQCSignatureDialog()
         QByteArray privateKey(reinterpret_cast<const char*>(realSecretKey.data()), realSecretKey.size());
         memory_cleanse(realSecretKey.data(), realSecretKey.size());
 #else
+        progress.close();
         actionStatusLabel->setText(tr("PQC key generation requires liboqs. Rebuild with --with-liboqs --enable-experimental."));
         return;
         QByteArray publicKey;
         QByteArray privateKey;
 #endif
+
+        progress.setValue(40);
+        progress.setLabelText(tr("Encrypting private key..."));
+        QApplication::processEvents();
 
         std::vector<unsigned char> salt(WALLET_CRYPTO_SALT_SIZE);
         GetStrongRandBytes(salt.data(), salt.size());
@@ -1491,6 +1505,7 @@ void WalletView::showPQCSignatureDialog()
         if (!keyCrypter.SetKeyFromPassphrase(pass, salt, 25000, 0)) {
             if (!passphraseBytes.isEmpty()) memory_cleanse(passphraseBytes.data(), passphraseBytes.size());
             if (!privateKey.isEmpty()) memory_cleanse(privateKey.data(), privateKey.size());
+            progress.close();
             actionStatusLabel->setText(tr("Failed to derive key encryption key."));
             return;
         }
@@ -1501,6 +1516,7 @@ void WalletView::showPQCSignatureDialog()
             if (!passphraseBytes.isEmpty()) memory_cleanse(passphraseBytes.data(), passphraseBytes.size());
             if (!privateKey.isEmpty()) memory_cleanse(privateKey.data(), privateKey.size());
             if (!privateMaterial.empty()) memory_cleanse(&privateMaterial[0], privateMaterial.size());
+            progress.close();
             actionStatusLabel->setText(tr("Failed to encrypt generated private key."));
             return;
         }
@@ -1508,6 +1524,10 @@ void WalletView::showPQCSignatureDialog()
         if (!passphraseBytes.isEmpty()) memory_cleanse(passphraseBytes.data(), passphraseBytes.size());
         if (!privateKey.isEmpty()) memory_cleanse(privateKey.data(), privateKey.size());
         if (!privateMaterial.empty()) memory_cleanse(&privateMaterial[0], privateMaterial.size());
+
+        progress.setValue(70);
+        progress.setLabelText(tr("Storing encrypted key pair..."));
+        QApplication::processEvents();
 
         QJsonObject keyObj;
         keyObj["version"] = 1;
@@ -1522,9 +1542,21 @@ void WalletView::showPQCSignatureDialog()
 
         const char* storageKey = PQCSignatureStorageKeyForAlgorithm(algorithm->currentText());
         if (!walletModel->saveWalletMeta(storageKey, serialized.toStdString())) {
+            progress.close();
             actionStatusLabel->setText(tr("Failed to persist generated PQC key in wallet metadata."));
             return;
         }
+
+        progress.setValue(100);
+        progress.close();
+
+        QMessageBox::information(&dlg, tr("PQC Key Generation Successful"),
+            tr("Successfully generated and stored %1 key pair.\n\n"
+               "Public key size: %2 bytes\n"
+               "Private key: encrypted and stored in wallet metadata.")
+            .arg(algorithm->currentText())
+            .arg(publicKey.size()));
+
         const QString generatedPubHex = QString::fromLatin1(publicKey.toHex());
         actionStatusLabel->setText(tr("Generated and stored %1 key pair in wallet metadata (private key encrypted, pk=%2 bytes).")
                                    .arg(algorithm->currentText())

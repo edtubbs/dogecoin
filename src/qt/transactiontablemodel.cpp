@@ -428,15 +428,19 @@ QString TransactionTableModel::formatTxToAddress(const TransactionRecord *wtx, b
         watchAddress = wtx->involvesWatchAddress ? QString(" (") + tr("watch-only") + QString(")") : "";
     }
 
-    // PQC commitment OP_RETURN — show truncated commitment hash
+    // PQC commitment OP_RETURN — show truncated commitment hash with algorithm type
     if (wtx->pqcRole == TransactionRecord::PqcTxCCommitment && !wtx->pqcCommitmentHash.empty()) {
         QString hash = QString::fromStdString(wtx->pqcCommitmentHash);
-        if (tooltip)
-            return tr("OP_RETURN commitment: ") + hash;
-        // Truncated display: first 8 + ... + last 8 hex chars
+        QString algo = QString::fromStdString(wtx->pqcCommitmentAlgorithm);
+        if (algo.contains('/'))
+            algo = algo.left(algo.indexOf('/'));
+        if (tooltip) {
+            return tr("PQC commitment (%1): ").arg(algo) + hash;
+        }
+        // Truncated display: [ALGO] first 8 + ... + last 8 hex chars
         if (hash.length() > 20)
-            return tr("OP_RETURN: ") + hash.left(8) + "..." + hash.right(8);
-        return tr("OP_RETURN: ") + hash;
+            return QString("[%1] %2...%3").arg(algo, hash.left(8), hash.right(8));
+        return QString("[%1] %2").arg(algo, hash);
     }
 
     switch(wtx->type)
@@ -548,7 +552,12 @@ QString TransactionTableModel::formatTooltip(const TransactionRecord *rec) const
         tooltip += QString("\n") + tr("PQC Commitment — contains OP_RETURN commitment hash and P2SH carrier output");
         break;
     case TransactionRecord::PqcTxCCommitment:
-        tooltip += QString("\n") + tr("PQC OP_RETURN — SHA256(pubkey || signature) commitment hash embedded in this output");
+        {
+            QString algo = QString::fromStdString(rec->pqcCommitmentAlgorithm);
+            if (algo.contains('/'))
+                algo = algo.left(algo.indexOf('/'));
+            tooltip += QString("\n") + tr("PQC %1 commitment — SHA256(pubkey || signature) hash embedded in this output").arg(algo);
+        }
         if (!rec->pqcCommitmentHash.empty())
             tooltip += QString("\n") + tr("Commitment: ") + QString::fromStdString(rec->pqcCommitmentHash);
         break;
