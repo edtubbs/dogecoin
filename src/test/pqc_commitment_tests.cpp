@@ -483,6 +483,114 @@ BOOST_AUTO_TEST_CASE(pqc_carrier_decode_validate_mainnet_tx_r_c32635aa)
         "3938a41d3ffc68a55583033a2be98c11");
 }
 
+// --- Multi-part mainnet TX_R carrier decode and validate tests ---
+// These tests use actual on-chain scriptSig data from confirmed multi-part
+// carrier TX_R transactions (Dilithium2 3-part, Raccoon-G 24-part).
+
+static void DecodeAndValidateMultiPartCarrierTxR(
+    const std::string& txid,
+    const std::vector<std::string>& scriptsig_hexes,
+    const std::string& expected_commit_hex,
+    const std::string& expected_algo,
+    uint16_t expected_pk_len,
+    uint16_t expected_sig_len,
+    const std::string& expected_pk_prefix,
+    const std::string& expected_sig_prefix)
+{
+    uint8_t expected_parts = static_cast<uint8_t>(scriptsig_hexes.size());
+    BOOST_TEST_MESSAGE("  [MULTI-PART] TX_R " << txid.substr(0, 16) << " (" << (int)expected_parts << " parts)");
+
+    // Build a simulated TX with one carrier input per part + commitment output
+    std::vector<unsigned char> commit_bytes = ParseHex(expected_commit_hex);
+    uint256 expected_commitment(commit_bytes);
+
+    // Detect the algorithm type from part 0
+    std::vector<unsigned char> raw0 = ParseHex(scriptsig_hexes[0]);
+    CScript script0(raw0.begin(), raw0.end());
+    PQCCommitmentType detected_type;
+    BOOST_CHECK_MESSAGE(PQCDetectCarrierScriptSig(script0, detected_type),
+        "Failed to detect carrier tag in part 0 of TX_R " << txid.substr(0, 16));
+
+    // Build commitment script for the output
+    CScript commitScript;
+    BOOST_CHECK(PQCBuildCommitmentScript(detected_type, expected_commitment, commitScript));
+
+    // Build a simulated TX_R with N carrier inputs
+    CMutableTransaction mtx;
+    mtx.vin.resize(expected_parts);
+    for (uint8_t p = 0; p < expected_parts; ++p) {
+        std::vector<unsigned char> raw = ParseHex(scriptsig_hexes[p]);
+        mtx.vin[p].scriptSig = CScript(raw.begin(), raw.end());
+    }
+    mtx.vout.resize(2);
+    mtx.vout[0].scriptPubKey = CScript() << OP_DUP << OP_HASH160
+        << ParseHex("00112233445566778899aabbccddeeff00112233") << OP_EQUALVERIFY << OP_CHECKSIG;
+    mtx.vout[1].scriptPubKey = commitScript;
+    const CTransaction tx(mtx);
+
+    // Validate via PQCValidateCommitmentFromCarrier (full multi-part reassembly + SHA256 check)
+    PQCCommitmentType carrier_type;
+    uint32_t carrier_input = 0;
+    uint16_t pk_len_out = 0;
+    uint16_t sig_len_out = 0;
+    BOOST_CHECK_MESSAGE(PQCValidateCommitmentFromCarrier(tx, expected_commitment,
+        carrier_type, carrier_input, pk_len_out, sig_len_out),
+        "PQCValidateCommitmentFromCarrier failed for multi-part TX_R " << txid.substr(0, 16));
+    BOOST_CHECK_EQUAL(std::string(PQCCommitmentTypeToString(carrier_type)).find(expected_algo) != std::string::npos, true);
+    BOOST_CHECK_EQUAL(pk_len_out, expected_pk_len);
+    BOOST_CHECK_EQUAL(sig_len_out, expected_sig_len);
+
+    // Also validate individual part headers
+    for (uint8_t p = 0; p < expected_parts; ++p) {
+        PQCCommitmentType part_type;
+        PQCCarrierHeader hdr;
+        std::vector<unsigned char> payload;
+        std::vector<unsigned char> raw = ParseHex(scriptsig_hexes[p]);
+        CScript partScript(raw.begin(), raw.end());
+        BOOST_CHECK_MESSAGE(PQCParseCarrierPartScriptSig(partScript, part_type, hdr, payload),
+            "Failed to parse part " << (int)p << " scriptSig for TX_R " << txid.substr(0, 16));
+        BOOST_CHECK_EQUAL(hdr.version, 1);
+        BOOST_CHECK_EQUAL(hdr.part_index, p);
+        BOOST_CHECK_EQUAL(hdr.part_total, expected_parts);
+        BOOST_CHECK_EQUAL(hdr.pk_len, expected_pk_len);
+    }
+
+    // Extract and verify pk/sig prefix bytes
+    PQCCommitmentType ext_type;
+    std::vector<unsigned char> ext_pk, ext_sig;
+    BOOST_CHECK(PQCExtractKeyMaterialFromCarrier(tx, ext_type, ext_pk, ext_sig));
+    std::string pk_prefix_hex = HexStr(ext_pk.begin(), ext_pk.begin() + std::min((size_t)16, ext_pk.size()));
+    std::string sig_prefix_hex = HexStr(ext_sig.begin(), ext_sig.begin() + std::min((size_t)16, ext_sig.size()));
+    BOOST_CHECK_EQUAL(pk_prefix_hex, expected_pk_prefix);
+    BOOST_CHECK_EQUAL(sig_prefix_hex, expected_sig_prefix);
+
+    BOOST_TEST_MESSAGE("    ✓ Multi-part validation PASS: " << (int)expected_parts << " parts, "
+        << "pk=" << pk_len_out << ", sig=" << sig_len_out);
+}
+
+BOOST_AUTO_TEST_CASE(pqc_carrier_decode_validate_mainnet_dilithium2_1adeed97)
+{
+    // TX_R: 1adeed97b8a8bab0c946b734e3b8d43e02daa7aabc4f9555a7bb920a379ee517 (height 6169765)
+    // TX_C: a467ac9b20aa3de5ba43f9098751174983ac1ef5160ae0ca51a83c564379b153
+    // Dilithium2 (ML-DSA-44), pk=1312, sig=2420, 3 carrier parts
+    std::vector<std::string> scriptsigs = {
+        // Part 0/3 (input 0, spending TX_C output 3)
+        "0844494c3246554c4c080100030005200e944d0802c9d1ad48e5334f72c15a6e1c8132a7f417c031faa050e37f1c21c2881a86811628bd97c0c090286896f60fc82dee822ce6892b5a0727c60ebcb663d0e76195bda9b12b64be50ef97b59ce81b0bf76128633ac94b3dcad1d323b5cee49ad5c5c0567f5b48012d3afe2e56e6338ed86a5c3c1ef33cc2bac186fe821cb4916f47058e629a9171055b416ad05198060b6e7f0d8da4d01889e7b2d2f282b115625be342264ebb20cd5696bce59fd3f7559511d9195b9af844b1149571ba31b6adc5db96d8ecc66e91e267f6653090950638625ff1295e63c4c95635cba556529c6c210579892965f51c02f8ea77bbc765db6fb6fcdf57dfd40d992daee51d2a146fb921bfc88ab6562be3501b3b129cc30e980449773e12943df0c0c7bb3030dc56930dacad880f91471b9bd1e90449bc05efe076529139361d6af5a8fd686505b7592ed2ed7c7601969d9764a72574ff42fe1410d5f41c486c41c0131828da2e5950185e73d18f6d0ab71c6ba2c52c8272e17a478269d92d51f25230773330d4842368a0865c9715a2a72c5c951d7ad72f392a733eb1fda88e81f3c9f471608ca0ad502de350c3dd1c3355ea4e444eb0b66c1913f51250f3d4276f063151fae67780f744c81861df879359462d3b57349b69eb16a3ef9db13396f389eff3edc6550638d52a20161a8cfc9e2edb9b02a987545d2c40a5777d74fbecdcd9f748811f23b79cd1c822ad971d4d0802ae3a665e7c7d5137c3b1b9e8367edd3ce224d98e8c13c2f4b825687e0b3d1a5ac10ca5900d24ea51e268a61872cc1bc3e8c1e649c4147035ed1d4d275cb3dfda68e9ec92923c1922ff8d1ad93fdd7782f77d6f9e382d133bbb35cf55d427e20058c5c41253458f509e4f24941d12bc035b910d541548ff46c384af625188fac4eaf7507aaa9b1ea98c75a15152e7160bb738f8277ed385796d47bb332fd922b3037ca18b3878cf76f91188184682d37b7b8e61c28165d9cf650258f6c8d5fac6d8130984d9fed33ec68f28bfa1712d0156030a90d6cbb8cb0c86528b64ab9d6f6cffdf211027eaa8f4e920c1d35276744b4fdc182ab5f6cf7a26681cec2aa52418cc66e23b25dfde4c7bd54132f6921f30a968625ecac1fda5d18d77e34995037a8382951dab686efb3896ec179eb66c9502dc487dd4b8d7e6e52683cc24c99a8f15d670c6dc1948bc0200ce09809dab2e0f3a1038050b3ee8ca6b45d444cbcd173ada61c0fab7d4c9f57408e73d11b891d2b141e187ab4886b600bc35d6e5fcb5b3b2a906971ad09f05f81dc491f64149b90ea5d5ef28da3d4629d137d27ea5608aab3eaebf26711392c2b6cd59630884dd02f27c421716d73e371eeaf7042b7bccc2020ea0d3afee62373e3010d457da1bf7b965e8dfddaf462804fc02fc1682a06b0cc7ac72367ce200eb47d739b7a6fdecc375f73e763516f2940d6175af2f445b73b53265ea4d080275e977dd194b4f2f3eff20e432d7c7aeb20f94f8e219bf836be96f16ee57eeb263979a1ffe2d5831227c6d6564a32e7a7f86aa4c68426376d666f823c173ff0f5a71c7e51194627058b174a0cf2c814da139ca5503a539c83d832bbb1b0f3a5da56d0b48e4c2489d29e7c9798e15e68a51509f59165773b14a7a0f4fb546e804a51824484a6d91fd22e3b67f13cfd11608a002b5cac7bc76806320cf5a9c978f78ee394b476a1be2688614ee2a5c42d8d1cfe3ca5490bcb754c1a988b7fcf93eafc64457ef0d8c27043f180dba154d6243fd71b58bbee8fdb03da1cef4cd010cc1a8cf31b1e790eb44da87d8e584e8dfa38883a6014975bec0b118aed20247db975b02faa3f7a78184c3366d30c08e6a7399a2580b74134de63e9604219abc79c61df17ab6cbac6bba577ce7229a26231b08a8c0372585c4840574369bb9b232f132797f50dd9f356c0247afc4a8d80c7cdd679a8d128d5a8108070f15f6cfd131de6dd081b11744dfa3c7ebf49c2c56fc7ffe6592d80d180feace05167a247cde9540ba217496d51f54507c291caafe11064973113c975b83f4721d2dae73220f2ca287f638877ad1acf21ff3035d5c19c2dea80667f141dfcdcefdfb1a6d63ff4c79a2973acdc47d4051b17d0e27e4c5a9a913ccbd0790271c3067b3b167d63636d39c2c3f794119d8056d841b95b1208d90217a5d3ec0c76089d04de0ec009da158635b69834f06757575757551",
+        // Part 1/3 (input 1, spending TX_C output 4)
+        "0844494c3246554c4c080101030005200e944d080225fefa90bfaaddfd8f6295a9daa75bf0259996a2bb7b476fe8e6deaeacd67f080b28965ca361c9de4f39545467d7424bba7fadc902fd1cdb9ca6a3c9d459caaa84e8eb03c9575c9c67c988b6954b227366d436d3ba4e4c0598047b4d45d0e44fb2ac553b3c7d8da09e451ecbe8b94ff286977ee875da074cb1d76fd9470a6bf7ea7c7f071090e47f216f923c42392e4283dd05061998ab15709092ebe3ded0ee1fa78ce8893fa3c0ac4cb22042046263781e7d929d318f1815fce1f52de692523e97141c589cb93bd234a1ad0903e8fa3ec59de0e3cc84cb464e24aae8ccc5c92bf62a957b9f48bcf3df3e99e69b1722f102a9b9143b54503f959db18408b86e46faec9c30885ec01c2a287e2cd3c95396d84784b3312f1afaa75f0459a24c9bbee852b59f5e18270e3b5b0c00aa92b2386de8a6f196b0c1ba1474504dfab27757e09518ce702f9620a4f6ce5a0f82e32a82881688535cc2825a3d918d972ac42d15240e6766eecc77c4145886d8fd65f26d25c5905d7e957e02d0634bbad7282560ab1555f763dd7f1a9712732d572e3a4c4c80fdaa37854f647c54dcd5cf0fe43be24528c9245a5e243ad2a8322ca34e9df3da64a39ea32f846f5e1586d1aa68305ae69d811a42a498f08acaf22b13881f96dc601a0240e1b834e5abbeee3204c49d0018ef737cbe73d9d95d396ba550663b0900236a641b0b4fb848f9071888f346e1fab73b5f4d0802408b55a60503eeb3af50997c0137bf1f26dbb832e2ea8ea7a189bf8608089383df479e132781aefb21a4000cc91f7a7193fd28ccbe9963ca8df50ed6e3918c847762a66ee8c8be7ded22e8bebcc3f140bd3c0126f1ef49f64026540164cbd06523fb3c1ead8b494ddf76752b9c7ee044be5244de301e0e3a37256b82373248282d8ed163d72bf20d2b23eacf40b00d29bc434ccde275614907cf5f539ed5e18d4f9cea3c2be6a2c11f4881758bc84c71acd2d12208fd9ed97f04b58b454d70086d222e1e7e628d498be13e97bcd16d23f40a19fda544dac500e2500d907566128d04fb9bedddce29a7a31e563f388c390f0dccfd1d01ba6a7269937facc2d8dc9a79f354deffb0910177ac47afbd99a72e4eec57f92f7c81363f4c39bcc9555bd851153b0d62140e3b2dfad229972c70eec940b6e0583264f682dbe048a4c18b8602cd89e00ba34a24cf94c518d9a2290a592ca52c39ebd5e6cfdf82b2955a3200a88adfc763ec343c1425313bc8a23b1f69b0396c1e5756147559db74ead66de687c7db7b27244ee5050bba0357c9938b1734a02216b2eeb26fbc18dc462d5aecfeffa79a2edce46901c528cb22bbd4d25ec1634fc3951d72bcb8dfbeceb0c3ce4fc3f7e5bb38cfb2d83b3a5caefbed66cb964fbcd0260a9e2f0d07ad293b3837579dbe7535f150105aaddea0d4dbcc664a4fdc478037b317f398e0228ce78c00f0df3458bfe54d4d080241278a028468a3a1dab1c037f4c82c9f6d934b599a4daf304d0ed4821cb3e9d5d9d9aa51aa760c88a00667d5f729c292083a2eefc7ed3f733f43597c31805176b1cc9d7b985aae5ef7e15aa2f1f84a392997428cb25f731e2f6216d34f9bbf07ea17f3b68ba1780813e929dc05100479de1321b5bbe99df25139e2de9a23af096c39d5d6d5d15f87fe2917a962158091d441336c0c1ec46bec955ec8b99223475b134cd0c6524638ea93b6b15439481ab39d11394745d6ea75f77d2c96d162b9a9bae7d11f6d5af2ed4772d62db4c51197e4ca8e5a5acfdf34905d7e2552af84f267dbce15b7be12c6bc0fb7c899d17105cd4918c12c64d59dfb0f051aa9ef66fd78daffb1da7946341f5eadddbce9f5b9b179adc8c626a69c0c4858079fc1229771031353fe5ba4c2c48ed9cddbb9be2b0765ad8e683d0a8d7548326ff4799fb1dca505c7125ac970d170c79f303075ee90b686e4dd327a203ae0439b037c75c154226e888357090376fb13556988b6fec5bf778b004585cdad022466f16e91d88deed66f26d17fbb34ca6470e9fbafbf77080469af9da852a57ea5d0f91eacf59d2dfd3602ba94f0fd229a4a2e963ff101a6c4df391c67a9be4fd23cc829d9fbd1951535a00356cd5df1170d83c3d2b088316f02172b1bd6e5548f145e15402327242efbbd82a3d10711d2518f6f26f8fd3c6911b4a2c3cd2d07baaf21ba87adc341f42aea6e3406757575757551",
+        // Part 2/3 (input 2, spending TX_C output 5)
+        "0844494c3246554c4c080102030005200e944d0802128a9a39cfb753c5e830223db9af06262fb288f5f1317e65f0a8a61175e666bfc409654e47bbda3243af85617e92134c55794842e0a956e2320144a5e4312b1b48c5fab2915d64c635b989a43cebe2a04a50297637f3556740d038186899e4b810c7b9622edfeb46dc3a1263010b4eb2975fafda290785cc3c959cf26dd5af3adae635c1d3d1e77182f68966f778e6ec83d4fd1912293fb1cfcefc92cf672b099fe236817004cd810dbe3354cce3a3b5a76a3fefb3537b730cdfa13115b2bf009ddeeafd2a91fda71c24a9e3ffc55f2ed5b33d93fc7984b55bf289ae795eccf51058ac329117bd477b81347a2edfa3dcd22aedf15df4b3ac58fa4c77f90ac0c0be1d02b69c53005ba1ad692ee7178793240765fff40ea4e42e955f1af667dc50c7156433b8c0978306a9fe5ffcd0f024b17e6e55d0dad9836e47e8f21a4f6504e6e0d9f1b36b20a49655d5e190879160000b0ef6f16356f0fb3b04689a3f15e52c1b8fc06b1116916fb13143114f4503a0eab0139c840db38357993863591e3329b5364ed3eee71336436b872d5cb46ef60c6577ec66ea4de5bb7b7c6cb17f2f2dc0a6bab1b460e0dd79a478b68fdbc6e56a351bfd1edc9c0d2a78516d46e2c8228dc6484d47a26df4be89381c7ac6dbf664321a6ed0a49cc314afe78e4bbdc4c7ff961beaacdff156e82abb6c9a2bbdd9e9fdfbec5f1c20bf3befbbdec13fa96b590c8f6473bd574c5cc735c6af2bb5d74b00041213bcc0c2cce2ee242a2f3c4455617a8283b5c0ea1d273e779aa6a9b2b5c8cbdef20708121831333c44525b5d61646e8f9ac5ced1d4e000000000000000000000000000000000000000000000000a1724390006757575757551"
+    };
+
+    DecodeAndValidateMultiPartCarrierTxR(
+        "1adeed97b8a8bab0c946b734e3b8d43e02daa7aabc4f9555a7bb920a379ee517",
+        scriptsigs,
+        "6ea0fa35664c6fd745169c846038285a8087fb5e8abc09f3dd7a736740a730ba",
+        "DILITHIUM", 1312, 2420,
+        "c9d1ad48e5334f72c15a6e1c8132a7f4",
+        "7399a2580b74134de63e9604219abc79");
+}
+
 BOOST_AUTO_TEST_CASE(pqc_generate_keypair_falcon512)
 {
     std::vector<unsigned char> public_key;
@@ -802,6 +910,25 @@ BOOST_AUTO_TEST_CASE(pqc_validate_commitment_from_carrier_still_works)
     BOOST_CHECK_EQUAL(pk_len, (uint16_t)pk.size());
     BOOST_CHECK_EQUAL(sig_len, (uint16_t)sig.size());
 }
+
+#ifdef ENABLE_LIBOQS_RACCOON
+#include "test/pqc_raccoong44_mainnet_data.h"
+
+BOOST_AUTO_TEST_CASE(pqc_carrier_decode_validate_mainnet_raccoong44_0b0defce)
+{
+    // TX_R: 0b0defceee746f21b67f49e9ad5494ade3864520afdb6e2a7acd257fc4b9ac9a (height 6169772)
+    // TX_C: c6fe73aede0316cb1ee4151286281a35fbe14f8fab7751e91bfc3aec1423100e
+    // Raccoon-G-44, pk=16144, sig=20768, 24 carrier parts
+
+    DecodeAndValidateMultiPartCarrierTxR(
+        "0b0defceee746f21b67f49e9ad5494ade3864520afdb6e2a7acd257fc4b9ac9a",
+        kRaccoonG44MainnetScriptSigs,
+        "7d24c5af92e15fd55e27664c68b46104d0c044346a3771b4582cfa3728813670",
+        "RACCOON", 16144, 20768,
+        "a5c0b842401e8b3f49d3b56af0935d1f",
+        "ef74aed43ce2cea09adaec1315bbb61b");
+}
+#endif // ENABLE_LIBOQS_RACCOON
 
 BOOST_AUTO_TEST_SUITE_END()
 
