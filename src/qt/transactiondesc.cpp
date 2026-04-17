@@ -373,10 +373,10 @@ QString TransactionDesc::toHTML(CWallet *wallet, CWalletTx &wtx, TransactionReco
                         cryptoVerified = PQCVerify(pqcType, txrPubkey,
                                                     messageBytes.data(), messageBytes.size(),
                                                     txrSig);
-                        strHTML += "<b>" + tr("Signing message (hex)") + ":</b> "
+                        strHTML += "<b>" + tr("TX_C sighash (hex)") + ":</b> "
                                   + GUIUtil::HtmlEscape(QString::fromStdString(signingMsgHex)) + "<br>";
                     } else if (signingMsgHex.empty()) {
-                        strHTML += "<b>" + tr("Signing message") + ":</b> "
+                        strHTML += "<b>" + tr("TX_C sighash") + ":</b> "
                                   + tr("not stored (created before TX_R signing message storage was added)") + "<br>";
                     }
 
@@ -532,10 +532,10 @@ QString TransactionDesc::toHTML(CWallet *wallet, CWalletTx &wtx, TransactionReco
                 cryptoVerified = PQCVerify(txrType, txrPubkey,
                                             messageBytes.data(), messageBytes.size(),
                                             txrSig);
-                strHTML += "<b>" + tr("Signing message (hex)") + ":</b> "
+                strHTML += "<b>" + tr("TX_C sighash (hex)") + ":</b> "
                           + GUIUtil::HtmlEscape(QString::fromStdString(signingMsgHex)) + "<br>";
             } else if (signingMsgHex.empty()) {
-                strHTML += "<b>" + tr("Signing message") + ":</b> "
+                strHTML += "<b>" + tr("TX_C sighash") + ":</b> "
                           + tr("not stored (created before TX_R signing message storage was added)") + "<br>";
             }
 

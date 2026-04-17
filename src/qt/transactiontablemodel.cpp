@@ -366,6 +366,9 @@ QString TransactionTableModel::formatTxType(const TransactionRecord *wtx) const
     // PQC commitment OP_RETURN output gets its own label
     if (wtx->pqcRole == TransactionRecord::PqcTxCCommitment)
         return tr("PQC Commitment");
+    // PQC reveal transaction (TX_R)
+    if (wtx->pqcRole == TransactionRecord::PqcTxR)
+        return tr("PQC Reveal");
 
     QString base;
     switch(wtx->type)
@@ -540,8 +543,11 @@ QVariant TransactionTableModel::txWatchonlyDecoration(const TransactionRecord *w
 QString TransactionTableModel::formatTooltip(const TransactionRecord *rec) const
 {
     QString tooltip = formatTxStatus(rec) + QString("\n") + formatTxType(rec);
-    if(rec->type==TransactionRecord::RecvFromOther || rec->type==TransactionRecord::SendToOther ||
-       rec->type==TransactionRecord::SendToAddress || rec->type==TransactionRecord::RecvWithAddress)
+    // For PQC commitment entries, the switch block below provides the full
+    // tooltip detail; skip the generic formatTxToAddress to avoid duplication.
+    if(rec->pqcRole != TransactionRecord::PqcTxCCommitment &&
+       (rec->type==TransactionRecord::RecvFromOther || rec->type==TransactionRecord::SendToOther ||
+        rec->type==TransactionRecord::SendToAddress || rec->type==TransactionRecord::RecvWithAddress))
     {
         tooltip += QString(" ") + formatTxToAddress(rec, true);
     }

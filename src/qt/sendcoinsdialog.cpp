@@ -499,7 +499,7 @@ void SendCoinsDialog::on_sendButton_clicked()
         return;
     }
 
-    // Store PQC signing message in the wallet transaction's mapValue for later verification
+    // Store TX_C sighash (the transaction digest signed by the PQC key) for later verification
 #if ENABLE_LIBOQS
     if (!pqcSigningMessageHex.isEmpty()) {
         CWalletTx *wtxPqc = currentTransaction.getTransaction();
@@ -989,7 +989,7 @@ void SendCoinsDialog::onDecodePqcCommitmentClicked()
                                            sigBytes);
             }
 
-            html += "<b>" + tr("Signing message (hex)") + ":</b> "
+            html += "<b>" + tr("TX_C sighash (hex)") + ":</b> "
                   + GUIUtil::HtmlEscape(pqcSigningMessageHex.isEmpty() ? tr("n/a") : pqcSigningMessageHex) + "<br>";
             html += "<b>" + tr("OQS_SIG_verify() cryptographic check") + ":</b> "
                   + (cryptoVerified

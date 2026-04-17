@@ -116,6 +116,10 @@ QString BitcoinUnits::format(int unit, const CAmount& nIn, bool fPlus, Separator
         for (int i = 3; i < q_size; i += 3)
             quotient_str.insert(q_size - i, thin_sp);
 
+    // Trim trailing zeros but keep at least 2 decimal places
+    while (remainder_str.size() > 2 && remainder_str.endsWith('0'))
+        remainder_str.chop(1);
+
     if (n < 0)
         quotient_str.insert(0, '-');
     else if (fPlus && n > 0)
