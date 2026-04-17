@@ -562,7 +562,7 @@ QString TransactionTableModel::formatTooltip(const TransactionRecord *rec) const
             QString algo = QString::fromStdString(rec->pqcCommitmentAlgorithm);
             if (algo.contains('/'))
                 algo = algo.left(algo.indexOf('/'));
-            tooltip += QString("\n") + tr("PQC %1 commitment — SHA256(pubkey || signature) hash embedded in this output").arg(algo);
+            tooltip += QString("\n") + tr("%1 — SHA256(pubkey || signature) hash embedded in this output").arg(algo);
         }
         if (!rec->pqcCommitmentHash.empty())
             tooltip += QString("\n") + tr("Commitment: ") + QString::fromStdString(rec->pqcCommitmentHash);
