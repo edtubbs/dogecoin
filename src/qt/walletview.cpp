@@ -68,19 +68,6 @@ EXPERIMENTAL_FEATURE
 
 namespace {
 
-/** Return a short SHA-256 fingerprint of the hex-encoded key.
- *  This avoids problems with algorithms (e.g. Raccoon) whose raw
- *  serialization has many trailing zeros in the hex representation. */
-QString hexKeyFingerprint(const QString& hex, int n = 8)
-{
-    if (hex.isEmpty())
-        return QString();
-    QByteArray raw = QByteArray::fromHex(hex.toLatin1());
-    unsigned char digest[CSHA256::OUTPUT_SIZE];
-    CSHA256().Write(reinterpret_cast<const unsigned char*>(raw.constData()), raw.size()).Finalize(digest);
-    return QString::fromLatin1(QByteArray(reinterpret_cast<const char*>(digest), CSHA256::OUTPUT_SIZE).toHex().left(n));
-}
-
 const char* PQCSignatureStorageKeyForAlgorithm(const QString& algorithm)
 {
     if (algorithm == "dilithium2") return "pqc_sigkey_dilithium2";
@@ -1111,7 +1098,7 @@ void WalletView::showPQCSignatureDialog()
             ? tr(" with encrypted private key material.")
             : tr(" without encrypted private key material.");
         if (!pubHex.isEmpty() && pubHex.size() > 16) {
-            summary += tr(" Public key: %1...fp:%2").arg(pubHex.left(8), hexKeyFingerprint(pubHex));
+            summary += tr(" Public key: %1...%2").arg(pubHex.left(8), pubHex.right(8));
         }
         storedStatusLabel->setText(summary);
         publicKeyHex->setText(pubHex);
@@ -1165,10 +1152,10 @@ void WalletView::showPQCSignatureDialog()
             if (pubHex.isEmpty()) {
                 continue;
             }
-            QString label = QString("%1 • %2...fp:%3")
+            QString label = QString("%1 • %2...%3")
                 .arg(QString::fromLatin1(items[i].algorithm))
                 .arg(pubHex.left(10))
-                .arg(hexKeyFingerprint(pubHex));
+                .arg(pubHex.right(8));
             const QString created = obj.value("created_utc").toString().trimmed();
             if (!created.isEmpty()) {
                 label += tr(" (created %1)").arg(created);
