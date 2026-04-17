@@ -8,6 +8,7 @@
 #ifdef WIN32
 #include <QByteArray>
 #include <QString>
+#include <QtGlobal>
 
 #include <windef.h> // for HWND
 
@@ -16,8 +17,13 @@
 class WinShutdownMonitor : public QAbstractNativeEventFilter
 {
 public:
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+    typedef qintptr NativeEventResultType;
+#else
+    typedef long NativeEventResultType;
+#endif
     /** Implements QAbstractNativeEventFilter interface for processing Windows messages */
-    bool nativeEventFilter(const QByteArray &eventType, void *pMessage, long *pnResult);
+    bool nativeEventFilter(const QByteArray &eventType, void *pMessage, NativeEventResultType *pnResult) override;
 
     /** Register the reason for blocking shutdown on Windows to allow clean client exit */
     static void registerShutdownBlockReason(const QString& strReason, const HWND& mainWinId);
