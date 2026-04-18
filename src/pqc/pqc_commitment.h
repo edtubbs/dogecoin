@@ -152,6 +152,29 @@ bool PQCVerifySignatureFromCarrier(const CTransaction& tx,
                                     uint16_t& pk_len_out,
                                     uint16_t& sig_len_out);
 
+// --- TX_BASE Reconstruction (BIP spec compliance) ---
+
+/** Reconstruct TX_BASE from TX_C by stripping OP_RETURN and P2SH carrier
+ *  outputs, restoring carrier cost to vout[0].
+ *
+ *  Per the BIP spec, TX_BASE is the deterministic base transaction template
+ *  used for sighash computation.  Both signer and verifier must use the same
+ *  canonical reconstruction so that sighash32 values agree.
+ *
+ *  @param txc              The commitment transaction (TX_C)
+ *  @param txBase_out       Receives the reconstructed unsigned TX_BASE
+ *  @param carrierCost_out  Receives the total carrier cost that was restored
+ *  @return true on success (at least one non-carrier, non-OP_RETURN output)
+ */
+bool PQCReconstructTxBase(const CTransaction& txc,
+                          CMutableTransaction& txBase_out,
+                          CAmount& carrierCost_out);
+
+/** Return the maximum signature length (in bytes) for a given PQC algorithm.
+ *  Uses liboqs OQS_SIG metadata.  Returns 0 on failure.
+ */
+size_t PQCMaxSignatureLength(PQCCommitmentType type);
+
 // --- liboqs PQC Cryptographic Operations ---
 
 /** Get the liboqs OQS_SIG algorithm identifier string for a PQC type.

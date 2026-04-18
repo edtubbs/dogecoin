@@ -332,9 +332,15 @@ bool WalletModel::prepareBaseTransaction(const QList<SendCoinsRecipient>& recipi
                                           CAmount& input0Amount_out,
                                           std::vector<COutPoint>& selectedCoins_out,
                                           CAmount& nFeeRet_out,
-                                          QString& error_out)
+                                          QString& error_out,
+                                          CTxDestination& changeAddr_out,
+                                          PQCCommitmentType pqcType,
+                                          uint8_t carrierParts,
+                                          bool carrierMode)
 {
-    // Build vecSend with ONLY payment outputs (no PQC OP_RETURN or carrier outputs)
+    // Build vecSend with payment outputs + dummy OP_RETURN + carrier outputs.
+    // This mirrors what prepareTransaction will build for the real TX_C,
+    // so that the reconstructed TX_BASE matches on both signer and verifier.
     std::vector<CRecipient> vecSend;
     for (const auto& rcp : recipients) {
         if (!validateAddress(rcp.address)) {
@@ -349,19 +355,38 @@ bool WalletModel::prepareBaseTransaction(const QList<SendCoinsRecipient>& recipi
         vecSend.push_back({scriptPubKey, rcp.amount, rcp.fSubtractFeeFromAmount});
     }
 
+    // Dummy OP_RETURN commitment (same size as real: 36 bytes for tag+hash)
+    uint256 dummyCommitment;
+    CScript dummyCommitScript;
+    if (!PQCBuildCommitmentScript(pqcType, dummyCommitment, dummyCommitScript)) {
+        error_out = tr("Failed to build dummy commitment script");
+        return false;
+    }
+    vecSend.push_back({dummyCommitScript, 0, false});
+
+    // Add carrier outputs (1 DOGE each) if carrier mode is enabled
+    if (carrierMode && carrierParts > 0) {
+        CScript carrierScriptPubKey;
+        if (PQCBuildCarrierScriptPubKey(carrierScriptPubKey)) {
+            for (uint8_t p = 0; p < carrierParts; ++p) {
+                vecSend.push_back({carrierScriptPubKey, 100000000, false}); // 1 DOGE
+            }
+        }
+    }
+
     LOCK2(cs_main, wallet->cs_wallet);
 
-    CWalletTx wtxBase;
-    wtxBase.fTimeReceivedIsTxTime = true;
-    wtxBase.BindWallet(wallet);
+    CWalletTx wtxDummy;
+    wtxDummy.fTimeReceivedIsTxTime = true;
+    wtxDummy.BindWallet(wallet);
     CReserveKey reserveKey(wallet);
     int nChangePosRet = -1;
     std::string strFailReason;
 
-    // Create unsigned transaction (sign=false) to get TX_BASE structure and coin selection
-    bool fCreated = wallet->CreateTransaction(vecSend, wtxBase, reserveKey, nFeeRet_out,
+    // Create unsigned transaction (sign=false) to get TX_C structure
+    bool fCreated = wallet->CreateTransaction(vecSend, wtxDummy, reserveKey, nFeeRet_out,
                                                nChangePosRet, strFailReason, coinControl, false);
-    // Keep the reserve key so it doesn't get returned to the pool yet
+    // Keep the reserve key so the same change address is available for later
     reserveKey.KeepKey();
 
     if (!fCreated) {
@@ -369,22 +394,27 @@ bool WalletModel::prepareBaseTransaction(const QList<SendCoinsRecipient>& recipi
         return false;
     }
 
-    // Copy the unsigned transaction
-    txBase_out = CMutableTransaction(*wtxBase.tx);
+    // Extract change destination for reuse in the final TX_C
+    changeAddr_out = CNoDestination();
+    if (nChangePosRet >= 0 && static_cast<unsigned>(nChangePosRet) < wtxDummy.tx->vout.size()) {
+        CTxDestination dest;
+        if (ExtractDestination(wtxDummy.tx->vout[nChangePosRet].scriptPubKey, dest)) {
+            changeAddr_out = dest;
+        }
+    }
 
-    // Determine the scriptPubKey and amount for input 0 by looking up the prevout
+    // Get coin selection
     selectedCoins_out.clear();
-    if (txBase_out.vin.empty()) {
+    if (wtxDummy.tx->vin.empty()) {
         error_out = tr("Transaction has no inputs");
         return false;
     }
-
-    for (const auto& txin : txBase_out.vin) {
+    for (const auto& txin : wtxDummy.tx->vin) {
         selectedCoins_out.push_back(txin.prevout);
     }
 
-    // Look up the first input's prevout to get scriptPubKey and amount
-    const COutPoint& prevout0 = txBase_out.vin[0].prevout;
+    // Look up the first input's prevout for scriptPubKey and amount
+    const COutPoint& prevout0 = wtxDummy.tx->vin[0].prevout;
     auto it = wallet->mapWallet.find(prevout0.hash);
     if (it == wallet->mapWallet.end()) {
         error_out = tr("Could not find first input in wallet");
@@ -396,6 +426,14 @@ bool WalletModel::prepareBaseTransaction(const QList<SendCoinsRecipient>& recipi
     }
     scriptPubKeyForInput0_out = it->second.tx->vout[prevout0.n].scriptPubKey;
     input0Amount_out = it->second.tx->vout[prevout0.n].nValue;
+
+    // Reconstruct TX_BASE from the unsigned TX_C using the BIP spec approach:
+    // strip OP_RETURN + carriers, restore carrier cost to vout[0]
+    CAmount carrierCost = 0;
+    if (!PQCReconstructTxBase(*wtxDummy.tx, txBase_out, carrierCost)) {
+        error_out = tr("Failed to reconstruct TX_BASE from TX_C");
+        return false;
+    }
 
     return true;
 }

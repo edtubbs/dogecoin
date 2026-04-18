@@ -497,6 +497,71 @@ bool PQCVerifySignatureFromCarrier(const CTransaction& tx,
     return PQCVerify(type_out, pubkey, message, message_len, sig);
 }
 
+// --- TX_BASE Reconstruction (BIP spec compliance) ---
+
+bool PQCReconstructTxBase(const CTransaction& txc,
+                          CMutableTransaction& txBase_out,
+                          CAmount& carrierCost_out)
+{
+    if (txc.vin.empty() || txc.vout.empty())
+        return false;
+
+    // Build the carrier scriptPubKey to identify carrier outputs
+    CScript carrierSpk;
+    bool haveCarrierSpk = PQCBuildCarrierScriptPubKey(carrierSpk);
+
+    // Copy transaction metadata
+    txBase_out.nVersion  = txc.nVersion;
+    txBase_out.nLockTime = txc.nLockTime;
+    txBase_out.vin.clear();
+    txBase_out.vout.clear();
+
+    // Copy inputs with empty scriptSig (unsigned template)
+    for (const auto& vin : txc.vin) {
+        CTxIn baseIn(vin.prevout, CScript(), vin.nSequence);
+        txBase_out.vin.push_back(baseIn);
+    }
+
+    // Filter outputs: strip OP_RETURN and P2SH carrier outputs
+    carrierCost_out = 0;
+    for (const auto& vout : txc.vout) {
+        // Skip OP_RETURN outputs
+        if (vout.scriptPubKey.size() > 0 && vout.scriptPubKey[0] == OP_RETURN)
+            continue;
+        // Skip P2SH carrier outputs
+        if (haveCarrierSpk && vout.scriptPubKey == carrierSpk) {
+            carrierCost_out += vout.nValue;
+            continue;
+        }
+        txBase_out.vout.push_back(vout);
+    }
+
+    if (txBase_out.vout.empty())
+        return false;
+
+    // Restore carrier cost to the first output (payment output)
+    txBase_out.vout[0].nValue += carrierCost_out;
+    return true;
+}
+
+size_t PQCMaxSignatureLength(PQCCommitmentType type)
+{
+#if ENABLE_LIBOQS
+    const char* alg_name = PQCGetOQSAlgorithmName(type);
+    if (!alg_name) return 0;
+
+    OQS_SIG* sig = OQS_SIG_new(alg_name);
+    if (!sig) return 0;
+
+    size_t max_len = sig->length_signature;
+    OQS_SIG_free(sig);
+    return max_len;
+#else
+    (void)type;
+    return 0;
+#endif
+}
+
 // --- liboqs PQC Cryptographic Operations ---
 
 const char* PQCGetOQSAlgorithmName(PQCCommitmentType type)

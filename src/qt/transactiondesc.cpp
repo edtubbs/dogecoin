@@ -50,41 +50,14 @@ static bool RecomputeSighash32FromTxC(const CTransaction& txc,
                                        const CWallet* wallet,
                                        uint256& sighash_out)
 {
-    if (txc.vin.empty() || txc.vout.empty())
-        return false;
-
-    // Build the carrier scriptPubKey to identify carrier outputs
-    CScript carrierSpk;
-    bool haveCarrierSpk = PQCBuildCarrierScriptPubKey(carrierSpk);
-
-    // Reconstruct TX_BASE: strip OP_RETURN and carrier outputs
+    // Use shared TX_BASE reconstruction from pqc_commitment
     CMutableTransaction txBase;
-    txBase.nVersion = txc.nVersion;
-    txBase.nLockTime = txc.nLockTime;
-    // Copy inputs (with empty scriptSig — unsigned template)
-    for (const auto& vin : txc.vin) {
-        CTxIn baseIn(vin.prevout, CScript(), vin.nSequence);
-        txBase.vin.push_back(baseIn);
-    }
-
-    CAmount carrierCostTotal = 0;
-    for (const auto& vout : txc.vout) {
-        // Skip OP_RETURN outputs
-        if (vout.scriptPubKey.size() > 0 && vout.scriptPubKey[0] == OP_RETURN)
-            continue;
-        // Skip P2SH carrier outputs
-        if (haveCarrierSpk && vout.scriptPubKey == carrierSpk) {
-            carrierCostTotal += vout.nValue;
-            continue;
-        }
-        txBase.vout.push_back(vout);
-    }
+    CAmount carrierCost = 0;
+    if (!PQCReconstructTxBase(txc, txBase, carrierCost))
+        return false;
 
     if (txBase.vout.empty())
         return false;
-
-    // Restore carrier cost to the first output (payment output)
-    txBase.vout[0].nValue += carrierCostTotal;
 
     // Look up scriptPubKey and amount for input 0 from the wallet
     CScript scriptPubKeyInput0;

@@ -8,6 +8,7 @@
 #include "walletmodeltransaction.h"
 
 #include "amount.h"
+#include "script/standard.h"
 #include "support/allocators/secure.h"
 #if ENABLE_LIBOQS
 #include "pqc/pqc_commitment.h"
@@ -160,11 +161,11 @@ public:
     SendCoinsReturn sendCoins(WalletModelTransaction &transaction);
 
 #if ENABLE_LIBOQS
-    // Build an unsigned base transaction (TX_BASE) without PQC outputs.
-    // This is the transaction template used to compute the PQC sighash.
-    // The returned CTransaction is unsigned (no ECDSA sigs).
-    // scriptPubKeyForInput0_out receives the scriptPubKey of the first input (for sighash).
-    // selectedCoins_out receives the selected coins for locking into coin control.
+    // Build an unsigned TX_C (with dummy OP_RETURN + carriers), then
+    // reconstruct TX_BASE from it using the BIP spec-compliant approach:
+    // strip OP_RETURN + carriers, restore carrier cost to vout[0].
+    // Returns the reconstructed TX_BASE and the change destination
+    // (needed to keep the final TX_C deterministic).
     bool prepareBaseTransaction(const QList<SendCoinsRecipient>& recipients,
                                 const CCoinControl *coinControl,
                                 CMutableTransaction& txBase_out,
@@ -172,7 +173,11 @@ public:
                                 CAmount& input0Amount_out,
                                 std::vector<COutPoint>& selectedCoins_out,
                                 CAmount& nFeeRet_out,
-                                QString& error_out);
+                                QString& error_out,
+                                CTxDestination& changeAddr_out,
+                                PQCCommitmentType pqcType,
+                                uint8_t carrierParts,
+                                bool carrierMode);
 #endif
 
 #if ENABLE_LIBOQS

@@ -328,9 +328,9 @@ void SendCoinsDialog::on_sendButton_clicked()
 
 #if ENABLE_LIBOQS
     // ── PQC sighash32(TX_BASE) signing flow per the BIP spec ──
-    // The PQC signature MUST cover sighash32(TX_BASE) where TX_BASE is the
-    // unsigned base transaction template BEFORE the OP_RETURN commitment
-    // and P2SH carrier outputs are appended.
+    // TX_BASE is reconstructed from the full TX_C structure (strip OP_RETURN
+    // + carriers, restore carrier cost to vout[0]) so that signer and
+    // verifier compute the same deterministic sighash32.
     if (pqcEnabled) {
         if (pqcDecryptedSecretKey.empty() || pqcSelectedPublicKeyHex.isEmpty() || pqcSelectedAlgorithm.isEmpty()) {
             Q_EMIT message(tr("PQC Commitment"), tr("Prepare the PQC key first (click Generate PQC Commitment)."), CClientUIInterface::MSG_WARNING);
@@ -343,7 +343,23 @@ void SendCoinsDialog::on_sendButton_clicked()
             return;
         }
 
-        // Step 1: Build unsigned TX_BASE (no PQC outputs) for sighash computation
+        // Step 1: Estimate carrier parts from algorithm max signature size
+        bool carrierMode = (pqcCarrierModeCheckBox && pqcCarrierModeCheckBox->isChecked());
+        uint8_t estimatedParts = 0;
+        if (carrierMode) {
+            std::vector<unsigned char> pubkeyBytes = ParseHex(pqcSelectedPublicKeyHex.toStdString());
+            size_t maxSigLen = PQCMaxSignatureLength(pqcType);
+            if (maxSigLen == 0) {
+                Q_EMIT message(tr("PQC Commitment"), tr("Could not determine max signature size for %1.").arg(pqcSelectedAlgorithm), CClientUIInterface::MSG_ERROR);
+                return;
+            }
+            size_t estimatedPayload = pubkeyBytes.size() + maxSigLen;
+            estimatedParts = PQCCarrierPartsNeeded(estimatedPayload);
+            if (estimatedParts == 0) estimatedParts = 1;
+        }
+
+        // Step 2: Build TX_C structure (with dummy OP_RETURN + carriers) and
+        //         reconstruct TX_BASE from it per the BIP spec
         CCoinControl baseCtrl;
         if (model->getOptionsModel()->getCoinControlFeatures())
             baseCtrl = *CoinControlDialog::coinControl;
@@ -358,16 +374,19 @@ void SendCoinsDialog::on_sendButton_clicked()
         std::vector<COutPoint> selectedCoins;
         CAmount baseFee = 0;
         QString baseError;
-        if (!model->prepareBaseTransaction(recipients, &baseCtrl, txBase, scriptPubKeyInput0, input0Amount, selectedCoins, baseFee, baseError)) {
+        CTxDestination changeAddr;
+        if (!model->prepareBaseTransaction(recipients, &baseCtrl, txBase, scriptPubKeyInput0,
+                                            input0Amount, selectedCoins, baseFee, baseError,
+                                            changeAddr, pqcType, estimatedParts, carrierMode)) {
             Q_EMIT message(tr("PQC Commitment"), tr("Failed to build base transaction for PQC signing: %1").arg(baseError), CClientUIInterface::MSG_ERROR);
             return;
         }
 
-        // Step 2: Compute sighash32 = SignatureHash(scriptPubKey, TX_BASE, 0, SIGHASH_ALL)
+        // Step 3: Compute sighash32 = SignatureHash(scriptPubKey, TX_BASE, 0, SIGHASH_ALL)
         CTransaction txBaseConst(txBase);
         uint256 sighash32 = SignatureHash(scriptPubKeyInput0, txBaseConst, 0, SIGHASH_ALL, input0Amount, SIGVERSION_BASE);
 
-        // Step 3: PQC-sign sighash32
+        // Step 4: PQC-sign sighash32
         std::vector<unsigned char> signatureBytes;
         bool signOk = PQCSign(pqcType, pqcDecryptedSecretKey,
                                sighash32.begin(), 32, signatureBytes);
@@ -383,7 +402,7 @@ void SendCoinsDialog::on_sendButton_clicked()
         pqcSelectedSignatureHex = QString::fromStdString(HexStr(signatureBytes.begin(), signatureBytes.end()));
         pqcSigningMessageHex = QString::fromStdString(sighash32.GetHex());
 
-        // Step 4: Compute commitment = SHA256(pk || sig) and build OP_RETURN script
+        // Step 5: Compute commitment = SHA256(pk || sig) and build OP_RETURN script
         std::vector<unsigned char> pubkeyBytes = ParseHex(pqcSelectedPublicKeyHex.toStdString());
         uint256 commitment;
         if (!PQCComputeCommitment(pubkeyBytes, signatureBytes, commitment)) {
@@ -398,17 +417,25 @@ void SendCoinsDialog::on_sendButton_clicked()
         pqcCommitmentScriptPubKeyHex = QString::fromStdString(HexStr(commitScript.begin(), commitScript.end()));
         pqcCommitmentLineEdit->setText(QString::fromStdString(commitment.GetHex()));
 
-        // Step 5: Set PQC commitment info on recipients for prepareTransaction
-        recipients[0].includePqcCommitment = true;
-        recipients[0].pqcCommitmentScriptPubKey = pqcCommitmentScriptPubKeyHex;
-        recipients[0].pqcCarrierMode = (pqcCarrierModeCheckBox && pqcCarrierModeCheckBox->isChecked());
-        if (recipients[0].pqcCarrierMode) {
-            size_t payloadSize = pubkeyBytes.size() + signatureBytes.size();
-            recipients[0].pqcCarrierParts = PQCCarrierPartsNeeded(payloadSize);
-            if (recipients[0].pqcCarrierParts == 0) recipients[0].pqcCarrierParts = 1;
+        // Step 6: Verify actual carrier parts match estimated (for variable-size sigs)
+        uint8_t actualParts = 0;
+        if (carrierMode) {
+            size_t actualPayload = pubkeyBytes.size() + signatureBytes.size();
+            actualParts = PQCCarrierPartsNeeded(actualPayload);
+            if (actualParts == 0) actualParts = 1;
         }
 
-        // Step 6: Lock the same coins that TX_BASE used, so TX_C uses the same inputs
+        // Step 7: Set PQC commitment info on recipients for prepareTransaction
+        recipients[0].includePqcCommitment = true;
+        recipients[0].pqcCommitmentScriptPubKey = pqcCommitmentScriptPubKeyHex;
+        recipients[0].pqcCarrierMode = carrierMode;
+        if (carrierMode) {
+            // Use estimated parts (matches the TX_C structure from step 2)
+            recipients[0].pqcCarrierParts = estimatedParts;
+        }
+
+        // Step 8: Lock the same coins and force the same change address
+        //         so TX_C has identical structure to the dummy TX_C from step 2
         CCoinControl pqcCtrl;
         if (model->getOptionsModel()->getCoinControlFeatures())
             pqcCtrl = *CoinControlDialog::coinControl;
@@ -418,6 +445,10 @@ void SendCoinsDialog::on_sendButton_clicked()
             pqcCtrl.nPriority = MINIMUM;
         for (const auto& outpoint : selectedCoins) {
             pqcCtrl.Select(outpoint);
+        }
+        // Force the same change destination used in the dummy TX_C
+        if (!(boost::get<CNoDestination>(&changeAddr))) {
+            pqcCtrl.destChange = changeAddr;
         }
         // Replace ctrl for the main prepareTransaction call below
         CoinControlDialog::coinControl->UnSelectAll();
