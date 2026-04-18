@@ -930,6 +930,137 @@ BOOST_AUTO_TEST_CASE(pqc_carrier_decode_validate_mainnet_raccoong44_0b0defce)
 }
 #endif // ENABLE_LIBOQS_RACCOON
 
+// --- PQCReconstructTxBase tests ---
+
+BOOST_AUTO_TEST_CASE(pqc_reconstruct_tx_base_strips_opreturn_and_carriers)
+{
+    // Build a mock TX_C with: payment, change, carrier, OP_RETURN
+    CMutableTransaction txc;
+    txc.nVersion = 1;
+    txc.nLockTime = 0;
+    txc.vin.resize(1);
+    txc.vin[0].prevout = COutPoint(uint256S("abcd"), 0);
+    txc.vin[0].scriptSig = CScript() << ParseHex("304402") << ParseHex("02aabb");
+    txc.vin[0].nSequence = 0xFFFFFFFF;
+
+    // Payment output
+    CScript paymentScript = CScript() << OP_DUP << OP_HASH160 << ParseHex("0011223344556677889900112233445566778899") << OP_EQUALVERIFY << OP_CHECKSIG;
+    txc.vout.push_back(CTxOut(500000000, paymentScript)); // 5 DOGE
+
+    // Change output
+    CScript changeScript = CScript() << OP_DUP << OP_HASH160 << ParseHex("aabbccddeeff00112233aabbccddeeff00112233") << OP_EQUALVERIFY << OP_CHECKSIG;
+    txc.vout.push_back(CTxOut(400000000, changeScript)); // 4 DOGE change
+
+    // Carrier output (1 DOGE)
+    CScript carrierSpk;
+    BOOST_CHECK(PQCBuildCarrierScriptPubKey(carrierSpk));
+    txc.vout.push_back(CTxOut(100000000, carrierSpk)); // 1 DOGE carrier
+
+    // OP_RETURN commitment
+    uint256 commitment(ParseHex("00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff"));
+    CScript opReturnScript;
+    BOOST_CHECK(PQCBuildCommitmentScript(PQCCommitmentType::FALCON512, commitment, opReturnScript));
+    txc.vout.push_back(CTxOut(0, opReturnScript));
+
+    CTransaction txcConst(txc);
+
+    // Reconstruct TX_BASE
+    CMutableTransaction txBase;
+    CAmount carrierCost = 0;
+    BOOST_CHECK(PQCReconstructTxBase(txcConst, txBase, carrierCost));
+
+    // Verify: carrier cost restored
+    BOOST_CHECK_EQUAL(carrierCost, 100000000);
+
+    // Verify: TX_BASE has 2 outputs (payment + change), no carrier or OP_RETURN
+    BOOST_CHECK_EQUAL(txBase.vout.size(), 2u);
+
+    // Verify: payment output has carrier cost added back (5 + 1 = 6 DOGE)
+    BOOST_CHECK_EQUAL(txBase.vout[0].nValue, 600000000);
+    BOOST_CHECK(txBase.vout[0].scriptPubKey == paymentScript);
+
+    // Verify: change output unchanged
+    BOOST_CHECK_EQUAL(txBase.vout[1].nValue, 400000000);
+    BOOST_CHECK(txBase.vout[1].scriptPubKey == changeScript);
+
+    // Verify: inputs have empty scriptSig (unsigned template)
+    BOOST_CHECK_EQUAL(txBase.vin.size(), 1u);
+    BOOST_CHECK(txBase.vin[0].scriptSig.empty());
+    BOOST_CHECK(txBase.vin[0].prevout == txc.vin[0].prevout);
+    BOOST_CHECK_EQUAL(txBase.vin[0].nSequence, txc.vin[0].nSequence);
+}
+
+BOOST_AUTO_TEST_CASE(pqc_reconstruct_tx_base_multipart_carriers)
+{
+    // Build a mock TX_C with 3 carrier outputs (like Dilithium2)
+    CMutableTransaction txc;
+    txc.nVersion = 1;
+    txc.nLockTime = 0;
+    txc.vin.resize(1);
+    txc.vin[0].prevout = COutPoint(uint256S("beef"), 1);
+    txc.vin[0].nSequence = 0xFFFFFFFF;
+
+    CScript paymentScript = CScript() << OP_DUP << OP_HASH160 << ParseHex("1111111111111111111111111111111111111111") << OP_EQUALVERIFY << OP_CHECKSIG;
+    txc.vout.push_back(CTxOut(1000000000, paymentScript)); // 10 DOGE
+
+    CScript changeScript = CScript() << OP_DUP << OP_HASH160 << ParseHex("2222222222222222222222222222222222222222") << OP_EQUALVERIFY << OP_CHECKSIG;
+    txc.vout.push_back(CTxOut(800000000, changeScript)); // 8 DOGE
+
+    CScript carrierSpk;
+    BOOST_CHECK(PQCBuildCarrierScriptPubKey(carrierSpk));
+    txc.vout.push_back(CTxOut(100000000, carrierSpk)); // carrier 1
+    txc.vout.push_back(CTxOut(100000000, carrierSpk)); // carrier 2
+    txc.vout.push_back(CTxOut(100000000, carrierSpk)); // carrier 3
+
+    uint256 commitment(ParseHex("ffeeddccbbaa99887766554433221100ffeeddccbbaa99887766554433221100"));
+    CScript opReturn;
+    BOOST_CHECK(PQCBuildCommitmentScript(PQCCommitmentType::DILITHIUM2, commitment, opReturn));
+    txc.vout.push_back(CTxOut(0, opReturn));
+
+    CTransaction txcConst(txc);
+
+    CMutableTransaction txBase;
+    CAmount carrierCost = 0;
+    BOOST_CHECK(PQCReconstructTxBase(txcConst, txBase, carrierCost));
+
+    // 3 carriers x 1 DOGE = 3 DOGE
+    BOOST_CHECK_EQUAL(carrierCost, 300000000);
+    BOOST_CHECK_EQUAL(txBase.vout.size(), 2u);
+    // Payment = 10 + 3 = 13 DOGE
+    BOOST_CHECK_EQUAL(txBase.vout[0].nValue, 1300000000);
+    BOOST_CHECK_EQUAL(txBase.vout[1].nValue, 800000000);
+}
+
+BOOST_AUTO_TEST_CASE(pqc_reconstruct_tx_base_no_carriers)
+{
+    // TX_C without carriers (commitment-only mode)
+    CMutableTransaction txc;
+    txc.nVersion = 1;
+    txc.nLockTime = 0;
+    txc.vin.resize(1);
+    txc.vin[0].prevout = COutPoint(uint256S("dead"), 0);
+    txc.vin[0].nSequence = 0xFFFFFFFF;
+
+    CScript paymentScript = CScript() << OP_DUP << OP_HASH160 << ParseHex("3333333333333333333333333333333333333333") << OP_EQUALVERIFY << OP_CHECKSIG;
+    txc.vout.push_back(CTxOut(200000000, paymentScript)); // 2 DOGE
+
+    uint256 commitment(ParseHex("aabbccdd00112233aabbccdd00112233aabbccdd00112233aabbccdd00112233"));
+    CScript opReturn;
+    BOOST_CHECK(PQCBuildCommitmentScript(PQCCommitmentType::FALCON512, commitment, opReturn));
+    txc.vout.push_back(CTxOut(0, opReturn));
+
+    CTransaction txcConst(txc);
+
+    CMutableTransaction txBase;
+    CAmount carrierCost = 0;
+    BOOST_CHECK(PQCReconstructTxBase(txcConst, txBase, carrierCost));
+
+    // No carriers
+    BOOST_CHECK_EQUAL(carrierCost, 0);
+    BOOST_CHECK_EQUAL(txBase.vout.size(), 1u);
+    BOOST_CHECK_EQUAL(txBase.vout[0].nValue, 200000000);
+}
+
 BOOST_AUTO_TEST_SUITE_END()
 
 #endif // ENABLE_LIBOQS
