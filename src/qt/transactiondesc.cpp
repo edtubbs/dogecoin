@@ -21,6 +21,7 @@
 EXPERIMENTAL_FEATURE
 #endif
 #include "validation.h"
+#include "script/interpreter.h"
 #include "script/script.h"
 #include "script/standard.h"
 #include "timedata.h"
@@ -31,6 +32,80 @@ EXPERIMENTAL_FEATURE
 
 #include <stdint.h>
 #include <string>
+
+#if ENABLE_LIBOQS
+/**
+ * Reconstruct TX_BASE from TX_C by stripping OP_RETURN and P2SH carrier
+ * outputs, restoring carrier cost to vout[0], then compute
+ * sighash32 = SignatureHash(scriptPubKey_input0, TX_BASE, 0, SIGHASH_ALL).
+ *
+ * This matches the libdogecoin SPV verification approach per the BIP spec.
+ *
+ * @param txc           The commitment transaction (TX_C)
+ * @param wallet        Wallet to look up input scriptPubKey and amount
+ * @param sighash_out   Receives the recomputed sighash32
+ * @return true on success
+ */
+static bool RecomputeSighash32FromTxC(const CTransaction& txc,
+                                       const CWallet* wallet,
+                                       uint256& sighash_out)
+{
+    if (txc.vin.empty() || txc.vout.empty())
+        return false;
+
+    // Build the carrier scriptPubKey to identify carrier outputs
+    CScript carrierSpk;
+    bool haveCarrierSpk = PQCBuildCarrierScriptPubKey(carrierSpk);
+
+    // Reconstruct TX_BASE: strip OP_RETURN and carrier outputs
+    CMutableTransaction txBase;
+    txBase.nVersion = txc.nVersion;
+    txBase.nLockTime = txc.nLockTime;
+    // Copy inputs (with empty scriptSig — unsigned template)
+    for (const auto& vin : txc.vin) {
+        CTxIn baseIn(vin.prevout, CScript(), vin.nSequence);
+        txBase.vin.push_back(baseIn);
+    }
+
+    CAmount carrierCostTotal = 0;
+    for (const auto& vout : txc.vout) {
+        // Skip OP_RETURN outputs
+        if (vout.scriptPubKey.size() > 0 && vout.scriptPubKey[0] == OP_RETURN)
+            continue;
+        // Skip P2SH carrier outputs
+        if (haveCarrierSpk && vout.scriptPubKey == carrierSpk) {
+            carrierCostTotal += vout.nValue;
+            continue;
+        }
+        txBase.vout.push_back(vout);
+    }
+
+    if (txBase.vout.empty())
+        return false;
+
+    // Restore carrier cost to the first output (payment output)
+    txBase.vout[0].nValue += carrierCostTotal;
+
+    // Look up scriptPubKey and amount for input 0 from the wallet
+    CScript scriptPubKeyInput0;
+    CAmount input0Amount = 0;
+    {
+        auto it = wallet->mapWallet.find(txc.vin[0].prevout.hash);
+        if (it == wallet->mapWallet.end())
+            return false;
+        uint32_t n = txc.vin[0].prevout.n;
+        if (n >= it->second.tx->vout.size())
+            return false;
+        scriptPubKeyInput0 = it->second.tx->vout[n].scriptPubKey;
+        input0Amount = it->second.tx->vout[n].nValue;
+    }
+
+    CTransaction txBaseConst(txBase);
+    sighash_out = SignatureHash(scriptPubKeyInput0, txBaseConst, 0,
+                                SIGHASH_ALL, input0Amount, SIGVERSION_BASE);
+    return true;
+}
+#endif
 
 QString TransactionDesc::FormatTxStatus(const CWalletTx& wtx)
 {
@@ -359,25 +434,43 @@ QString TransactionDesc::toHTML(CWallet *wallet, CWalletTx &wtx, TransactionReco
                     }
 
                     // Perform OQS_SIG_verify() cryptographic verification
-                    // Retrieve the signing message stored during TX_C creation
+                    // Recompute sighash32(TX_BASE) from TX_C per the BIP spec
+                    // (strip OP_RETURN + carriers, restore carrier cost to vout[0])
                     bool cryptoVerified = false;
-                    std::string signingMsgHex;
-                    {
-                        auto it = wtx.mapValue.find("pqcSigningMessage");
-                        if (it != wtx.mapValue.end()) {
-                            signingMsgHex = it->second;
-                        }
-                    }
-                    if (commitmentMatch && !signingMsgHex.empty() && IsHex(signingMsgHex)) {
-                        std::vector<unsigned char> messageBytes = ParseHex(signingMsgHex);
+                    uint256 recomputedSighash;
+                    bool sighashOk = RecomputeSighash32FromTxC(*wtx.tx, wallet, recomputedSighash);
+                    if (commitmentMatch && sighashOk) {
                         cryptoVerified = PQCVerify(pqcType, txrPubkey,
-                                                    messageBytes.data(), messageBytes.size(),
+                                                    recomputedSighash.begin(), 32,
                                                     txrSig);
-                        strHTML += "<b>" + tr("TX_C sighash (hex)") + ":</b> "
-                                  + GUIUtil::HtmlEscape(QString::fromStdString(signingMsgHex)) + "<br>";
-                    } else if (signingMsgHex.empty()) {
-                        strHTML += "<b>" + tr("TX_C sighash") + ":</b> "
-                                  + tr("not stored (created before TX_R signing message storage was added)") + "<br>";
+                        strHTML += "<b>" + tr("TX_BASE sighash32 (recomputed)") + ":</b> "
+                                  + GUIUtil::HtmlEscape(QString::fromStdString(recomputedSighash.GetHex())) + "<br>";
+
+                        // Also show stored sighash for comparison if available
+                        auto it = wtx.mapValue.find("pqcSigningMessage");
+                        if (it != wtx.mapValue.end() && !it->second.empty()) {
+                            strHTML += "<b>" + tr("TX_C sighash (stored)") + ":</b> "
+                                      + GUIUtil::HtmlEscape(QString::fromStdString(it->second)) + "<br>";
+                            bool sighashMatch = (it->second == recomputedSighash.GetHex());
+                            strHTML += "<b>" + tr("Stored vs recomputed sighash match") + ":</b> "
+                                      + (sighashMatch
+                                          ? "<span style=\"color:green;\">" + tr("yes") + "</span>"
+                                          : "<span style=\"color:orange;\">" + tr("no (using recomputed)") + "</span>")
+                                      + "<br>";
+                        }
+                    } else if (!sighashOk) {
+                        strHTML += "<b>" + tr("TX_BASE sighash32") + ":</b> "
+                                  + tr("could not reconstruct TX_BASE from TX_C (input prevout not in wallet)") + "<br>";
+                        // Fall back to stored sighash
+                        auto it = wtx.mapValue.find("pqcSigningMessage");
+                        if (it != wtx.mapValue.end() && !it->second.empty() && IsHex(it->second)) {
+                            std::vector<unsigned char> messageBytes = ParseHex(it->second);
+                            cryptoVerified = PQCVerify(pqcType, txrPubkey,
+                                                        messageBytes.data(), messageBytes.size(),
+                                                        txrSig);
+                            strHTML += "<b>" + tr("TX_C sighash (stored, fallback)") + ":</b> "
+                                      + GUIUtil::HtmlEscape(QString::fromStdString(it->second)) + "<br>";
+                        }
                     }
 
                     strHTML += "<b>" + tr("OQS_SIG_verify() cryptographic check") + ":</b> "
@@ -514,29 +607,65 @@ QString TransactionDesc::toHTML(CWallet *wallet, CWalletTx &wtx, TransactionReco
             }
 
             // Perform OQS_SIG_verify() cryptographic verification
-            // Retrieve signing message from TX_C's mapValue
+            // Recompute sighash32(TX_BASE) from TX_C per the BIP spec
             bool cryptoVerified = false;
-            std::string signingMsgHex;
             {
-                LOCK(wallet->cs_wallet);
-                auto it = wallet->mapWallet.find(prevout.hash);
-                if (it != wallet->mapWallet.end()) {
-                    auto msgIt = it->second.mapValue.find("pqcSigningMessage");
-                    if (msgIt != it->second.mapValue.end()) {
-                        signingMsgHex = msgIt->second;
+                CTransactionRef txcRef;
+                {
+                    LOCK(wallet->cs_wallet);
+                    auto it = wallet->mapWallet.find(prevout.hash);
+                    if (it != wallet->mapWallet.end()) {
+                        txcRef = it->second.tx;
                     }
                 }
-            }
-            if (foundCommitment && commitmentMatch && !signingMsgHex.empty() && IsHex(signingMsgHex)) {
-                std::vector<unsigned char> messageBytes = ParseHex(signingMsgHex);
-                cryptoVerified = PQCVerify(txrType, txrPubkey,
-                                            messageBytes.data(), messageBytes.size(),
-                                            txrSig);
-                strHTML += "<b>" + tr("TX_C sighash (hex)") + ":</b> "
-                          + GUIUtil::HtmlEscape(QString::fromStdString(signingMsgHex)) + "<br>";
-            } else if (signingMsgHex.empty()) {
-                strHTML += "<b>" + tr("TX_C sighash") + ":</b> "
-                          + tr("not stored (created before TX_R signing message storage was added)") + "<br>";
+                if (txcRef) {
+                    uint256 recomputedSighash;
+                    bool sighashOk = RecomputeSighash32FromTxC(*txcRef, wallet, recomputedSighash);
+                    if (foundCommitment && commitmentMatch && sighashOk) {
+                        cryptoVerified = PQCVerify(txrType, txrPubkey,
+                                                    recomputedSighash.begin(), 32,
+                                                    txrSig);
+                        strHTML += "<b>" + tr("TX_BASE sighash32 (recomputed)") + ":</b> "
+                                  + GUIUtil::HtmlEscape(QString::fromStdString(recomputedSighash.GetHex())) + "<br>";
+
+                        // Also show stored sighash for comparison
+                        LOCK(wallet->cs_wallet);
+                        auto storedIt = wallet->mapWallet.find(prevout.hash);
+                        if (storedIt != wallet->mapWallet.end()) {
+                            auto msgIt = storedIt->second.mapValue.find("pqcSigningMessage");
+                            if (msgIt != storedIt->second.mapValue.end() && !msgIt->second.empty()) {
+                                strHTML += "<b>" + tr("TX_C sighash (stored)") + ":</b> "
+                                          + GUIUtil::HtmlEscape(QString::fromStdString(msgIt->second)) + "<br>";
+                                bool sighashMatch = (msgIt->second == recomputedSighash.GetHex());
+                                strHTML += "<b>" + tr("Stored vs recomputed sighash match") + ":</b> "
+                                          + (sighashMatch
+                                              ? "<span style=\"color:green;\">" + tr("yes") + "</span>"
+                                              : "<span style=\"color:orange;\">" + tr("no (using recomputed)") + "</span>")
+                                          + "<br>";
+                            }
+                        }
+                    } else if (!sighashOk) {
+                        strHTML += "<b>" + tr("TX_BASE sighash32") + ":</b> "
+                                  + tr("could not reconstruct TX_BASE from TX_C (input prevout not in wallet)") + "<br>";
+                        // Fall back to stored sighash
+                        LOCK(wallet->cs_wallet);
+                        auto storedIt = wallet->mapWallet.find(prevout.hash);
+                        if (storedIt != wallet->mapWallet.end()) {
+                            auto msgIt = storedIt->second.mapValue.find("pqcSigningMessage");
+                            if (msgIt != storedIt->second.mapValue.end() && !msgIt->second.empty() && IsHex(msgIt->second)) {
+                                std::vector<unsigned char> messageBytes = ParseHex(msgIt->second);
+                                cryptoVerified = PQCVerify(txrType, txrPubkey,
+                                                            messageBytes.data(), messageBytes.size(),
+                                                            txrSig);
+                                strHTML += "<b>" + tr("TX_C sighash (stored, fallback)") + ":</b> "
+                                          + GUIUtil::HtmlEscape(QString::fromStdString(msgIt->second)) + "<br>";
+                            }
+                        }
+                    }
+                } else {
+                    strHTML += "<b>" + tr("TX_BASE sighash32") + ":</b> "
+                              + tr("TX_C not found in wallet — cannot verify PQC signature") + "<br>";
+                }
             }
 
             strHTML += "<b>" + tr("OQS_SIG_verify() cryptographic check") + ":</b> "
