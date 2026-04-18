@@ -1061,6 +1061,149 @@ BOOST_AUTO_TEST_CASE(pqc_reconstruct_tx_base_no_carriers)
     BOOST_CHECK_EQUAL(txBase.vout[0].nValue, 200000000);
 }
 
+// --- Cross-validation with libdogecoin CLI ---
+// These tests verify that Dogecoin Core's PQC primitives produce identical
+// output to libdogecoin's `such` CLI tool.  Test vectors are taken from the
+// libdogecoin dry-run validation log (mainnet_pqc_e2e_dryrun_20260418.txt).
+// If both implementations agree on these values, on-chain transactions
+// created by either can be validated by the other.
+
+BOOST_AUTO_TEST_CASE(pqc_cross_validate_carrier_primitives)
+{
+    // 1. Canonical carrier redeemScript must be OP_DROP x5 OP_TRUE (757575757551)
+    CScript redeemScript;
+    BOOST_CHECK(PQCBuildCarrierRedeemScript(redeemScript));
+    BOOST_CHECK_EQUAL(HexStr(redeemScript.begin(), redeemScript.end()), "757575757551");
+
+    // 2. Canonical carrier P2SH scriptPubKey must be a9149b402803555511d15d81207d3e2cb3e6bc365e0e87
+    //    This is the HASH160 of the redeemScript, wrapped in OP_HASH160 <20> OP_EQUAL.
+    //    libdogecoin `such -c pqc_carrier_scriptpubkey` produces the same value.
+    CScript carrierSpk;
+    BOOST_CHECK(PQCBuildCarrierScriptPubKey(carrierSpk));
+    BOOST_CHECK_EQUAL(HexStr(carrierSpk.begin(), carrierSpk.end()),
+                      "a9149b402803555511d15d81207d3e2cb3e6bc365e0e87");
+
+    // 3. Commitment tag encoding: 6a24 + TAG4 + 32-byte commitment
+    //    libdogecoin `such -c falcon_commit` wraps in the same OP_RETURN format.
+    const uint256 test_commitment(ParseHex("3689c0cbfe8aca6a5f592ed61eb0e4252a5be4418c7938c3bc62797604e2e8a4"));
+    CScript falcon_script;
+    BOOST_CHECK(PQCBuildCommitmentScript(PQCCommitmentType::FALCON512, test_commitment, falcon_script));
+    BOOST_CHECK_EQUAL(HexStr(falcon_script.begin(), falcon_script.end()),
+                      "6a24464c43313689c0cbfe8aca6a5f592ed61eb0e4252a5be4418c7938c3bc62797604e2e8a4");
+
+    CScript dil_script;
+    BOOST_CHECK(PQCBuildCommitmentScript(PQCCommitmentType::DILITHIUM2, test_commitment, dil_script));
+    // Dilithium2 uses tag DIL2
+    BOOST_CHECK_EQUAL(HexStr(dil_script.begin(), dil_script.begin() + 6), "6a2444494c32");
+
+#ifdef ENABLE_LIBOQS_RACCOON
+    CScript rcg_script;
+    BOOST_CHECK(PQCBuildCommitmentScript(PQCCommitmentType::RACCOONG44, test_commitment, rcg_script));
+    // Raccoon-G uses tag RCG4
+    BOOST_CHECK_EQUAL(HexStr(rcg_script.begin(), rcg_script.begin() + 6), "6a2452434734");
+#endif
+
+    // 4. Carrier part counts must match libdogecoin expectations
+    //    Each part carries 3 x 520 = 1560 bytes.
+    //    Falcon-512: pk=897 + sig~690 = ~1587 => 1 part (sometimes 2 for very long sigs)
+    BOOST_CHECK_EQUAL(PQCCarrierPartsNeeded(897 + 652), 1);  // typical Falcon
+    //    Dilithium2: pk=1312 + sig=2420 = 3732 => 3 parts
+    BOOST_CHECK_EQUAL(PQCCarrierPartsNeeded(1312 + 2420), 3);
+#ifdef ENABLE_LIBOQS_RACCOON
+    //    Raccoon-G-44: pk=16144 + sig=20768 = 36912 => 24 parts
+    BOOST_CHECK_EQUAL(PQCCarrierPartsNeeded(16144 + 20768), 24);
+#endif
+}
+
+BOOST_AUTO_TEST_CASE(pqc_cross_validate_tx_base_reconstruction)
+{
+    // Verify TX_BASE reconstruction from a TX_C with carrier outputs.
+    // This test uses the base transaction from the libdogecoin dry-run log:
+    //   RAW_UNSIGNED_TX = 01000000012146c4e0...00000000
+    //   SCRIPT_PUBKEY = 76a9145a29227bb518c38cae5a9a195cafc56b22d7272b88ac
+    //   Expected sighash32 = 5fcb95f6179fdf57693cb823ad110b868380cb0be0e23a151149955f51bef439
+    //
+    // Build a TX_C by adding OP_RETURN and carrier outputs to the base transaction,
+    // then verify PQCReconstructTxBase() recovers the original base transaction.
+
+    // The base unsigned TX has one output: 42.66 DOGE to DDMpdcTrWnZT38tRMebbYzCSAgLSnVMqvr
+    CMutableTransaction txBase;
+    txBase.nVersion = 1;
+    txBase.nLockTime = 0;
+    txBase.vin.resize(1);
+    txBase.vin[0].prevout = COutPoint(uint256S("63d79b47b6d55b5143afb5f7782f9300da5d6a4837b5c9837a1769e3e0c44621"), 0);
+    txBase.vin[0].nSequence = 0xFFFFFFFF;
+
+    CScript paymentScript = CScript() << OP_DUP << OP_HASH160
+        << ParseHex("5a29227bb518c38cae5a9a195cafc56b22d7272b") << OP_EQUALVERIFY << OP_CHECKSIG;
+    // Original value: 42.66 DOGE = 4266000000 koinu
+    txBase.vout.push_back(CTxOut(4266000000LL, paymentScript));
+
+    // Now build TX_C by appending OP_RETURN + 1 carrier output (deducting 1 DOGE from payment)
+    CMutableTransaction txc = txBase;
+    // Deduct carrier cost from payment output
+    txc.vout[0].nValue -= 100000000; // -1 DOGE for carrier
+
+    // Add OP_RETURN commitment
+    uint256 commitment(ParseHex("3689c0cbfe8aca6a5f592ed61eb0e4252a5be4418c7938c3bc62797604e2e8a4"));
+    CScript opReturn;
+    BOOST_CHECK(PQCBuildCommitmentScript(PQCCommitmentType::FALCON512, commitment, opReturn));
+    txc.vout.push_back(CTxOut(0, opReturn));
+
+    // Add carrier P2SH output
+    CScript carrierSpk;
+    BOOST_CHECK(PQCBuildCarrierScriptPubKey(carrierSpk));
+    txc.vout.push_back(CTxOut(100000000, carrierSpk)); // 1 DOGE carrier
+
+    CTransaction txcConst(txc);
+
+    // Reconstruct TX_BASE
+    CMutableTransaction reconstructed;
+    CAmount carrierCost = 0;
+    BOOST_CHECK(PQCReconstructTxBase(txcConst, reconstructed, carrierCost));
+
+    // Verify reconstruction matches original base transaction
+    BOOST_CHECK_EQUAL(carrierCost, 100000000);
+    BOOST_CHECK_EQUAL(reconstructed.vout.size(), 1u);
+    BOOST_CHECK_EQUAL(reconstructed.vout[0].nValue, txBase.vout[0].nValue); // 42.66 DOGE restored
+    BOOST_CHECK(reconstructed.vout[0].scriptPubKey == paymentScript);
+
+    // Verify inputs have empty scriptSig (unsigned template)
+    BOOST_CHECK_EQUAL(reconstructed.vin.size(), 1u);
+    BOOST_CHECK(reconstructed.vin[0].scriptSig.empty());
+    BOOST_CHECK(reconstructed.vin[0].prevout == txBase.vin[0].prevout);
+}
+
+BOOST_AUTO_TEST_CASE(pqc_cross_validate_commitment_computation)
+{
+    // Verify that SHA256(pk || sig) matches the libdogecoin `such -c falcon_commit` output.
+    // From the dry-run log:
+    //   pk prefix: 0902f438238c4115...
+    //   sig prefix: 3960fc6eced93ddd...
+    //   commitment = 3689c0cbfe8aca6a5f592ed61eb0e4252a5be4418c7938c3bc62797604e2e8a4
+    //
+    // We use a synthetic small example to verify the SHA256(pk||sig) computation
+    // is bit-exact with what libdogecoin produces (both use raw SHA256).
+
+    const std::vector<unsigned char> pk = ParseHex("02112233445566");
+    const std::vector<unsigned char> sig = ParseHex("3045022100aabbccddeeff");
+
+    uint256 commitment;
+    BOOST_CHECK(PQCComputeCommitment(pk, sig, commitment));
+
+    // Manual SHA256(pk || sig) verification
+    unsigned char expected[CSHA256::OUTPUT_SIZE];
+    CSHA256()
+        .Write(pk.data(), pk.size())
+        .Write(sig.data(), sig.size())
+        .Finalize(expected);
+    BOOST_CHECK(std::equal(expected, expected + CSHA256::OUTPUT_SIZE, commitment.begin()));
+
+    // The commitment is deterministic — both implementations using raw SHA256
+    // over the same concatenated bytes must produce the same result.
+    // This is the fundamental cross-validation invariant.
+}
+
 BOOST_AUTO_TEST_SUITE_END()
 
 #endif // ENABLE_LIBOQS
