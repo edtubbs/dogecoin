@@ -79,6 +79,7 @@ private:
     QString pqcSelectedSignatureHex;
     QString pqcSigningMessageHex;
     QString pqcCommitmentScriptPubKeyHex;
+    std::vector<unsigned char> pqcDecryptedSecretKey; // PQC secret key held until send
 
     // Process WalletModel::SendCoinsReturn and generate a pair consisting
     // of a message and message flags for use in Q_EMIT message().

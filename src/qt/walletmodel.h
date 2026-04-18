@@ -34,6 +34,8 @@ class COutput;
 class CPubKey;
 class CWallet;
 class uint256;
+class CScript;
+struct CMutableTransaction;
 
 QT_BEGIN_NAMESPACE
 class QTimer;
@@ -156,6 +158,22 @@ public:
 
     // Send coins to a list of recipients
     SendCoinsReturn sendCoins(WalletModelTransaction &transaction);
+
+#if ENABLE_LIBOQS
+    // Build an unsigned base transaction (TX_BASE) without PQC outputs.
+    // This is the transaction template used to compute the PQC sighash.
+    // The returned CTransaction is unsigned (no ECDSA sigs).
+    // scriptPubKeyForInput0_out receives the scriptPubKey of the first input (for sighash).
+    // selectedCoins_out receives the selected coins for locking into coin control.
+    bool prepareBaseTransaction(const QList<SendCoinsRecipient>& recipients,
+                                const CCoinControl *coinControl,
+                                CMutableTransaction& txBase_out,
+                                CScript& scriptPubKeyForInput0_out,
+                                CAmount& input0Amount_out,
+                                std::vector<COutPoint>& selectedCoins_out,
+                                CAmount& nFeeRet_out,
+                                QString& error_out);
+#endif
 
 #if ENABLE_LIBOQS
     // Create and broadcast TX_R (carrier reveal transaction) after TX_C succeeds.

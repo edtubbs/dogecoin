@@ -17,6 +17,7 @@
 
 #include "base58.h"
 #include "keystore.h"
+#include "script/standard.h"
 #if ENABLE_LIBOQS
 #include "pqc/pqc_commitment.h"
 #include "support/experimental.h"
@@ -322,6 +323,83 @@ WalletModel::SendCoinsReturn WalletModel::prepareTransaction(WalletModelTransact
 
     return SendCoinsReturn(OK);
 }
+
+#if ENABLE_LIBOQS
+bool WalletModel::prepareBaseTransaction(const QList<SendCoinsRecipient>& recipients,
+                                          const CCoinControl *coinControl,
+                                          CMutableTransaction& txBase_out,
+                                          CScript& scriptPubKeyForInput0_out,
+                                          CAmount& input0Amount_out,
+                                          std::vector<COutPoint>& selectedCoins_out,
+                                          CAmount& nFeeRet_out,
+                                          QString& error_out)
+{
+    // Build vecSend with ONLY payment outputs (no PQC OP_RETURN or carrier outputs)
+    std::vector<CRecipient> vecSend;
+    for (const auto& rcp : recipients) {
+        if (!validateAddress(rcp.address)) {
+            error_out = tr("Invalid address");
+            return false;
+        }
+        if (rcp.amount <= 0) {
+            error_out = tr("Invalid amount");
+            return false;
+        }
+        CScript scriptPubKey = GetScriptForDestination(CBitcoinAddress(rcp.address.toStdString()).Get());
+        vecSend.push_back({scriptPubKey, rcp.amount, rcp.fSubtractFeeFromAmount});
+    }
+
+    LOCK2(cs_main, wallet->cs_wallet);
+
+    CWalletTx wtxBase;
+    wtxBase.fTimeReceivedIsTxTime = true;
+    wtxBase.BindWallet(wallet);
+    CReserveKey reserveKey(wallet);
+    int nChangePosRet = -1;
+    std::string strFailReason;
+
+    // Create unsigned transaction (sign=false) to get TX_BASE structure and coin selection
+    bool fCreated = wallet->CreateTransaction(vecSend, wtxBase, reserveKey, nFeeRet_out,
+                                               nChangePosRet, strFailReason, coinControl, false);
+    // Keep the reserve key so it doesn't get returned to the pool yet
+    reserveKey.KeepKey();
+
+    if (!fCreated) {
+        error_out = QString::fromStdString(strFailReason);
+        return false;
+    }
+
+    // Copy the unsigned transaction
+    txBase_out = CMutableTransaction(*wtxBase.tx);
+
+    // Determine the scriptPubKey and amount for input 0 by looking up the prevout
+    selectedCoins_out.clear();
+    if (txBase_out.vin.empty()) {
+        error_out = tr("Transaction has no inputs");
+        return false;
+    }
+
+    for (const auto& txin : txBase_out.vin) {
+        selectedCoins_out.push_back(txin.prevout);
+    }
+
+    // Look up the first input's prevout to get scriptPubKey and amount
+    const COutPoint& prevout0 = txBase_out.vin[0].prevout;
+    auto it = wallet->mapWallet.find(prevout0.hash);
+    if (it == wallet->mapWallet.end()) {
+        error_out = tr("Could not find first input in wallet");
+        return false;
+    }
+    if (prevout0.n >= it->second.tx->vout.size()) {
+        error_out = tr("Input index out of range");
+        return false;
+    }
+    scriptPubKeyForInput0_out = it->second.tx->vout[prevout0.n].scriptPubKey;
+    input0Amount_out = it->second.tx->vout[prevout0.n].nValue;
+
+    return true;
+}
+#endif
 
 WalletModel::SendCoinsReturn WalletModel::sendCoins(WalletModelTransaction &transaction)
 {

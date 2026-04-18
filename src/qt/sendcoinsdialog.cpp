@@ -35,6 +35,8 @@ EXPERIMENTAL_FEATURE
 #include "crypto/sha256.h"
 #include "support/cleanse.h"
 #include "wallet/crypter.h"
+#include "script/interpreter.h"
+#include "primitives/transaction.h"
 
 #include <univalue.h>
 
@@ -64,40 +66,6 @@ EXPERIMENTAL_FEATURE
 
 #define SEND_CONFIRM_DELAY   3
 #define CHARACTERS_DISPLAY_LIMIT_IN_LABEL 45
-
-namespace {
-
-/** Build a deterministic 32-byte message for PQC signing, binding the
- *  signature to the transaction parameters (recipients + amounts).
- *  Per the BIP spec, the message SHOULD be a transaction sighash, but since
- *  the GUI generates the commitment before the transaction is assembled,
- *  we use a deterministic digest that binds to the intended tx parameters.
- *  Returns raw 32 bytes.
- */
-QByteArray BuildPqcSigningMessage(const QString& algorithm,
-                                  const QString& publicKeyHex,
-                                  const QList<SendCoinsRecipient>& recipients)
-{
-    QByteArray context("DGC-PQC-SIG-V1|");
-    context.append(algorithm.trimmed().toUtf8());
-    context.append("|");
-    context.append(publicKeyHex.trimmed().toUtf8());
-    context.append("|");
-    for (int i = 0; i < recipients.size(); ++i) {
-        const SendCoinsRecipient& r = recipients.at(i);
-        context.append(r.address.trimmed().toUtf8());
-        context.append("|");
-        context.append(QByteArray::number(static_cast<qint64>(r.amount)));
-        context.append("|");
-        context.append(r.fSubtractFeeFromAmount ? "1" : "0");
-        context.append(";");
-    }
-    unsigned char digest[CSHA256::OUTPUT_SIZE];
-    CSHA256().Write(reinterpret_cast<const unsigned char*>(context.constData()), context.size()).Finalize(digest);
-    return QByteArray(reinterpret_cast<const char*>(digest), sizeof(digest));
-}
-
-} // namespace
 
 SendCoinsDialog::SendCoinsDialog(const PlatformStyle *_platformStyle, QWidget *parent) :
     QDialog(parent),
@@ -356,24 +324,106 @@ void SendCoinsDialog::on_sendButton_clicked()
         return;
     }
 
-    if (pqcIncludeCommitmentCheckBox && pqcIncludeCommitmentCheckBox->isChecked()) {
-        const QString commitment = pqcCommitmentLineEdit ? pqcCommitmentLineEdit->text().trimmed() : QString();
-        if (commitment.isEmpty() || pqcCommitmentScriptPubKeyHex.trimmed().isEmpty()) {
-            Q_EMIT message(tr("PQC Commitment"), tr("Generate a commitment before including it in the transaction."), CClientUIInterface::MSG_WARNING);
+    bool pqcEnabled = pqcIncludeCommitmentCheckBox && pqcIncludeCommitmentCheckBox->isChecked();
+
+#if ENABLE_LIBOQS
+    // ── PQC sighash32(TX_BASE) signing flow per the BIP spec ──
+    // The PQC signature MUST cover sighash32(TX_BASE) where TX_BASE is the
+    // unsigned base transaction template BEFORE the OP_RETURN commitment
+    // and P2SH carrier outputs are appended.
+    if (pqcEnabled) {
+        if (pqcDecryptedSecretKey.empty() || pqcSelectedPublicKeyHex.isEmpty() || pqcSelectedAlgorithm.isEmpty()) {
+            Q_EMIT message(tr("PQC Commitment"), tr("Prepare the PQC key first (click Generate PQC Commitment)."), CClientUIInterface::MSG_WARNING);
             return;
         }
+
+        PQCCommitmentType pqcType;
+        if (!ParsePQCCommitmentType(pqcSelectedAlgorithm.toStdString(), pqcType)) {
+            Q_EMIT message(tr("PQC Commitment"), tr("Unknown PQC algorithm: %1").arg(pqcSelectedAlgorithm), CClientUIInterface::MSG_ERROR);
+            return;
+        }
+
+        // Step 1: Build unsigned TX_BASE (no PQC outputs) for sighash computation
+        CCoinControl baseCtrl;
+        if (model->getOptionsModel()->getCoinControlFeatures())
+            baseCtrl = *CoinControlDialog::coinControl;
+        if (ui->radioSmartFee->isChecked())
+            baseCtrl.nPriority = static_cast<FeeRatePreset>(ui->sliderSmartFee->value());
+        else
+            baseCtrl.nPriority = MINIMUM;
+
+        CMutableTransaction txBase;
+        CScript scriptPubKeyInput0;
+        CAmount input0Amount = 0;
+        std::vector<COutPoint> selectedCoins;
+        CAmount baseFee = 0;
+        QString baseError;
+        if (!model->prepareBaseTransaction(recipients, &baseCtrl, txBase, scriptPubKeyInput0, input0Amount, selectedCoins, baseFee, baseError)) {
+            Q_EMIT message(tr("PQC Commitment"), tr("Failed to build base transaction for PQC signing: %1").arg(baseError), CClientUIInterface::MSG_ERROR);
+            return;
+        }
+
+        // Step 2: Compute sighash32 = SignatureHash(scriptPubKey, TX_BASE, 0, SIGHASH_ALL)
+        CTransaction txBaseConst(txBase);
+        uint256 sighash32 = SignatureHash(scriptPubKeyInput0, txBaseConst, 0, SIGHASH_ALL, input0Amount, SIGVERSION_BASE);
+
+        // Step 3: PQC-sign sighash32
+        std::vector<unsigned char> signatureBytes;
+        bool signOk = PQCSign(pqcType, pqcDecryptedSecretKey,
+                               sighash32.begin(), 32, signatureBytes);
+        // Securely clear the stored secret key after signing
+        memory_cleanse(pqcDecryptedSecretKey.data(), pqcDecryptedSecretKey.size());
+        pqcDecryptedSecretKey.clear();
+
+        if (!signOk || signatureBytes.empty()) {
+            Q_EMIT message(tr("PQC Commitment"), tr("PQC signing over sighash32(TX_BASE) failed."), CClientUIInterface::MSG_ERROR);
+            return;
+        }
+
+        pqcSelectedSignatureHex = QString::fromStdString(HexStr(signatureBytes.begin(), signatureBytes.end()));
+        pqcSigningMessageHex = QString::fromStdString(sighash32.GetHex());
+
+        // Step 4: Compute commitment = SHA256(pk || sig) and build OP_RETURN script
+        std::vector<unsigned char> pubkeyBytes = ParseHex(pqcSelectedPublicKeyHex.toStdString());
+        uint256 commitment;
+        if (!PQCComputeCommitment(pubkeyBytes, signatureBytes, commitment)) {
+            Q_EMIT message(tr("PQC Commitment"), tr("Failed to compute PQC commitment."), CClientUIInterface::MSG_ERROR);
+            return;
+        }
+        CScript commitScript;
+        if (!PQCBuildCommitmentScript(pqcType, commitment, commitScript)) {
+            Q_EMIT message(tr("PQC Commitment"), tr("Failed to build OP_RETURN commitment script."), CClientUIInterface::MSG_ERROR);
+            return;
+        }
+        pqcCommitmentScriptPubKeyHex = QString::fromStdString(HexStr(commitScript.begin(), commitScript.end()));
+        pqcCommitmentLineEdit->setText(QString::fromStdString(commitment.GetHex()));
+
+        // Step 5: Set PQC commitment info on recipients for prepareTransaction
         recipients[0].includePqcCommitment = true;
-        recipients[0].pqcCommitmentScriptPubKey = pqcCommitmentScriptPubKeyHex.trimmed();
+        recipients[0].pqcCommitmentScriptPubKey = pqcCommitmentScriptPubKeyHex;
         recipients[0].pqcCarrierMode = (pqcCarrierModeCheckBox && pqcCarrierModeCheckBox->isChecked());
-        if (recipients[0].pqcCarrierMode &&
-            !pqcSelectedPublicKeyHex.isEmpty() && !pqcSelectedSignatureHex.isEmpty() &&
-            IsHex(pqcSelectedPublicKeyHex.toStdString()) && IsHex(pqcSelectedSignatureHex.toStdString())) {
-            size_t payloadSize = ParseHex(pqcSelectedPublicKeyHex.toStdString()).size() +
-                                 ParseHex(pqcSelectedSignatureHex.toStdString()).size();
+        if (recipients[0].pqcCarrierMode) {
+            size_t payloadSize = pubkeyBytes.size() + signatureBytes.size();
             recipients[0].pqcCarrierParts = PQCCarrierPartsNeeded(payloadSize);
             if (recipients[0].pqcCarrierParts == 0) recipients[0].pqcCarrierParts = 1;
         }
+
+        // Step 6: Lock the same coins that TX_BASE used, so TX_C uses the same inputs
+        CCoinControl pqcCtrl;
+        if (model->getOptionsModel()->getCoinControlFeatures())
+            pqcCtrl = *CoinControlDialog::coinControl;
+        if (ui->radioSmartFee->isChecked())
+            pqcCtrl.nPriority = static_cast<FeeRatePreset>(ui->sliderSmartFee->value());
+        else
+            pqcCtrl.nPriority = MINIMUM;
+        for (const auto& outpoint : selectedCoins) {
+            pqcCtrl.Select(outpoint);
+        }
+        // Replace ctrl for the main prepareTransaction call below
+        CoinControlDialog::coinControl->UnSelectAll();
+        *CoinControlDialog::coinControl = pqcCtrl;
     }
+#endif
 
     fNewRecipientAllowed = false;
     WalletModel::UnlockContext ctx(model->requestUnlock());
@@ -685,9 +735,6 @@ void SendCoinsDialog::onGeneratePqcCommitmentClicked()
         return;
     }
 
-    // Build the deterministic 32-byte signing message from tx parameters
-    const QByteArray message32 = BuildPqcSigningMessage(algorithm, publicKeyHex, recipients);
-
     // Retrieve the stored key metadata to get the encrypted private key
     const char* storageKeys[] = {
         "pqc_sigkey_falcon512",
@@ -759,53 +806,28 @@ void SendCoinsDialog::onGeneratePqcCommitmentClicked()
         return;
     }
 
-    // Sign the message with the real PQC private key using liboqs
-    std::vector<unsigned char> secretKey(decryptedMaterial.begin(), decryptedMaterial.end());
+    // Store the decrypted secret key for later signing during on_sendButton_clicked().
+    // PQC signing is deferred until after the base transaction (TX_BASE) is built,
+    // because per the BIP spec the PQC signature covers sighash32(TX_BASE).
+    pqcDecryptedSecretKey.assign(decryptedMaterial.begin(), decryptedMaterial.end());
     memory_cleanse(&decryptedMaterial[0], decryptedMaterial.size());
 
-    std::vector<unsigned char> signatureBytes;
-    bool signOk = PQCSign(pqcType, secretKey,
-                           reinterpret_cast<const unsigned char*>(message32.constData()),
-                           message32.size(), signatureBytes);
-    memory_cleanse(secretKey.data(), secretKey.size());
+    pqcSelectedAlgorithm = algorithm;
+    pqcSelectedPublicKeyHex = publicKeyHex;
+    // Clear any stale signature/commitment from a prior attempt
+    pqcSelectedSignatureHex.clear();
+    pqcSigningMessageHex.clear();
+    pqcCommitmentScriptPubKeyHex.clear();
 
-    if (!signOk || signatureBytes.empty()) {
-        Q_EMIT message(tr("PQC Commitment"), tr("PQC signing failed. The secret key may be invalid or corrupted."), CClientUIInterface::MSG_ERROR);
-        return;
-    }
-
-    const QString signatureHex = QString::fromStdString(HexStr(signatureBytes.begin(), signatureBytes.end()));
+    pqcCommitmentLineEdit->setText(tr("(will be computed at send time)"));
+    pqcDecodeButton->setEnabled(false);
+    Q_EMIT message(tr("PQC Commitment"),
+        tr("PQC key decrypted and ready. The commitment will be computed from sighash32(TX_BASE) when you click Send."),
+        CClientUIInterface::MSG_INFORMATION);
 #else
     Q_EMIT message(tr("PQC Commitment"), tr("PQC signing requires liboqs. Rebuild with --with-liboqs --enable-experimental."), CClientUIInterface::MSG_ERROR);
     return;
-    const QByteArray message32;
-    const QString signatureHex;
 #endif
-
-    try {
-        UniValue params(UniValue::VARR);
-        params.push_back(UniValue(algorithm.trimmed().toStdString()));
-        params.push_back(UniValue(publicKeyHex.trimmed().toStdString()));
-        params.push_back(UniValue(signatureHex.trimmed().toStdString()));
-        JSONRPCRequest req;
-        req.strMethod = "generatepqccommitment";
-        req.params = params;
-        req.fHelp = false;
-        UniValue out = tableRPC.execute(req);
-        const UniValue& outObj = out.get_obj();
-        const QString commitment = QString::fromStdString(find_value(outObj, "commitment").get_str());
-        const QString scriptPubKey = QString::fromStdString(find_value(outObj, "scriptPubKey").get_str());
-
-        pqcSelectedAlgorithm = algorithm;
-        pqcSelectedPublicKeyHex = publicKeyHex;
-        pqcSelectedSignatureHex = signatureHex;
-        pqcSigningMessageHex = QString::fromLatin1(message32.toHex());
-        pqcCommitmentScriptPubKeyHex = scriptPubKey;
-        pqcCommitmentLineEdit->setText(commitment);
-        pqcDecodeButton->setEnabled(!commitment.isEmpty() && !pqcCommitmentScriptPubKeyHex.isEmpty());
-    } catch (const std::exception& e) {
-        Q_EMIT message(tr("PQC Commitment"), tr("Error: %1").arg(QString::fromStdString(e.what())), CClientUIInterface::MSG_ERROR);
-    }
 }
 
 void SendCoinsDialog::onDecodePqcCommitmentClicked()
