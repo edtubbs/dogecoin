@@ -427,15 +427,16 @@ QString TransactionDesc::toHTML(CWallet *wallet, CWalletTx &wtx, TransactionReco
                         cryptoVerified = PQCVerify(pqcType, txrPubkey,
                                                     recomputedSighash.begin(), 32,
                                                     txrSig);
+                        const std::string recomputedSighashHex = HexStr(recomputedSighash.begin(), recomputedSighash.end());
                         strHTML += "<b>" + tr("TX_BASE sighash32 (recomputed)") + ":</b> "
-                                  + GUIUtil::HtmlEscape(QString::fromStdString(recomputedSighash.GetHex())) + "<br>";
+                                  + GUIUtil::HtmlEscape(QString::fromStdString(recomputedSighashHex)) + "<br>";
 
                         // Also show stored sighash for comparison if available
                         auto it = wtx.mapValue.find("pqcSigningMessage");
                         if (it != wtx.mapValue.end() && !it->second.empty()) {
                             strHTML += "<b>" + tr("TX_C sighash (stored)") + ":</b> "
                                       + GUIUtil::HtmlEscape(QString::fromStdString(it->second)) + "<br>";
-                            bool sighashMatch = (it->second == recomputedSighash.GetHex());
+                            bool sighashMatch = (it->second == recomputedSighashHex);
                             strHTML += "<b>" + tr("Stored vs recomputed sighash match") + ":</b> "
                                       + (sighashMatch
                                           ? "<span style=\"color:green;\">" + tr("yes") + "</span>"
@@ -627,8 +628,9 @@ QString TransactionDesc::toHTML(CWallet *wallet, CWalletTx &wtx, TransactionReco
                         cryptoVerified = PQCVerify(txrType, txrPubkey,
                                                     recomputedSighash.begin(), 32,
                                                     txrSig);
+                        const std::string recomputedSighashHex = HexStr(recomputedSighash.begin(), recomputedSighash.end());
                         strHTML += "<b>" + tr("TX_BASE sighash32 (recomputed)") + ":</b> "
-                                  + GUIUtil::HtmlEscape(QString::fromStdString(recomputedSighash.GetHex())) + "<br>";
+                                  + GUIUtil::HtmlEscape(QString::fromStdString(recomputedSighashHex)) + "<br>";
 
                         // Also show stored sighash for comparison
                         LOCK(wallet->cs_wallet);
@@ -638,7 +640,7 @@ QString TransactionDesc::toHTML(CWallet *wallet, CWalletTx &wtx, TransactionReco
                             if (msgIt != storedIt->second.mapValue.end() && !msgIt->second.empty()) {
                                 strHTML += "<b>" + tr("TX_C sighash (stored)") + ":</b> "
                                           + GUIUtil::HtmlEscape(QString::fromStdString(msgIt->second)) + "<br>";
-                                bool sighashMatch = (msgIt->second == recomputedSighash.GetHex());
+                                bool sighashMatch = (msgIt->second == recomputedSighashHex);
                                 strHTML += "<b>" + tr("Stored vs recomputed sighash match") + ":</b> "
                                           + (sighashMatch
                                               ? "<span style=\"color:green;\">" + tr("yes") + "</span>"

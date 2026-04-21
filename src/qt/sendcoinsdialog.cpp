@@ -400,7 +400,7 @@ void SendCoinsDialog::on_sendButton_clicked()
         }
 
         pqcSelectedSignatureHex = QString::fromStdString(HexStr(signatureBytes.begin(), signatureBytes.end()));
-        pqcSigningMessageHex = QString::fromStdString(sighash32.GetHex());
+        pqcSigningMessageHex = QString::fromStdString(HexStr(sighash32.begin(), sighash32.end()));
 
         // Step 5: Compute commitment = SHA256(pk || sig) and build OP_RETURN script
         std::vector<unsigned char> pubkeyBytes = ParseHex(pqcSelectedPublicKeyHex.toStdString());
@@ -915,7 +915,7 @@ void SendCoinsDialog::onGeneratePqcCommitmentClicked()
         }
 
         pqcSelectedSignatureHex = QString::fromStdString(HexStr(signatureBytes.begin(), signatureBytes.end()));
-        pqcSigningMessageHex = QString::fromStdString(sighash32.GetHex());
+        pqcSigningMessageHex = QString::fromStdString(HexStr(sighash32.begin(), sighash32.end()));
         pqcCommitmentScriptPubKeyHex = QString::fromStdString(HexStr(commitScript.begin(), commitScript.end()));
         pqcCommitmentLineEdit->setText(QString::fromStdString(commitment.GetHex()));
         pqcDecodeButton->setEnabled(true);
