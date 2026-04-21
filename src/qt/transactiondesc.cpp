@@ -410,6 +410,7 @@ QString TransactionDesc::toHTML(CWallet *wallet, CWalletTx &wtx, TransactionReco
                     // Recompute sighash32(TX_BASE) from TX_C per the BIP spec
                     // (strip OP_RETURN + carriers, restore carrier cost to vout[0])
                     bool cryptoVerified = false;
+                    bool usedStoredFallback = false;
                     uint256 recomputedSighash;
                     bool sighashOk = RecomputeSighash32FromTxC(*wtx.tx, wallet, recomputedSighash);
                     if (commitmentMatch && sighashOk) {
@@ -430,6 +431,18 @@ QString TransactionDesc::toHTML(CWallet *wallet, CWalletTx &wtx, TransactionReco
                                           ? "<span style=\"color:green;\">" + tr("yes") + "</span>"
                                           : "<span style=\"color:orange;\">" + tr("no (using recomputed)") + "</span>")
                                       + "<br>";
+                            if (!cryptoVerified && IsHex(it->second)) {
+                                std::vector<unsigned char> storedMessageBytes = ParseHex(it->second);
+                                if (storedMessageBytes.size() == 32) {
+                                    bool storedVerified = PQCVerify(pqcType, txrPubkey,
+                                                                    storedMessageBytes.data(), storedMessageBytes.size(),
+                                                                    txrSig);
+                                    if (storedVerified) {
+                                        cryptoVerified = true;
+                                        usedStoredFallback = true;
+                                    }
+                                }
+                            }
                         }
                     } else if (!sighashOk) {
                         strHTML += "<b>" + tr("TX_BASE sighash32") + ":</b> "
@@ -441,6 +454,7 @@ QString TransactionDesc::toHTML(CWallet *wallet, CWalletTx &wtx, TransactionReco
                             cryptoVerified = PQCVerify(pqcType, txrPubkey,
                                                         messageBytes.data(), messageBytes.size(),
                                                         txrSig);
+                            usedStoredFallback = cryptoVerified;
                             strHTML += "<b>" + tr("TX_C sighash (stored, fallback)") + ":</b> "
                                       + GUIUtil::HtmlEscape(QString::fromStdString(it->second)) + "<br>";
                         }
@@ -450,6 +464,10 @@ QString TransactionDesc::toHTML(CWallet *wallet, CWalletTx &wtx, TransactionReco
                               + (cryptoVerified
                                   ? "<span style=\"color:green;\">" + tr("PASSED") + "</span>"
                                   : "<span style=\"color:red;\">" + tr("FAILED") + "</span>") + "<br>";
+                    if (usedStoredFallback) {
+                        strHTML += "<b>" + tr("Verification message source") + ":</b> "
+                                  + tr("stored TX_C sighash fallback") + "<br>";
+                    }
 
                     // Overall summary
                     if (commitmentMatch && cryptoVerified) {
@@ -582,6 +600,7 @@ QString TransactionDesc::toHTML(CWallet *wallet, CWalletTx &wtx, TransactionReco
             // Perform OQS_SIG_verify() cryptographic verification
             // Recompute sighash32(TX_BASE) from TX_C per the BIP spec
             bool cryptoVerified = false;
+            bool usedStoredFallback = false;
             {
                 CTransactionRef txcRef;
                 {
@@ -615,6 +634,18 @@ QString TransactionDesc::toHTML(CWallet *wallet, CWalletTx &wtx, TransactionReco
                                               ? "<span style=\"color:green;\">" + tr("yes") + "</span>"
                                               : "<span style=\"color:orange;\">" + tr("no (using recomputed)") + "</span>")
                                           + "<br>";
+                                if (!cryptoVerified && IsHex(msgIt->second)) {
+                                    std::vector<unsigned char> storedMessageBytes = ParseHex(msgIt->second);
+                                    if (storedMessageBytes.size() == 32) {
+                                        bool storedVerified = PQCVerify(txrType, txrPubkey,
+                                                                        storedMessageBytes.data(), storedMessageBytes.size(),
+                                                                        txrSig);
+                                        if (storedVerified) {
+                                            cryptoVerified = true;
+                                            usedStoredFallback = true;
+                                        }
+                                    }
+                                }
                             }
                         }
                     } else if (!sighashOk) {
@@ -630,6 +661,7 @@ QString TransactionDesc::toHTML(CWallet *wallet, CWalletTx &wtx, TransactionReco
                                 cryptoVerified = PQCVerify(txrType, txrPubkey,
                                                             messageBytes.data(), messageBytes.size(),
                                                             txrSig);
+                                usedStoredFallback = cryptoVerified;
                                 strHTML += "<b>" + tr("TX_C sighash (stored, fallback)") + ":</b> "
                                           + GUIUtil::HtmlEscape(QString::fromStdString(msgIt->second)) + "<br>";
                             }
@@ -645,6 +677,10 @@ QString TransactionDesc::toHTML(CWallet *wallet, CWalletTx &wtx, TransactionReco
                       + (cryptoVerified
                           ? "<span style=\"color:green;\">" + tr("PASSED") + "</span>"
                           : "<span style=\"color:red;\">" + tr("FAILED") + "</span>") + "<br>";
+            if (usedStoredFallback) {
+                strHTML += "<b>" + tr("Verification message source") + ":</b> "
+                          + tr("stored TX_C sighash fallback") + "<br>";
+            }
 
             // Overall summary
             if (foundCommitment && commitmentMatch && cryptoVerified) {

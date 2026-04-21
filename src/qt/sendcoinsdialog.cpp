@@ -850,11 +850,91 @@ void SendCoinsDialog::onGeneratePqcCommitmentClicked()
     pqcSigningMessageHex.clear();
     pqcCommitmentScriptPubKeyHex.clear();
 
-    pqcCommitmentLineEdit->setText(tr("(will be computed at send time)"));
-    pqcDecodeButton->setEnabled(false);
-    Q_EMIT message(tr("PQC Commitment"),
-        tr("PQC key decrypted and ready. The commitment will be computed from sighash32(TX_BASE) when you click Send."),
-        CClientUIInterface::MSG_INFORMATION);
+    // Build a preview commitment immediately so Decode can be used before Send.
+    // Final signing/commitment is still recomputed at send time.
+    bool previewReady = false;
+    QString previewError;
+    do {
+        bool carrierMode = (pqcCarrierModeCheckBox && pqcCarrierModeCheckBox->isChecked());
+        uint8_t estimatedParts = 0;
+        if (carrierMode) {
+            std::vector<unsigned char> pubkeyBytes = ParseHex(pqcSelectedPublicKeyHex.toStdString());
+            size_t maxSigLen = PQCMaxSignatureLength(pqcType);
+            if (maxSigLen == 0) {
+                previewError = tr("Could not determine max signature size for %1.").arg(pqcSelectedAlgorithm);
+                break;
+            }
+            size_t estimatedPayload = pubkeyBytes.size() + maxSigLen;
+            estimatedParts = PQCCarrierPartsNeeded(estimatedPayload);
+            if (estimatedParts == 0) estimatedParts = 1;
+        }
+
+        CCoinControl baseCtrl;
+        if (model->getOptionsModel()->getCoinControlFeatures())
+            baseCtrl = *CoinControlDialog::coinControl;
+        if (ui->radioSmartFee->isChecked())
+            baseCtrl.nPriority = static_cast<FeeRatePreset>(ui->sliderSmartFee->value());
+        else
+            baseCtrl.nPriority = MINIMUM;
+
+        CMutableTransaction txBase;
+        CScript scriptPubKeyInput0;
+        CAmount input0Amount = 0;
+        std::vector<COutPoint> selectedCoins;
+        CAmount baseFee = 0;
+        CTxDestination changeAddr;
+        if (!model->prepareBaseTransaction(recipients, &baseCtrl, txBase, scriptPubKeyInput0,
+                                           input0Amount, selectedCoins, baseFee, previewError,
+                                           changeAddr, pqcType, estimatedParts, carrierMode)) {
+            if (previewError.isEmpty()) {
+                previewError = tr("Failed to prepare base transaction for PQC preview.");
+            }
+            break;
+        }
+
+        CTransaction txBaseConst(txBase);
+        uint256 sighash32 = SignatureHash(scriptPubKeyInput0, txBaseConst, 0, SIGHASH_ALL, input0Amount, SIGVERSION_BASE);
+
+        std::vector<unsigned char> signatureBytes;
+        bool signOk = PQCSign(pqcType, pqcDecryptedSecretKey, sighash32.begin(), 32, signatureBytes);
+        if (!signOk || signatureBytes.empty()) {
+            previewError = tr("PQC preview signing over sighash32(TX_BASE) failed.");
+            break;
+        }
+
+        std::vector<unsigned char> pubkeyBytes = ParseHex(pqcSelectedPublicKeyHex.toStdString());
+        uint256 commitment;
+        if (!PQCComputeCommitment(pubkeyBytes, signatureBytes, commitment)) {
+            previewError = tr("Failed to compute PQC preview commitment.");
+            break;
+        }
+        CScript commitScript;
+        if (!PQCBuildCommitmentScript(pqcType, commitment, commitScript)) {
+            previewError = tr("Failed to build PQC preview OP_RETURN commitment script.");
+            break;
+        }
+
+        pqcSelectedSignatureHex = QString::fromStdString(HexStr(signatureBytes.begin(), signatureBytes.end()));
+        pqcSigningMessageHex = QString::fromStdString(sighash32.GetHex());
+        pqcCommitmentScriptPubKeyHex = QString::fromStdString(HexStr(commitScript.begin(), commitScript.end()));
+        pqcCommitmentLineEdit->setText(QString::fromStdString(commitment.GetHex()));
+        pqcDecodeButton->setEnabled(true);
+        previewReady = true;
+    } while (false);
+
+    if (previewReady) {
+        Q_EMIT message(tr("PQC Commitment"),
+            tr("PQC key decrypted and preview commitment generated. Final commitment will be recomputed at send time from sighash32(TX_BASE)."),
+            CClientUIInterface::MSG_INFORMATION);
+    } else {
+        pqcCommitmentLineEdit->setText(tr("(will be computed at send time)"));
+        pqcDecodeButton->setEnabled(false);
+        Q_EMIT message(tr("PQC Commitment"),
+            previewError.isEmpty()
+                ? tr("PQC key decrypted and ready. The commitment will be computed from sighash32(TX_BASE) when you click Send.")
+                : tr("PQC key decrypted, but preview generation failed: %1\nThe commitment will be computed at send time.").arg(previewError),
+            previewError.isEmpty() ? CClientUIInterface::MSG_INFORMATION : CClientUIInterface::MSG_WARNING);
+    }
 #else
     Q_EMIT message(tr("PQC Commitment"), tr("PQC signing requires liboqs. Rebuild with --with-liboqs --enable-experimental."), CClientUIInterface::MSG_ERROR);
     return;
