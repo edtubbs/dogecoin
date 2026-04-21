@@ -59,18 +59,28 @@ static bool RecomputeSighash32FromTxC(const CTransaction& txc,
     if (txBase.vout.empty())
         return false;
 
-    // Look up scriptPubKey and amount for input 0 from the wallet
+    // Look up scriptPubKey and amount for input 0.
+    // Prefer wallet history, but fall back to chain lookup for external TX_C.
     CScript scriptPubKeyInput0;
     CAmount input0Amount = 0;
     {
         auto it = wallet->mapWallet.find(txc.vin[0].prevout.hash);
-        if (it == wallet->mapWallet.end())
-            return false;
         uint32_t n = txc.vin[0].prevout.n;
-        if (n >= it->second.tx->vout.size())
-            return false;
-        scriptPubKeyInput0 = it->second.tx->vout[n].scriptPubKey;
-        input0Amount = it->second.tx->vout[n].nValue;
+        if (it != wallet->mapWallet.end()) {
+            if (n >= it->second.tx->vout.size())
+                return false;
+            scriptPubKeyInput0 = it->second.tx->vout[n].scriptPubKey;
+            input0Amount = it->second.tx->vout[n].nValue;
+        } else {
+            CTransactionRef prevTx;
+            uint256 hashBlock;
+            if (!GetTransaction(txc.vin[0].prevout.hash, prevTx, Params().GetConsensus(0), hashBlock, true) || !prevTx)
+                return false;
+            if (n >= prevTx->vout.size())
+                return false;
+            scriptPubKeyInput0 = prevTx->vout[n].scriptPubKey;
+            input0Amount = prevTx->vout[n].nValue;
+        }
     }
 
     CTransaction txBaseConst(txBase);

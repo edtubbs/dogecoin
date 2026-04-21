@@ -928,7 +928,9 @@ void SendCoinsDialog::onGeneratePqcCommitmentClicked()
             CClientUIInterface::MSG_INFORMATION);
     } else {
         pqcCommitmentLineEdit->setText(tr("(will be computed at send time)"));
-        pqcDecodeButton->setEnabled(false);
+        // Keep decode available so users can inspect currently available PQC details
+        // even when final commitment/script are deferred to send-time recomputation.
+        pqcDecodeButton->setEnabled(true);
         Q_EMIT message(tr("PQC Commitment"),
             previewError.isEmpty()
                 ? tr("PQC key decrypted and ready. The commitment will be computed from sighash32(TX_BASE) when you click Send.")
@@ -945,17 +947,18 @@ void SendCoinsDialog::onDecodePqcCommitmentClicked()
 {
     const QString commitment = pqcCommitmentLineEdit ? pqcCommitmentLineEdit->text().trimmed() : QString();
     const QString scriptPubKey = pqcCommitmentScriptPubKeyHex.trimmed();
-    if (commitment.isEmpty() || scriptPubKey.isEmpty()) {
+    if (pqcSelectedAlgorithm.isEmpty() && commitment.isEmpty() && scriptPubKey.isEmpty()) {
         Q_EMIT message(tr("Decode PQC Commitment"), tr("Generate a PQC commitment first."), CClientUIInterface::MSG_WARNING);
         return;
     }
+    const bool hasCommitmentData = !commitment.isEmpty() && !scriptPubKey.isEmpty();
 
     QString algorithmTag = tr("Unknown");
     QString extractedCommitment = tr("n/a");
 #if ENABLE_LIBOQS
     PQCCommitmentType detectedType = PQCCommitmentType::FALCON512;
     bool commitmentExtracted = false;
-    if (IsHex(scriptPubKey.toStdString())) {
+    if (hasCommitmentData && IsHex(scriptPubKey.toStdString())) {
         const std::vector<unsigned char> scriptBytes = ParseHex(scriptPubKey.toStdString());
         CScript script(scriptBytes.begin(), scriptBytes.end());
         PQCCommitmentType pqcType;
@@ -988,9 +991,12 @@ void SendCoinsDialog::onDecodePqcCommitmentClicked()
     if (!pqcSignatureHex.isEmpty() && IsHex(pqcSignatureHex.toStdString())) {
         html += "<b>" + tr("Selected PQC signature size") + ":</b> " + QString::number(ParseHex(pqcSignatureHex.toStdString()).size()) + " " + tr("bytes") + "<br>";
     }
-    html += "<b>" + tr("Commitment") + ":</b> " + GUIUtil::HtmlEscape(commitment) + "<br>";
-    html += "<b>" + tr("OP_RETURN scriptPubKey") + ":</b> " + GUIUtil::HtmlEscape(scriptPubKey) + "<br>";
-    html += "<b>" + tr("Script starts with OP_RETURN") + ":</b> " + (scriptPubKey.startsWith("6a24", Qt::CaseInsensitive) ? tr("yes") : tr("no")) + "<br>";
+    html += "<b>" + tr("Commitment") + ":</b> "
+          + GUIUtil::HtmlEscape(hasCommitmentData ? commitment : tr("(will be computed at send time)")) + "<br>";
+    html += "<b>" + tr("OP_RETURN scriptPubKey") + ":</b> "
+          + GUIUtil::HtmlEscape(hasCommitmentData ? scriptPubKey : tr("(will be computed at send time)")) + "<br>";
+    html += "<b>" + tr("Script starts with OP_RETURN") + ":</b> "
+          + (hasCommitmentData && scriptPubKey.startsWith("6a24", Qt::CaseInsensitive) ? tr("yes") : tr("no")) + "<br>";
     html += "<b>" + tr("Algorithm tag") + ":</b> " + GUIUtil::HtmlEscape(algorithmTag) + "<br>";
     html += "<b>" + tr("Extracted commitment from script") + ":</b> " + GUIUtil::HtmlEscape(extractedCommitment) + "<br>";
     html += "<b>" + tr("Carrier mode") + ":</b> " + (carrierEnabled ? tr("enabled (TX_C + TX_R P2SH data carrier)") : tr("disabled (commitment-only)")) + "<br>";
