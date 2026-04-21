@@ -357,6 +357,7 @@ void SendCoinsDialog::on_sendButton_clicked()
         CAmount baseFee = 0;
         QString baseError;
         CTxDestination changeAddr;
+        int pqcChangePos = -1;
 
         uint8_t resolvedCarrierParts = 0;
         uint8_t carrierPartsForTemplate = carrierMode ? 1 : 0;
@@ -373,9 +374,13 @@ void SendCoinsDialog::on_sendButton_clicked()
                 baseCtrl.nPriority = MINIMUM;
 
             const uint8_t partsForThisIteration = carrierMode ? (carrierPartsForTemplate > 0 ? carrierPartsForTemplate : 1) : 0;
+            // Seed the template's change position with the one resolved on
+            // the previous iteration (if any), so part-count convergence
+            // doesn't drift the layout used for signing.
+            baseCtrl.nChangePosition = pqcChangePos;
             if (!model->prepareBaseTransaction(recipients, &baseCtrl, txBase, scriptPubKeyInput0,
                                                input0Amount, selectedCoins, baseFee, baseError,
-                                               changeAddr, pqcType, partsForThisIteration, carrierMode)) {
+                                               changeAddr, pqcChangePos, pqcType, partsForThisIteration, carrierMode)) {
                 Q_EMIT message(tr("PQC Commitment"), tr("Failed to build base transaction for PQC signing: %1").arg(baseError), CClientUIInterface::MSG_ERROR);
                 memory_cleanse(pqcDecryptedSecretKey.data(), pqcDecryptedSecretKey.size());
                 pqcDecryptedSecretKey.clear();
@@ -463,6 +468,13 @@ void SendCoinsDialog::on_sendButton_clicked()
         if (!(boost::get<CNoDestination>(&changeAddr))) {
             pqcCtrl.destChange = changeAddr;
         }
+        // Pin the change-output position so the final TX_C layout is
+        // byte-identical to the signed TX_BASE template. Without this,
+        // CWallet::CreateTransaction would place change at a random index
+        // and the reconstructed TX_BASE sighash32 would no longer match
+        // the one that was actually signed (breaking cross-verification
+        // with SPV verifiers such as libdogecoin's spvnode).
+        pqcCtrl.nChangePosition = pqcChangePos;
         // Replace ctrl for the main prepareTransaction call below
         CoinControlDialog::coinControl->UnSelectAll();
         *CoinControlDialog::coinControl = pqcCtrl;
@@ -896,9 +908,10 @@ void SendCoinsDialog::onGeneratePqcCommitmentClicked()
         std::vector<COutPoint> selectedCoins;
         CAmount baseFee = 0;
         CTxDestination changeAddr;
+        int previewChangePos = -1;
         if (!model->prepareBaseTransaction(recipients, &baseCtrl, txBase, scriptPubKeyInput0,
                                            input0Amount, selectedCoins, baseFee, previewError,
-                                           changeAddr, pqcType, estimatedParts, carrierMode)) {
+                                           changeAddr, previewChangePos, pqcType, estimatedParts, carrierMode)) {
             if (previewError.isEmpty()) {
                 previewError = tr("Failed to prepare base transaction for PQC preview.");
             }

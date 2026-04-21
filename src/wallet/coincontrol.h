@@ -26,6 +26,11 @@ public:
     CFeeRate nFeeRate;
     //! Override the default transaction speed, 0 = use default
     FeeRatePreset nPriority;
+    //! Desired change output position (-1 = random, as chosen by CreateTransaction).
+    //! Used by the PQC carrier flow to pin the final TX_C layout to the same
+    //! change position used when signing the TX_BASE template, so the
+    //! reconstructed TX_BASE sighash32 is identical on signer and verifier.
+    int nChangePosition;
 
     CCoinControl()
     {
@@ -42,6 +47,7 @@ public:
         nFeeRate = CFeeRate(0);
         fOverrideFeeRate = false;
         nPriority = MINIMUM;
+        nChangePosition = -1;
     }
 
     bool HasSelected() const

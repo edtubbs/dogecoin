@@ -293,7 +293,12 @@ WalletModel::SendCoinsReturn WalletModel::prepareTransaction(WalletModelTransact
         transaction.newPossibleKeyChange(wallet);
 
         CAmount nFeeRequired = 0;
-        int nChangePosRet = -1;
+        // Honor an explicit change-position request from the caller's
+        // CoinControl (used by the PQC carrier flow to keep TX_C layout
+        // identical to the signed TX_BASE template). Default -1 means
+        // CreateTransaction will pick a random position.
+        int nChangePosRet = (coinControl && coinControl->nChangePosition >= 0)
+                            ? coinControl->nChangePosition : -1;
         std::string strFailReason;
 
         CWalletTx *newTx = transaction.getTransaction();
@@ -334,6 +339,7 @@ bool WalletModel::prepareBaseTransaction(const QList<SendCoinsRecipient>& recipi
                                           CAmount& nFeeRet_out,
                                           QString& error_out,
                                           CTxDestination& changeAddr_out,
+                                          int& nChangePosRet_out,
                                           PQCCommitmentType pqcType,
                                           uint8_t carrierParts,
                                           bool carrierMode)
@@ -380,7 +386,11 @@ bool WalletModel::prepareBaseTransaction(const QList<SendCoinsRecipient>& recipi
     wtxDummy.fTimeReceivedIsTxTime = true;
     wtxDummy.BindWallet(wallet);
     CReserveKey reserveKey(wallet);
-    int nChangePosRet = -1;
+    // Seed the change position from the caller's CoinControl hint (if any),
+    // so successive calls (resolving the final carrier part count) can
+    // converge on a stable change layout that the real TX_C can reuse.
+    int nChangePosRet = (coinControl && coinControl->nChangePosition >= 0)
+                        ? coinControl->nChangePosition : -1;
     std::string strFailReason;
 
     // Create unsigned transaction (sign=false) to get TX_C structure
@@ -393,6 +403,11 @@ bool WalletModel::prepareBaseTransaction(const QList<SendCoinsRecipient>& recipi
         error_out = QString::fromStdString(strFailReason);
         return false;
     }
+
+    // Expose the chosen change position so the caller can force the
+    // final TX_C to use the identical layout (otherwise CreateTransaction's
+    // random change-position placement breaks TX_BASE reconstruction).
+    nChangePosRet_out = nChangePosRet;
 
     // Extract change destination for reuse in the final TX_C
     changeAddr_out = CNoDestination();

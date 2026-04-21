@@ -175,6 +175,7 @@ public:
                                 CAmount& nFeeRet_out,
                                 QString& error_out,
                                 CTxDestination& changeAddr_out,
+                                int& nChangePosRet_out,
                                 PQCCommitmentType pqcType,
                                 uint8_t carrierParts,
                                 bool carrierMode);

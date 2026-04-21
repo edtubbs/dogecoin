@@ -436,12 +436,6 @@ QString TransactionDesc::toHTML(CWallet *wallet, CWalletTx &wtx, TransactionReco
                         if (it != wtx.mapValue.end() && !it->second.empty()) {
                             strHTML += "<b>" + tr("TX_C sighash (stored)") + ":</b> "
                                       + GUIUtil::HtmlEscape(QString::fromStdString(it->second)) + "<br>";
-                            bool sighashMatch = (it->second == recomputedSighashHex);
-                            strHTML += "<b>" + tr("Stored vs recomputed sighash match") + ":</b> "
-                                      + (sighashMatch
-                                          ? "<span style=\"color:green;\">" + tr("yes") + "</span>"
-                                          : "<span style=\"color:orange;\">" + tr("no (using recomputed)") + "</span>")
-                                      + "<br>";
                             if (!cryptoVerified && IsHex(it->second)) {
                                 std::vector<unsigned char> storedMessageBytes = ParseHex(it->second);
                                 if (storedMessageBytes.size() == 32) {
@@ -640,12 +634,6 @@ QString TransactionDesc::toHTML(CWallet *wallet, CWalletTx &wtx, TransactionReco
                             if (msgIt != storedIt->second.mapValue.end() && !msgIt->second.empty()) {
                                 strHTML += "<b>" + tr("TX_C sighash (stored)") + ":</b> "
                                           + GUIUtil::HtmlEscape(QString::fromStdString(msgIt->second)) + "<br>";
-                                bool sighashMatch = (msgIt->second == recomputedSighashHex);
-                                strHTML += "<b>" + tr("Stored vs recomputed sighash match") + ":</b> "
-                                          + (sighashMatch
-                                              ? "<span style=\"color:green;\">" + tr("yes") + "</span>"
-                                              : "<span style=\"color:orange;\">" + tr("no (using recomputed)") + "</span>")
-                                          + "<br>";
                                 if (!cryptoVerified && IsHex(msgIt->second)) {
                                     std::vector<unsigned char> storedMessageBytes = ParseHex(msgIt->second);
                                     if (storedMessageBytes.size() == 32) {
