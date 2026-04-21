@@ -343,30 +343,12 @@ void SendCoinsDialog::on_sendButton_clicked()
             return;
         }
 
-        // Step 1: Estimate carrier parts from algorithm max signature size
+        // Step 1: Resolve carrier parts from the actual signed payload
+        // by iterating TX_BASE -> sighash32 -> signature until part-count stabilizes.
         bool carrierMode = (pqcCarrierModeCheckBox && pqcCarrierModeCheckBox->isChecked());
-        uint8_t estimatedParts = 0;
-        if (carrierMode) {
-            std::vector<unsigned char> pubkeyBytes = ParseHex(pqcSelectedPublicKeyHex.toStdString());
-            size_t maxSigLen = PQCMaxSignatureLength(pqcType);
-            if (maxSigLen == 0) {
-                Q_EMIT message(tr("PQC Commitment"), tr("Could not determine max signature size for %1.").arg(pqcSelectedAlgorithm), CClientUIInterface::MSG_ERROR);
-                return;
-            }
-            size_t estimatedPayload = pubkeyBytes.size() + maxSigLen;
-            estimatedParts = PQCCarrierPartsNeeded(estimatedPayload);
-            if (estimatedParts == 0) estimatedParts = 1;
-        }
-
-        // Step 2: Build TX_C structure (with dummy OP_RETURN + carriers) and
-        //         reconstruct TX_BASE from it per the BIP spec
-        CCoinControl baseCtrl;
-        if (model->getOptionsModel()->getCoinControlFeatures())
-            baseCtrl = *CoinControlDialog::coinControl;
-        if (ui->radioSmartFee->isChecked())
-            baseCtrl.nPriority = static_cast<FeeRatePreset>(ui->sliderSmartFee->value());
-        else
-            baseCtrl.nPriority = MINIMUM;
+        std::vector<unsigned char> pubkeyBytes = ParseHex(pqcSelectedPublicKeyHex.toStdString());
+        std::vector<unsigned char> signatureBytes;
+        uint256 sighash32;
 
         CMutableTransaction txBase;
         CScript scriptPubKeyInput0;
@@ -375,27 +357,68 @@ void SendCoinsDialog::on_sendButton_clicked()
         CAmount baseFee = 0;
         QString baseError;
         CTxDestination changeAddr;
-        if (!model->prepareBaseTransaction(recipients, &baseCtrl, txBase, scriptPubKeyInput0,
-                                            input0Amount, selectedCoins, baseFee, baseError,
-                                            changeAddr, pqcType, estimatedParts, carrierMode)) {
-            Q_EMIT message(tr("PQC Commitment"), tr("Failed to build base transaction for PQC signing: %1").arg(baseError), CClientUIInterface::MSG_ERROR);
-            return;
+
+        uint8_t resolvedCarrierParts = 0;
+        uint8_t carrierPartsForTemplate = carrierMode ? 1 : 0;
+        const int kMaxCarrierPartResolveIterations = 4;
+        bool resolvedCarrierLayout = false;
+
+        for (int iter = 0; iter < kMaxCarrierPartResolveIterations; ++iter) {
+            CCoinControl baseCtrl;
+            if (model->getOptionsModel()->getCoinControlFeatures())
+                baseCtrl = *CoinControlDialog::coinControl;
+            if (ui->radioSmartFee->isChecked())
+                baseCtrl.nPriority = static_cast<FeeRatePreset>(ui->sliderSmartFee->value());
+            else
+                baseCtrl.nPriority = MINIMUM;
+
+            const uint8_t partsForThisIteration = carrierMode ? (carrierPartsForTemplate > 0 ? carrierPartsForTemplate : 1) : 0;
+            if (!model->prepareBaseTransaction(recipients, &baseCtrl, txBase, scriptPubKeyInput0,
+                                               input0Amount, selectedCoins, baseFee, baseError,
+                                               changeAddr, pqcType, partsForThisIteration, carrierMode)) {
+                Q_EMIT message(tr("PQC Commitment"), tr("Failed to build base transaction for PQC signing: %1").arg(baseError), CClientUIInterface::MSG_ERROR);
+                memory_cleanse(pqcDecryptedSecretKey.data(), pqcDecryptedSecretKey.size());
+                pqcDecryptedSecretKey.clear();
+                return;
+            }
+
+            CTransaction txBaseConst(txBase);
+            sighash32 = SignatureHash(scriptPubKeyInput0, txBaseConst, 0, SIGHASH_ALL, input0Amount, SIGVERSION_BASE);
+
+            signatureBytes.clear();
+            bool signOk = PQCSign(pqcType, pqcDecryptedSecretKey, sighash32.begin(), 32, signatureBytes);
+            if (!signOk || signatureBytes.empty()) {
+                memory_cleanse(pqcDecryptedSecretKey.data(), pqcDecryptedSecretKey.size());
+                pqcDecryptedSecretKey.clear();
+                Q_EMIT message(tr("PQC Commitment"), tr("PQC signing over sighash32(TX_BASE) failed."), CClientUIInterface::MSG_ERROR);
+                return;
+            }
+
+            if (!carrierMode) {
+                resolvedCarrierParts = 0;
+                resolvedCarrierLayout = true;
+                break;
+            }
+
+            size_t actualPayload = pubkeyBytes.size() + signatureBytes.size();
+            uint8_t actualParts = PQCCarrierPartsNeeded(actualPayload);
+            if (actualParts == 0) actualParts = 1;
+
+            if (actualParts == partsForThisIteration) {
+                resolvedCarrierParts = actualParts;
+                resolvedCarrierLayout = true;
+                break;
+            }
+
+            carrierPartsForTemplate = actualParts;
         }
 
-        // Step 3: Compute sighash32 = SignatureHash(scriptPubKey, TX_BASE, 0, SIGHASH_ALL)
-        CTransaction txBaseConst(txBase);
-        uint256 sighash32 = SignatureHash(scriptPubKeyInput0, txBaseConst, 0, SIGHASH_ALL, input0Amount, SIGVERSION_BASE);
-
-        // Step 4: PQC-sign sighash32
-        std::vector<unsigned char> signatureBytes;
-        bool signOk = PQCSign(pqcType, pqcDecryptedSecretKey,
-                               sighash32.begin(), 32, signatureBytes);
         // Securely clear the stored secret key after signing
         memory_cleanse(pqcDecryptedSecretKey.data(), pqcDecryptedSecretKey.size());
         pqcDecryptedSecretKey.clear();
 
-        if (!signOk || signatureBytes.empty()) {
-            Q_EMIT message(tr("PQC Commitment"), tr("PQC signing over sighash32(TX_BASE) failed."), CClientUIInterface::MSG_ERROR);
+        if (!resolvedCarrierLayout) {
+            Q_EMIT message(tr("PQC Commitment"), tr("Failed to resolve stable carrier part count for TX_BASE signing."), CClientUIInterface::MSG_ERROR);
             return;
         }
 
@@ -403,7 +426,6 @@ void SendCoinsDialog::on_sendButton_clicked()
         pqcSigningMessageHex = QString::fromStdString(HexStr(sighash32.begin(), sighash32.end()));
 
         // Step 5: Compute commitment = SHA256(pk || sig) and build OP_RETURN script
-        std::vector<unsigned char> pubkeyBytes = ParseHex(pqcSelectedPublicKeyHex.toStdString());
         uint256 commitment;
         if (!PQCComputeCommitment(pubkeyBytes, signatureBytes, commitment)) {
             Q_EMIT message(tr("PQC Commitment"), tr("Failed to compute PQC commitment."), CClientUIInterface::MSG_ERROR);
@@ -417,25 +439,16 @@ void SendCoinsDialog::on_sendButton_clicked()
         pqcCommitmentScriptPubKeyHex = QString::fromStdString(HexStr(commitScript.begin(), commitScript.end()));
         pqcCommitmentLineEdit->setText(QString::fromStdString(commitment.GetHex()));
 
-        // Step 6: Verify actual carrier parts match estimated (for variable-size sigs)
-        uint8_t actualParts = 0;
-        if (carrierMode) {
-            size_t actualPayload = pubkeyBytes.size() + signatureBytes.size();
-            actualParts = PQCCarrierPartsNeeded(actualPayload);
-            if (actualParts == 0) actualParts = 1;
-        }
-
-        // Step 7: Set PQC commitment info on recipients for prepareTransaction
+        // Step 6: Set PQC commitment info on recipients for prepareTransaction
         recipients[0].includePqcCommitment = true;
         recipients[0].pqcCommitmentScriptPubKey = pqcCommitmentScriptPubKeyHex;
         recipients[0].pqcCarrierMode = carrierMode;
         if (carrierMode) {
-            // Use estimated parts (matches the TX_C structure from step 2)
-            recipients[0].pqcCarrierParts = estimatedParts;
+            recipients[0].pqcCarrierParts = resolvedCarrierParts > 0 ? resolvedCarrierParts : 1;
         }
 
-        // Step 8: Lock the same coins and force the same change address
-        //         so TX_C has identical structure to the dummy TX_C from step 2
+        // Step 7: Lock the same coins and force the same change address
+        //         so TX_C has identical structure to the final signed TX_BASE template
         CCoinControl pqcCtrl;
         if (model->getOptionsModel()->getCoinControlFeatures())
             pqcCtrl = *CoinControlDialog::coinControl;
