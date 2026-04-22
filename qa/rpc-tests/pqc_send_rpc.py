@@ -24,12 +24,9 @@ Test scenarios
 
 import hashlib
 import sys
-import os
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "test_framework"))
-
-from test_framework import BitcoinTestFramework
-from util import (
+from test_framework.test_framework import BitcoinTestFramework
+from test_framework.util import (
     start_nodes,
     connect_nodes_bi,
     assert_equal,
