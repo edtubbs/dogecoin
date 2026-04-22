@@ -467,10 +467,20 @@ QString TransactionDesc::toHTML(CWallet *wallet, CWalletTx &wtx, TransactionReco
                         }
                     }
 
-                    strHTML += "<b>" + tr("OQS_SIG_verify() cryptographic check") + ":</b> "
-                              + (cryptoVerified
-                                  ? "<span style=\"color:green;\">" + tr("PASSED") + "</span>"
-                                  : "<span style=\"color:red;\">" + tr("FAILED") + "</span>") + "<br>";
+                    {
+                        const bool canonicalVerified = cryptoVerified && !usedStoredFallback;
+                        QString oqsStatus;
+                        if (canonicalVerified) {
+                            oqsStatus = "<span style=\"color:green;\">" + tr("PASSED") + "</span>";
+                        } else if (cryptoVerified && usedStoredFallback) {
+                            oqsStatus = "<span style=\"color:#aa6600;\">"
+                                      + tr("FAILED against recomputed TX_BASE sighash (only verified against stored sighash fallback)")
+                                      + "</span>";
+                        } else {
+                            oqsStatus = "<span style=\"color:red;\">" + tr("FAILED") + "</span>";
+                        }
+                        strHTML += "<b>" + tr("OQS_SIG_verify() cryptographic check") + ":</b> " + oqsStatus + "<br>";
+                    }
                     if (usedStoredFallback) {
                         strHTML += "<b><span style=\"color:#aa6600;\">" + tr("Verification message source") + ":</span></b> "
                                   + tr("stored TX_C sighash fallback (SPV verifiers such as libdogecoin will reject this signature)") + "<br>";
@@ -692,10 +702,20 @@ QString TransactionDesc::toHTML(CWallet *wallet, CWalletTx &wtx, TransactionReco
                 }
             }
 
-            strHTML += "<b>" + tr("OQS_SIG_verify() cryptographic check") + ":</b> "
-                      + (cryptoVerified
-                          ? "<span style=\"color:green;\">" + tr("PASSED") + "</span>"
-                          : "<span style=\"color:red;\">" + tr("FAILED") + "</span>") + "<br>";
+            {
+                const bool canonicalVerified = cryptoVerified && !usedStoredFallback;
+                QString oqsStatus;
+                if (canonicalVerified) {
+                    oqsStatus = "<span style=\"color:green;\">" + tr("PASSED") + "</span>";
+                } else if (cryptoVerified && usedStoredFallback) {
+                    oqsStatus = "<span style=\"color:#aa6600;\">"
+                              + tr("FAILED against recomputed TX_BASE sighash (only verified against stored sighash fallback)")
+                              + "</span>";
+                } else {
+                    oqsStatus = "<span style=\"color:red;\">" + tr("FAILED") + "</span>";
+                }
+                strHTML += "<b>" + tr("OQS_SIG_verify() cryptographic check") + ":</b> " + oqsStatus + "<br>";
+            }
             if (usedStoredFallback) {
                 strHTML += "<b><span style=\"color:#aa6600;\">" + tr("Verification message source") + ":</span></b> "
                           + tr("stored TX_C sighash fallback (SPV verifiers such as libdogecoin will reject this signature)") + "<br>";
