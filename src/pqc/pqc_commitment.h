@@ -74,6 +74,15 @@ static const unsigned char PQC_CARRIER_TAG_DILITHIUM[8]  = {'D','I','L','2','F',
 static const unsigned char PQC_CARRIER_TAG_RACCOON[8]    = {'R','C','G','4','F','U','L','L'};
 #endif
 
+/** Carrier output value: 1 DOGE per carrier part (to avoid dust threshold). */
+static const CAmount PQC_CARRIER_OUTPUT_VALUE = 100000000; // 1 DOGE in koinu
+
+/** TX_R fee rate: 1000 koinu per byte (standard Dogecoin relay fee rate). */
+static const CAmount PQC_CARRIER_FEE_RATE = 1000;
+
+/** TX_R minimum fee: 0.001 DOGE. */
+static const CAmount PQC_CARRIER_MIN_FEE = 100000;
+
 /** Carrier redeemScript: OP_DROP x5 OP_TRUE (6 bytes). */
 bool PQCBuildCarrierRedeemScript(CScript& script_out);
 

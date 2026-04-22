@@ -612,6 +612,7 @@ void SendCoinsDialog::on_sendButton_clicked()
         .arg(alternativeUnits.join(" " + tr("or") + "<br />")));
 
     bool hasPqcCarrierSend = false;
+#if ENABLE_LIBOQS
     Q_FOREACH(const SendCoinsRecipient &rcp, currentTransaction.getRecipients())
     {
         if (rcp.includePqcCommitment && rcp.pqcCarrierMode)
@@ -628,11 +629,10 @@ void SendCoinsDialog::on_sendButton_clicked()
                 continue;
 
             uint8_t parts = rcp.pqcCarrierParts > 0 ? rcp.pqcCarrierParts : 1;
-            CAmount carrierValue = static_cast<CAmount>(parts) * 100000000LL; // 1 DOGE per part
+            CAmount carrierValue = static_cast<CAmount>(parts) * PQC_CARRIER_OUTPUT_VALUE;
 
-            // Estimate TX_R fee: use payload size (from stored hex) with 1000 koinu/byte rate
-            CAmount txrFeeEst = 100000; // 0.001 DOGE minimum
-#if ENABLE_LIBOQS
+            // Estimate TX_R fee: use payload size (from stored hex) with standard fee rate
+            CAmount txrFeeEst = PQC_CARRIER_MIN_FEE;
             if (!pqcSelectedPublicKeyHex.isEmpty() && !pqcSelectedSignatureHex.isEmpty()) {
                 size_t pubSize = static_cast<size_t>(pqcSelectedPublicKeyHex.length()) / 2;
                 size_t sigSize = static_cast<size_t>(pqcSelectedSignatureHex.length()) / 2;
@@ -640,10 +640,9 @@ void SendCoinsDialog::on_sendButton_clicked()
                 // TX_R size: 10 bytes overhead + parts*(40 bytes prevout/seq + scriptSig) + 34 bytes output
                 // scriptSig per part ≈ payload bytes + ~60 bytes tag/hdr/redeemscript/pushdata overhead
                 size_t txrSizeEst = 44 + static_cast<size_t>(parts) * 100 + payloadSize;
-                txrFeeEst = static_cast<CAmount>(txrSizeEst) * 1000;
-                if (txrFeeEst < 100000) txrFeeEst = 100000;
+                txrFeeEst = static_cast<CAmount>(txrSizeEst) * PQC_CARRIER_FEE_RATE;
+                if (txrFeeEst < PQC_CARRIER_MIN_FEE) txrFeeEst = PQC_CARRIER_MIN_FEE;
             }
-#endif
             CAmount txrReturn = carrierValue - txrFeeEst;
 
             questionString.append("<hr /><b>");
@@ -677,6 +676,7 @@ void SendCoinsDialog::on_sendButton_clicked()
             break;
         }
     }
+#endif
 
     SendConfirmationDialog confirmationDialog(tr("Confirm send coins"),
         questionString.arg(formatted.join("<br />")), SEND_CONFIRM_DELAY, this);

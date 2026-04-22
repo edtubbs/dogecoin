@@ -595,10 +595,8 @@ bool WalletModel::sendCarrierTx(const CTransaction& txc,
     // Serialize to estimate size
     CTransaction txrTemp(txr);
     unsigned int txrSize = ::GetSerializeSize(txrTemp, SER_NETWORK, PROTOCOL_VERSION);
-    // Use a conservative fee rate: 1000 koinu per byte (standard Dogecoin relay fee)
-    CAmount fee = static_cast<CAmount>(txrSize) * 1000;
-    // Ensure fee is at least the minimum relay fee
-    if (fee < 100000) fee = 100000; // 0.001 DOGE minimum
+    CAmount fee = static_cast<CAmount>(txrSize) * PQC_CARRIER_FEE_RATE;
+    if (fee < PQC_CARRIER_MIN_FEE) fee = PQC_CARRIER_MIN_FEE;
 
     CAmount outputValue = totalCarrierValue - fee;
     if (outputValue <= 0) {

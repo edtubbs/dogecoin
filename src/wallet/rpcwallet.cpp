@@ -731,11 +731,8 @@ UniValue sendpqcreveal(const JSONRPCRequest& request)
 
     CTransaction txrTemp(txr);
     unsigned int txrSize = ::GetSerializeSize(txrTemp, SER_NETWORK, PROTOCOL_VERSION);
-    // 1000 koinu/byte (standard Dogecoin relay fee rate); minimum 0.001 DOGE
-    static const CAmount CARRIER_FEE_RATE = 1000;
-    static const CAmount CARRIER_MIN_FEE  = 100000;
-    CAmount fee = (CAmount)txrSize * CARRIER_FEE_RATE;
-    if (fee < CARRIER_MIN_FEE) fee = CARRIER_MIN_FEE;
+    CAmount fee = (CAmount)txrSize * PQC_CARRIER_FEE_RATE;
+    if (fee < PQC_CARRIER_MIN_FEE) fee = PQC_CARRIER_MIN_FEE;
 
     CAmount outputValue = totalCarrierValue - fee;
     if (outputValue <= 0)
@@ -859,7 +856,7 @@ UniValue sendpqccommitment(const JSONRPCRequest& request)
     vecSend.push_back({GetScriptForDestination(address.Get()), nAmount, false});
     vecSend.push_back({commitScript, 0, false});
     for (uint8_t p = 0; p < partsNeeded; ++p)
-        vecSend.push_back({carrierScriptPubKey, 100000000, false}); // 1 DOGE per part
+        vecSend.push_back({carrierScriptPubKey, PQC_CARRIER_OUTPUT_VALUE, false}); // 1 DOGE per part
 
     EnsureWalletIsUnlocked();
 
