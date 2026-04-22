@@ -251,10 +251,13 @@ void TransactionRecord::updateStatus(const CWalletTx &wtx)
     // PQC Reveal (TX_R) records get a boosted sort-idx so they appear above
     // their corresponding TX_C sub-records when both share the same block
     // and wallet-received time (common when they are broadcast together).
+    // The idx field is widened to %04d to accommodate the boost without
+    // overflow (a TX_C realistically has far fewer than ~1000 sub-records).
     int sort_idx = idx;
 #if ENABLE_LIBOQS
+    static const int PQC_TXR_SORT_BOOST = 1000;
     if (pqcRole == PqcTxR)
-        sort_idx += 1000;
+        sort_idx += PQC_TXR_SORT_BOOST;
 #endif
     status.sortKey = strprintf("%010d-%01d-%010u-%04d",
         (pindex ? pindex->nHeight : std::numeric_limits<int>::max()),
