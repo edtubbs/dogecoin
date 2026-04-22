@@ -112,3 +112,21 @@ int TransactionFilterProxy::rowCount(const QModelIndex &parent) const
         return QSortFilterProxyModel::rowCount(parent);
     }
 }
+
+bool TransactionFilterProxy::lessThan(const QModelIndex &left, const QModelIndex &right) const
+{
+    // Primary key: date (rec->time), preserving the usual chronological order.
+    QVariant leftData  = left.data(Qt::EditRole);
+    QVariant rightData = right.data(Qt::EditRole);
+
+    if (leftData != rightData)
+        return QSortFilterProxyModel::lessThan(left, right);
+
+    // Tiebreaker: when two records share the same date (e.g. TX_C and TX_R
+    // confirmed in the same block), sort by the status.sortKey which already
+    // encodes PQC_TXR_SORT_BOOST so that PQC Reveal (TX_R) records sort
+    // above their paired PQC Commitment (TX_C) records.
+    QString leftKey  = left.sibling(left.row(),   TransactionTableModel::Status).data(Qt::EditRole).toString();
+    QString rightKey = right.sibling(right.row(), TransactionTableModel::Status).data(Qt::EditRole).toString();
+    return leftKey < rightKey;
+}
