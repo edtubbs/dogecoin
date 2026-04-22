@@ -498,6 +498,21 @@ void SendCoinsDialog::on_sendButton_clicked()
     CCoinControl ctrl;
     if (model->getOptionsModel()->getCoinControlFeatures())
         ctrl = *CoinControlDialog::coinControl;
+#if ENABLE_LIBOQS
+    // When PQC commitment is enabled, the signer has pinned the coin
+    // selection, change destination, and change-output position on
+    // CoinControlDialog::coinControl so that the final signed TX_C
+    // matches the TX_BASE template byte-for-byte. That pinning must be
+    // honored regardless of whether the coin-control UI panel is
+    // visible — otherwise prepareTransaction gets a default CCoinControl
+    // (nChangePosition=-1, no selected coins, no forced change), the
+    // wallet picks a fresh layout for TX_C, and the reconstructed
+    // sighash32(TX_BASE) no longer matches the one that was actually
+    // signed (breaking libdogecoin/SPV cross-validation even though
+    // the commitment and stored-sighash fallback still verify).
+    else if (pqcEnabled)
+        ctrl = *CoinControlDialog::coinControl;
+#endif
     if (ui->radioSmartFee->isChecked())
         ctrl.nPriority = static_cast<FeeRatePreset>(ui->sliderSmartFee->value());
     else

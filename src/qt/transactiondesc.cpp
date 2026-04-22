@@ -421,6 +421,7 @@ QString TransactionDesc::toHTML(CWallet *wallet, CWalletTx &wtx, TransactionReco
                     // (strip OP_RETURN + carriers, restore carrier cost to vout[0])
                     bool cryptoVerified = false;
                     bool usedStoredFallback = false;
+                    bool sighashMismatch = false;
                     uint256 recomputedSighash;
                     bool sighashOk = RecomputeSighash32FromTxC(*wtx.tx, wallet, recomputedSighash);
                     if (commitmentMatch && sighashOk) {
@@ -436,6 +437,7 @@ QString TransactionDesc::toHTML(CWallet *wallet, CWalletTx &wtx, TransactionReco
                         if (it != wtx.mapValue.end() && !it->second.empty()) {
                             strHTML += "<b>" + tr("TX_C sighash (stored)") + ":</b> "
                                       + GUIUtil::HtmlEscape(QString::fromStdString(it->second)) + "<br>";
+                            sighashMismatch = (it->second != recomputedSighashHex);
                             if (!cryptoVerified && IsHex(it->second)) {
                                 std::vector<unsigned char> storedMessageBytes = ParseHex(it->second);
                                 if (storedMessageBytes.size() == 32) {
@@ -473,11 +475,20 @@ QString TransactionDesc::toHTML(CWallet *wallet, CWalletTx &wtx, TransactionReco
                         strHTML += "<b>" + tr("Verification message source") + ":</b> "
                                   + tr("stored TX_C sighash fallback") + "<br>";
                     }
+                    if (sighashMismatch) {
+                        strHTML += "<b><span style=\"color:#aa0000;\">" + tr("WARNING") + ":</span></b> "
+                                  + tr("TX_BASE sighash32 (recomputed from on-chain TX_C) does not match the stored TX_C sighash that was actually signed. "
+                                       "The on-chain TX_C layout diverged from the TX_BASE template used for signing, so SPV verifiers "
+                                       "(e.g. libdogecoin) that reconstruct TX_BASE from TX_C will reject this signature.") + "<br>";
+                    }
 
                     // Overall summary
-                    if (commitmentMatch && cryptoVerified) {
+                    if (commitmentMatch && cryptoVerified && !sighashMismatch) {
                         strHTML += "<b>" + tr("PQC signature validation") + ":</b> <span style=\"color:green;\">"
                                   + tr("PASSED — commitment and cryptographic verification both verified") + "</span><br>";
+                    } else if (commitmentMatch && cryptoVerified && sighashMismatch) {
+                        strHTML += "<b>" + tr("PQC signature validation") + ":</b> <span style=\"color:#aa6600;\">"
+                                  + tr("PASSED LOCALLY (stored sighash) — FAILS SPV reconstruction; see warning above") + "</span><br>";
                     } else {
                         QString failReason;
                         if (!commitmentMatch) failReason += tr("commitment mismatch") + "; ";
@@ -606,6 +617,7 @@ QString TransactionDesc::toHTML(CWallet *wallet, CWalletTx &wtx, TransactionReco
             // Recompute sighash32(TX_BASE) from TX_C per the BIP spec
             bool cryptoVerified = false;
             bool usedStoredFallback = false;
+            bool sighashMismatch = false;
             {
                 CTransactionRef txcRef;
                 {
@@ -634,6 +646,7 @@ QString TransactionDesc::toHTML(CWallet *wallet, CWalletTx &wtx, TransactionReco
                             if (msgIt != storedIt->second.mapValue.end() && !msgIt->second.empty()) {
                                 strHTML += "<b>" + tr("TX_C sighash (stored)") + ":</b> "
                                           + GUIUtil::HtmlEscape(QString::fromStdString(msgIt->second)) + "<br>";
+                                sighashMismatch = (msgIt->second != recomputedSighashHex);
                                 if (!cryptoVerified && IsHex(msgIt->second)) {
                                     std::vector<unsigned char> storedMessageBytes = ParseHex(msgIt->second);
                                     if (storedMessageBytes.size() == 32) {
@@ -681,11 +694,20 @@ QString TransactionDesc::toHTML(CWallet *wallet, CWalletTx &wtx, TransactionReco
                 strHTML += "<b>" + tr("Verification message source") + ":</b> "
                           + tr("stored TX_C sighash fallback") + "<br>";
             }
+            if (sighashMismatch) {
+                strHTML += "<b><span style=\"color:#aa0000;\">" + tr("WARNING") + ":</span></b> "
+                          + tr("TX_BASE sighash32 (recomputed from on-chain TX_C) does not match the stored TX_C sighash that was actually signed. "
+                               "The on-chain TX_C layout diverged from the TX_BASE template used for signing, so SPV verifiers "
+                               "(e.g. libdogecoin) that reconstruct TX_BASE from TX_C will reject this signature.") + "<br>";
+            }
 
             // Overall summary
-            if (foundCommitment && commitmentMatch && cryptoVerified) {
+            if (foundCommitment && commitmentMatch && cryptoVerified && !sighashMismatch) {
                 strHTML += "<b>" + tr("PQC signature validation") + ":</b> <span style=\"color:green;\">"
                           + tr("PASSED — commitment and cryptographic verification both verified") + "</span><br>";
+            } else if (foundCommitment && commitmentMatch && cryptoVerified && sighashMismatch) {
+                strHTML += "<b>" + tr("PQC signature validation") + ":</b> <span style=\"color:#aa6600;\">"
+                          + tr("PASSED LOCALLY (stored sighash) — FAILS SPV reconstruction; see warning above") + "</span><br>";
             } else {
                 QString failReason;
                 if (!foundCommitment) failReason += tr("TX_C not found") + "; ";
