@@ -622,10 +622,60 @@ void SendCoinsDialog::on_sendButton_clicked()
     }
     if (hasPqcCarrierSend)
     {
-        questionString.append("<hr /><b>");
-        questionString.append(tr("Carrier mode enabled"));
-        questionString.append(":</b> ");
-        questionString.append(tr("Carrier mode requires two separate transactions: TX_C (commitment) and TX_R (reveal). TX_C will be broadcast now; confirm TX_R will also be broadcast separately."));
+        Q_FOREACH(const SendCoinsRecipient &rcp, currentTransaction.getRecipients())
+        {
+            if (!rcp.includePqcCommitment || !rcp.pqcCarrierMode)
+                continue;
+
+            uint8_t parts = rcp.pqcCarrierParts > 0 ? rcp.pqcCarrierParts : 1;
+            CAmount carrierValue = static_cast<CAmount>(parts) * 100000000LL; // 1 DOGE per part
+
+            // Estimate TX_R fee: use payload size (from stored hex) with 1000 koinu/byte rate
+            CAmount txrFeeEst = 100000; // 0.001 DOGE minimum
+#if ENABLE_LIBOQS
+            if (!pqcSelectedPublicKeyHex.isEmpty() && !pqcSelectedSignatureHex.isEmpty()) {
+                size_t pubSize = static_cast<size_t>(pqcSelectedPublicKeyHex.length()) / 2;
+                size_t sigSize = static_cast<size_t>(pqcSelectedSignatureHex.length()) / 2;
+                size_t payloadSize = pubSize + sigSize;
+                // TX_R size: 10 bytes overhead + parts*(40 bytes prevout/seq + scriptSig) + 34 bytes output
+                // scriptSig per part ≈ payload bytes + ~60 bytes tag/hdr/redeemscript/pushdata overhead
+                size_t txrSizeEst = 44 + static_cast<size_t>(parts) * 100 + payloadSize;
+                txrFeeEst = static_cast<CAmount>(txrSizeEst) * 1000;
+                if (txrFeeEst < 100000) txrFeeEst = 100000;
+            }
+#endif
+            CAmount txrReturn = carrierValue - txrFeeEst;
+
+            questionString.append("<hr /><b>");
+            questionString.append(tr("Carrier mode enabled"));
+            questionString.append(":</b> ");
+            questionString.append(tr("Carrier mode requires two separate transactions: TX_C (commitment) and TX_R (reveal). TX_C will be broadcast now; TX_R will also be broadcast automatically."));
+
+            questionString.append("<br /><br />");
+            questionString.append("<b>");
+            questionString.append(tr("TX_C"));
+            questionString.append(":</b> ");
+            //: %1 = total amount including fees, %2 = TX_C fee
+            questionString.append(tr("%1 total (%2 to recipient + fees + %3 carrier)")
+                .arg(BitcoinUnits::formatHtmlWithUnit(model->getOptionsModel()->getDisplayUnit(), currentTransaction.getTotalTransactionAmount() + txFee))
+                .arg(BitcoinUnits::formatHtmlWithUnit(model->getOptionsModel()->getDisplayUnit(), currentTransaction.getTotalTransactionAmount()))
+                .arg(BitcoinUnits::formatHtmlWithUnit(model->getOptionsModel()->getDisplayUnit(), carrierValue)));
+
+            questionString.append("<br />");
+            questionString.append("<b>");
+            questionString.append(tr("TX_R"));
+            questionString.append(":</b> ");
+            if (txrReturn > 0) {
+                questionString.append(tr("~%1 returns to you (%2 carrier minus ~%3 TX_R fee)")
+                    .arg(BitcoinUnits::formatHtmlWithUnit(model->getOptionsModel()->getDisplayUnit(), txrReturn))
+                    .arg(BitcoinUnits::formatHtmlWithUnit(model->getOptionsModel()->getDisplayUnit(), carrierValue))
+                    .arg(BitcoinUnits::formatHtmlWithUnit(model->getOptionsModel()->getDisplayUnit(), txrFeeEst)));
+            } else {
+                questionString.append(tr("carrier value (%1) may be insufficient to cover TX_R fee")
+                    .arg(BitcoinUnits::formatHtmlWithUnit(model->getOptionsModel()->getDisplayUnit(), carrierValue)));
+            }
+            break;
+        }
     }
 
     SendConfirmationDialog confirmationDialog(tr("Confirm send coins"),

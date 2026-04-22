@@ -775,6 +775,114 @@ UniValue sendpqcreveal(const JSONRPCRequest& request)
     LogPrintf("PQC RPC: TX_R broadcast: %s (from TX_C %s)\n", txrHash.GetHex(), txcHash.GetHex());
     return txrHash.GetHex();
 }
+
+UniValue sendpqccommitment(const JSONRPCRequest& request)
+{
+    if (!EnsureWalletIsAvailable(request.fHelp))
+        return NullUniValue;
+
+    if (request.fHelp || request.params.size() != 5)
+        throw runtime_error(
+            "sendpqccommitment \"address\" amount \"algorithm\" \"public_key_hex\" \"signature_hex\"\n"
+            "\nBuild and broadcast TX_C (PQC commitment transaction) that sends coins to an address\n"
+            "and embeds a PQC OP_RETURN commitment with P2SH carrier output(s) for on-chain reveal.\n"
+            "\nArguments:\n"
+            "1. \"address\"           (string, required) The recipient Dogecoin address.\n"
+            "2. amount               (numeric, required) The amount to send in DOGE.\n"
+            "3. \"algorithm\"         (string, required) PQC algorithm: falcon512|flc1, dilithium2|dil2"
+#ifdef ENABLE_LIBOQS_RACCOON
+            ", or raccoong44|rcg4"
+#endif
+            ".\n"
+            "4. \"public_key_hex\"    (string, required) PQC public key bytes, hex encoded.\n"
+            "5. \"signature_hex\"     (string, required) PQC signature bytes, hex encoded.\n"
+            "\nResult:\n"
+            "\"txid\"                 (string) The TX_C transaction id.\n"
+            "\nExamples:\n"
+            + HelpExampleCli("sendpqccommitment", "\"DRF7yvmFHR5gMXRtijkbkPzmLYnMfTYMGZ\" 4.0 \"falcon512\" \"<pubkey_hex>\" \"<sig_hex>\"")
+            + HelpExampleRpc("sendpqccommitment", "\"DRF7yvmFHR5gMXRtijkbkPzmLYnMfTYMGZ\", 4.0, \"falcon512\", \"<pubkey_hex>\", \"<sig_hex>\"")
+        );
+
+    const std::string strAddress = request.params[0].get_str();
+    CAmount nAmount = AmountFromValue(request.params[1]);
+    const std::string algo = request.params[2].get_str();
+    const std::string pubkey_hex = request.params[3].get_str();
+    const std::string sig_hex = request.params[4].get_str();
+
+    CBitcoinAddress address(strAddress);
+    if (!address.IsValid())
+        throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Invalid Dogecoin address");
+
+    if (nAmount <= 0)
+        throw JSONRPCError(RPC_INVALID_PARAMETER, "Invalid amount");
+
+    PQCCommitmentType type;
+    if (!ParsePQCCommitmentType(algo, type)) {
+        throw JSONRPCError(RPC_INVALID_PARAMETER, "Unknown PQC algorithm. Use falcon512|flc1, dilithium2|dil2"
+#ifdef ENABLE_LIBOQS_RACCOON
+            ", or raccoong44|rcg4"
+#endif
+            ".");
+    }
+
+    if (!IsHex(pubkey_hex) || !IsHex(sig_hex))
+        throw JSONRPCError(RPC_INVALID_PARAMETER, "public_key_hex and signature_hex must be valid hex strings.");
+
+    const std::vector<unsigned char> pubkey = ParseHex(pubkey_hex);
+    const std::vector<unsigned char> signature = ParseHex(sig_hex);
+
+    if (pubkey.empty() || signature.empty())
+        throw JSONRPCError(RPC_INVALID_PARAMETER, "public_key_hex and signature_hex must be non-empty.");
+
+    // Compute PQC commitment hash
+    uint256 commitment;
+    if (!PQCComputeCommitment(pubkey, signature, commitment))
+        throw JSONRPCError(RPC_INVALID_PARAMETER, "Failed to compute PQC commitment from public_key_hex and signature_hex.");
+
+    // Build OP_RETURN commitment script
+    CScript commitScript;
+    if (!PQCBuildCommitmentScript(type, commitment, commitScript))
+        throw JSONRPCError(RPC_INTERNAL_ERROR, "Failed to build PQC commitment script.");
+
+    // Determine number of P2SH carrier outputs needed
+    size_t payloadSize = pubkey.size() + signature.size();
+    uint8_t partsNeeded = PQCCarrierPartsNeeded(payloadSize);
+    if (partsNeeded == 0) partsNeeded = 1;
+
+    // Build P2SH carrier scriptPubKey
+    CScript carrierScriptPubKey;
+    if (!PQCBuildCarrierScriptPubKey(carrierScriptPubKey))
+        throw JSONRPCError(RPC_INTERNAL_ERROR, "Failed to build carrier scriptPubKey.");
+
+    // Build vecSend: payment + OP_RETURN commitment + carrier output(s)
+    std::vector<CRecipient> vecSend;
+    vecSend.push_back({GetScriptForDestination(address.Get()), nAmount, false});
+    vecSend.push_back({commitScript, 0, false});
+    for (uint8_t p = 0; p < partsNeeded; ++p)
+        vecSend.push_back({carrierScriptPubKey, 100000000, false}); // 1 DOGE per part
+
+    EnsureWalletIsUnlocked();
+
+    CWalletTx wtxNew;
+    wtxNew.fTimeReceivedIsTxTime = true;
+    CReserveKey reservekey(pwalletMain);
+    CAmount nFeeRequired = 0;
+    int nChangePosRet = -1;
+    std::string strFailReason;
+
+    if (!pwalletMain->CreateTransaction(vecSend, wtxNew, reservekey, nFeeRequired, nChangePosRet, strFailReason))
+        throw JSONRPCError(RPC_WALLET_ERROR, strFailReason);
+
+    CValidationState state;
+    if (!pwalletMain->CommitTransaction(wtxNew, reservekey, g_connman.get(), state)) {
+        throw JSONRPCError(RPC_WALLET_ERROR,
+            strprintf("Transaction commit failed: %s", state.GetRejectReason()));
+    }
+
+    uint256 txcHash = wtxNew.GetHash();
+    LogPrintf("PQC RPC: TX_C broadcast: %s (commitment %s)\n", txcHash.GetHex(), commitment.GetHex());
+    return txcHash.GetHex();
+}
 #endif // ENABLE_LIBOQS
 
 UniValue getreceivedbyaddress(const JSONRPCRequest& request)
@@ -3505,6 +3613,7 @@ static const CRPCCommand commands[] =
     { "wallet",             "signmessage",              &signmessage,              true,   {"address","message"} },
 #if ENABLE_LIBOQS
     { "wallet",             "generatepqccommitment",    &generatepqccommitment,    true,   {"algorithm","public_key_hex","signature_hex"} },
+    { "wallet",             "sendpqccommitment",        &sendpqccommitment,        false,  {"address","amount","algorithm","public_key_hex","signature_hex"} },
     { "wallet",             "sendpqcreveal",            &sendpqcreveal,            false,  {"txc_txid","algorithm","public_key_hex","signature_hex"} },
 #endif
     { "wallet",             "walletlock",               &walletlock,               true,   {} },
