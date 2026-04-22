@@ -184,6 +184,8 @@ testScripts = [
     'pqc_carrier_validation.py',
     'pqc_verify_commitment_test.py',
     'pqc_testnet_checkpoint_scan_test.py',
+    'pqc_rpc_generate_commitment_test.py',
+    'pqc_send_rpc.py',
 ]
 if ENABLE_ZMQ:
     testScripts.append('zmq_test.py')
