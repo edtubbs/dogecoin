@@ -157,13 +157,6 @@ QList<TransactionRecord> TransactionRecord::decomposeTransaction(const CWallet *
                     }
                 }
 #endif
-                // Non-PQC OP_RETURN data-only outputs should not appear as
-                // separate transaction list entries.
-                if (txout.scriptPubKey.IsUnspendable() && txout.nValue == 0)
-                {
-                    continue;
-                }
-
                 CTxDestination address;
                 if (ExtractDestination(txout.scriptPubKey, address))
                 {
