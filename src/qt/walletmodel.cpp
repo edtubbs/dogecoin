@@ -341,6 +341,7 @@ bool WalletModel::prepareBaseTransaction(const QList<SendCoinsRecipient>& recipi
                                           QString& error_out,
                                           CTxDestination& changeAddr_out,
                                           int& nChangePosRet_out,
+                                          uint32_t& nLockTimeRet_out,
                                           PQCCommitmentType pqcType,
                                           uint8_t carrierParts,
                                           bool carrierMode)
@@ -409,6 +410,14 @@ bool WalletModel::prepareBaseTransaction(const QList<SendCoinsRecipient>& recipi
     // final TX_C to use the identical layout (otherwise CreateTransaction's
     // random change-position placement breaks TX_BASE reconstruction).
     nChangePosRet_out = nChangePosRet;
+
+    // Expose the chosen nLockTime so the caller can pin the final TX_C to
+    // the exact same locktime used when signing the TX_BASE template.
+    // Without this, GetLocktimeForNewTransaction()'s ~10% locktime
+    // back-dating can cause the final TX_C's nLockTime to drift from the
+    // signed template, breaking sighash32(TX_BASE) reconstruction on SPV
+    // verifiers such as libdogecoin.
+    nLockTimeRet_out = wtxDummy.tx->nLockTime;
 
     // Extract change destination for reuse in the final TX_C
     changeAddr_out = CNoDestination();

@@ -472,23 +472,29 @@ QString TransactionDesc::toHTML(CWallet *wallet, CWalletTx &wtx, TransactionReco
                                   ? "<span style=\"color:green;\">" + tr("PASSED") + "</span>"
                                   : "<span style=\"color:red;\">" + tr("FAILED") + "</span>") + "<br>";
                     if (usedStoredFallback) {
-                        strHTML += "<b>" + tr("Verification message source") + ":</b> "
-                                  + tr("stored TX_C sighash fallback") + "<br>";
+                        strHTML += "<b><span style=\"color:#aa6600;\">" + tr("Verification message source") + ":</span></b> "
+                                  + tr("stored TX_C sighash fallback (SPV verifiers such as libdogecoin will reject this signature)") + "<br>";
+                        LogPrintf("PQC warning: TX_C %s signature verification succeeded only via stored TX_C sighash fallback; "
+                                  "recomputed TX_BASE sighash does not match the signed message and SPV verifiers will reject this commitment.\n",
+                                  wtx.GetHash().GetHex());
                     }
                     if (sighashMismatch) {
                         strHTML += "<b><span style=\"color:#aa0000;\">" + tr("WARNING") + ":</span></b> "
                                   + tr("TX_BASE sighash32 (recomputed from on-chain TX_C) does not match the stored TX_C sighash that was actually signed. "
                                        "The on-chain TX_C layout diverged from the TX_BASE template used for signing, so SPV verifiers "
                                        "(e.g. libdogecoin) that reconstruct TX_BASE from TX_C will reject this signature.") + "<br>";
+                        LogPrintf("PQC warning: TX_C %s has TX_BASE sighash mismatch (recomputed != stored). "
+                                  "SPV verifiers (e.g. libdogecoin) will reject this commitment as non-canonical.\n",
+                                  wtx.GetHash().GetHex());
                     }
 
                     // Overall summary
-                    if (commitmentMatch && cryptoVerified && !sighashMismatch) {
+                    if (commitmentMatch && cryptoVerified && !sighashMismatch && !usedStoredFallback) {
                         strHTML += "<b>" + tr("PQC signature validation") + ":</b> <span style=\"color:green;\">"
                                   + tr("PASSED — commitment and cryptographic verification both verified") + "</span><br>";
-                    } else if (commitmentMatch && cryptoVerified && sighashMismatch) {
+                    } else if (commitmentMatch && cryptoVerified && (sighashMismatch || usedStoredFallback)) {
                         strHTML += "<b>" + tr("PQC signature validation") + ":</b> <span style=\"color:#aa6600;\">"
-                                  + tr("PASSED LOCALLY (stored sighash) — FAILS SPV reconstruction; see warning above") + "</span><br>";
+                                  + tr("WARNING — PASSED LOCALLY (stored sighash) but FAILS SPV reconstruction; see warning above") + "</span><br>";
                     } else {
                         QString failReason;
                         if (!commitmentMatch) failReason += tr("commitment mismatch") + "; ";
@@ -691,23 +697,29 @@ QString TransactionDesc::toHTML(CWallet *wallet, CWalletTx &wtx, TransactionReco
                           ? "<span style=\"color:green;\">" + tr("PASSED") + "</span>"
                           : "<span style=\"color:red;\">" + tr("FAILED") + "</span>") + "<br>";
             if (usedStoredFallback) {
-                strHTML += "<b>" + tr("Verification message source") + ":</b> "
-                          + tr("stored TX_C sighash fallback") + "<br>";
+                strHTML += "<b><span style=\"color:#aa6600;\">" + tr("Verification message source") + ":</span></b> "
+                          + tr("stored TX_C sighash fallback (SPV verifiers such as libdogecoin will reject this signature)") + "<br>";
+                LogPrintf("PQC warning: TX_R %s signature verification succeeded only via stored TX_C sighash fallback; "
+                          "recomputed TX_BASE sighash does not match the signed message and SPV verifiers will reject this commitment.\n",
+                          wtx.GetHash().GetHex());
             }
             if (sighashMismatch) {
                 strHTML += "<b><span style=\"color:#aa0000;\">" + tr("WARNING") + ":</span></b> "
                           + tr("TX_BASE sighash32 (recomputed from on-chain TX_C) does not match the stored TX_C sighash that was actually signed. "
                                "The on-chain TX_C layout diverged from the TX_BASE template used for signing, so SPV verifiers "
                                "(e.g. libdogecoin) that reconstruct TX_BASE from TX_C will reject this signature.") + "<br>";
+                LogPrintf("PQC warning: TX_R %s has TX_BASE sighash mismatch (recomputed != stored). "
+                          "SPV verifiers (e.g. libdogecoin) will reject this commitment as non-canonical.\n",
+                          wtx.GetHash().GetHex());
             }
 
             // Overall summary
-            if (foundCommitment && commitmentMatch && cryptoVerified && !sighashMismatch) {
+            if (foundCommitment && commitmentMatch && cryptoVerified && !sighashMismatch && !usedStoredFallback) {
                 strHTML += "<b>" + tr("PQC signature validation") + ":</b> <span style=\"color:green;\">"
                           + tr("PASSED — commitment and cryptographic verification both verified") + "</span><br>";
-            } else if (foundCommitment && commitmentMatch && cryptoVerified && sighashMismatch) {
+            } else if (foundCommitment && commitmentMatch && cryptoVerified && (sighashMismatch || usedStoredFallback)) {
                 strHTML += "<b>" + tr("PQC signature validation") + ":</b> <span style=\"color:#aa6600;\">"
-                          + tr("PASSED LOCALLY (stored sighash) — FAILS SPV reconstruction; see warning above") + "</span><br>";
+                          + tr("WARNING — PASSED LOCALLY (stored sighash) but FAILS SPV reconstruction; see warning above") + "</span><br>";
             } else {
                 QString failReason;
                 if (!foundCommitment) failReason += tr("TX_C not found") + "; ";

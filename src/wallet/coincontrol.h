@@ -31,6 +31,15 @@ public:
     //! change position used when signing the TX_BASE template, so the
     //! reconstructed TX_BASE sighash32 is identical on signer and verifier.
     int nChangePosition;
+    //! Desired nLockTime for the new transaction (-1 = unset, use the default
+    //! GetLocktimeForNewTransaction() behavior). Used by the PQC carrier flow
+    //! to pin the final TX_C's nLockTime to the same value that was used when
+    //! signing the TX_BASE template, so sighash32(TX_BASE) recomputed from the
+    //! on-chain TX_C matches what was actually signed. Without this, the
+    //! stochastic ~10% locktime back-dating inside GetLocktimeForNewTransaction
+    //! can cause the final TX_C's nLockTime to drift from the signed template
+    //! and break SPV cross-verification (e.g. libdogecoin).
+    int64_t nLockTime;
 
     CCoinControl()
     {
@@ -48,6 +57,7 @@ public:
         fOverrideFeeRate = false;
         nPriority = MINIMUM;
         nChangePosition = -1;
+        nLockTime = -1;
     }
 
     bool HasSelected() const

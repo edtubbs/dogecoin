@@ -358,6 +358,8 @@ void SendCoinsDialog::on_sendButton_clicked()
         QString baseError;
         CTxDestination changeAddr;
         int pqcChangePos = -1;
+        uint32_t pqcLockTime = 0;
+        bool pqcLockTimeResolved = false;
 
         uint8_t resolvedCarrierParts = 0;
         uint8_t carrierPartsForTemplate = carrierMode ? 1 : 0;
@@ -378,14 +380,22 @@ void SendCoinsDialog::on_sendButton_clicked()
             // the previous iteration (if any), so part-count convergence
             // doesn't drift the layout used for signing.
             baseCtrl.nChangePosition = pqcChangePos;
+            // Seed the locktime with the one resolved on the previous
+            // iteration (if any), so successive template iterations stay
+            // on the same locktime and converge on a byte-identical
+            // TX_BASE for signing.
+            baseCtrl.nLockTime = pqcLockTimeResolved ? static_cast<int64_t>(pqcLockTime) : -1;
+            uint32_t iterLockTime = 0;
             if (!model->prepareBaseTransaction(recipients, &baseCtrl, txBase, scriptPubKeyInput0,
                                                input0Amount, selectedCoins, baseFee, baseError,
-                                               changeAddr, pqcChangePos, pqcType, partsForThisIteration, carrierMode)) {
+                                               changeAddr, pqcChangePos, iterLockTime, pqcType, partsForThisIteration, carrierMode)) {
                 Q_EMIT message(tr("PQC Commitment"), tr("Failed to build base transaction for PQC signing: %1").arg(baseError), CClientUIInterface::MSG_ERROR);
                 memory_cleanse(pqcDecryptedSecretKey.data(), pqcDecryptedSecretKey.size());
                 pqcDecryptedSecretKey.clear();
                 return;
             }
+            pqcLockTime = iterLockTime;
+            pqcLockTimeResolved = true;
 
             CTransaction txBaseConst(txBase);
             sighash32 = SignatureHash(scriptPubKeyInput0, txBaseConst, 0, SIGHASH_ALL, input0Amount, SIGVERSION_BASE);
@@ -475,6 +485,15 @@ void SendCoinsDialog::on_sendButton_clicked()
         // the one that was actually signed (breaking cross-verification
         // with SPV verifiers such as libdogecoin's spvnode).
         pqcCtrl.nChangePosition = pqcChangePos;
+        // Pin the nLockTime so the final TX_C is byte-identical to the
+        // signed TX_BASE template. Without this, CWallet::CreateTransaction
+        // would call GetLocktimeForNewTransaction() again (which performs a
+        // stochastic ~10% back-dating) and the final TX_C's nLockTime could
+        // drift from the template, breaking sighash32(TX_BASE) reconstruction
+        // on SPV verifiers (e.g. libdogecoin's spvnode).
+        if (pqcLockTimeResolved) {
+            pqcCtrl.nLockTime = static_cast<int64_t>(pqcLockTime);
+        }
         // Replace ctrl for the main prepareTransaction call below
         CoinControlDialog::coinControl->UnSelectAll();
         *CoinControlDialog::coinControl = pqcCtrl;
@@ -924,9 +943,10 @@ void SendCoinsDialog::onGeneratePqcCommitmentClicked()
         CAmount baseFee = 0;
         CTxDestination changeAddr;
         int previewChangePos = -1;
+        uint32_t previewLockTime = 0;
         if (!model->prepareBaseTransaction(recipients, &baseCtrl, txBase, scriptPubKeyInput0,
                                            input0Amount, selectedCoins, baseFee, previewError,
-                                           changeAddr, previewChangePos, pqcType, estimatedParts, carrierMode)) {
+                                           changeAddr, previewChangePos, previewLockTime, pqcType, estimatedParts, carrierMode)) {
             if (previewError.isEmpty()) {
                 previewError = tr("Failed to prepare base transaction for PQC preview.");
             }

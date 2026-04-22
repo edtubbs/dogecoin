@@ -176,6 +176,7 @@ public:
                                 QString& error_out,
                                 CTxDestination& changeAddr_out,
                                 int& nChangePosRet_out,
+                                uint32_t& nLockTimeRet_out,
                                 PQCCommitmentType pqcType,
                                 uint8_t carrierParts,
                                 bool carrierMode);
