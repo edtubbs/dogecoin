@@ -254,26 +254,26 @@ void TransactionRecord::updateStatus(const CWalletTx &wtx)
     // the sort-index (field 4) can cleanly order them.  For unconfirmed
     // transactions fall back to nTimeReceived.
     //
-    // PQC ordering: we want TX_C (commitment) records to appear ABOVE their
-    // paired TX_R (reveal) records, matching the natural send workflow (user
-    // sees "commitment sent" first, then "reveal confirmed" below it).
+    // PQC ordering: TX_R (reveal) is the later event and should appear ABOVE
+    // TX_C (commitment) in the newest-first transaction list.
     //
-    // TX_C records receive a sort-index boost (+1000) so they rank higher than
-    // TX_R within the same block (same time field).  For unconfirmed TX_C a
-    // small time boost (+5 s) overcomes TX_R being broadcast a few seconds
-    // after TX_C inside the same on_sendButton_clicked call.
+    // TX_R records receive a sort-index boost (+1000) so they rank higher than
+    // TX_C within the same block (same stable block-time field).  For
+    // unconfirmed TX_R a small time boost (+5 s) ensures TX_R sits above TX_C
+    // even when both land in the wallet within the same second or when mempool
+    // propagation is slightly unpredictable.
     //
     // The idx field is widened to %04d to accommodate the boost without
     // overflow (a TX_C realistically has far fewer than ~1000 sub-records).
     unsigned int sort_time = wtx.nTimeReceived;
     int sort_idx = idx;
 #if ENABLE_LIBOQS
-    static const int          PQC_TXC_IDX_BOOST  = 1000;
-    static const unsigned int PQC_TXC_TIME_BOOST = 5;   // seconds
-    if (pqcRole == PqcTxC || pqcRole == PqcTxCCommitment) {
-        sort_idx += PQC_TXC_IDX_BOOST;
+    static const int          PQC_TXR_IDX_BOOST  = 1000;
+    static const unsigned int PQC_TXR_TIME_BOOST = 5;   // seconds
+    if (pqcRole == PqcTxR) {
+        sort_idx += PQC_TXR_IDX_BOOST;
         if (!pindex)
-            sort_time += PQC_TXC_TIME_BOOST;
+            sort_time += PQC_TXR_TIME_BOOST;
     }
 #endif
     // Overwrite with stable block time for confirmed transactions (after the
