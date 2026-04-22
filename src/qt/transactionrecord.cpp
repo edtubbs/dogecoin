@@ -247,12 +247,20 @@ void TransactionRecord::updateStatus(const CWalletTx &wtx)
     if (mi != mapBlockIndex.end())
         pindex = (*mi).second;
 
-    // Sort order, unrecorded transactions sort to the top
-    status.sortKey = strprintf("%010d-%01d-%010u-%03d",
+    // Sort order, unrecorded transactions sort to the top.
+    // PQC Reveal (TX_R) records get a boosted sort-idx so they appear above
+    // their corresponding TX_C sub-records when both share the same block
+    // and wallet-received time (common when they are broadcast together).
+    int sort_idx = idx;
+#if ENABLE_LIBOQS
+    if (pqcRole == PqcTxR)
+        sort_idx += 1000;
+#endif
+    status.sortKey = strprintf("%010d-%01d-%010u-%04d",
         (pindex ? pindex->nHeight : std::numeric_limits<int>::max()),
         (wtx.IsCoinBase() ? 1 : 0),
         wtx.nTimeReceived,
-        idx);
+        sort_idx);
     status.countsForBalance = wtx.IsTrusted() && !(wtx.GetBlocksToMaturity() > 0);
     status.depth = wtx.GetDepthInMainChain();
     status.cur_num_blocks = chainActive.Height();
