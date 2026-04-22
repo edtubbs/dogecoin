@@ -407,7 +407,9 @@ class TestDecodeConfirmedCarrierTxR(unittest.TestCase):
     def _decode_and_validate(self, entry):
         """Decode a carrier scriptSig and validate it against its TX_C commitment.
 
-        Returns the decoded result dict on success.
+        Checks ALL expected fields (algorithm, key/sig lengths, prefixes, commitment,
+        redeemScript, and header fields) and only reports PASSED when every check
+        succeeds.  Returns the decoded result dict on success.
         """
         result = decode_carrier_scriptsig(entry["scriptsig"])
         self.assertIsNotNone(result, f"Failed to decode carrier scriptSig for TX_R {entry['txid'][:16]}...")
@@ -425,8 +427,38 @@ class TestDecodeConfirmedCarrierTxR(unittest.TestCase):
         print(f"    RedeemScript: {result['redeem_script']}")
         print(f"    Commitment:   {result['commitment']} (computed SHA256(pk||sig))")
         print(f"    TX_C commit:  {entry['tx_c_commitment']} (on-chain OP_RETURN)")
-        match = result['commitment'] == entry['tx_c_commitment']
-        print(f"    VALIDATION:   {'PASS - commitment matches TX_C' if match else 'FAIL - commitment MISMATCH'}")
+
+        # Comprehensive validation: collect all failures before reporting status.
+        # Only report PASSED when every condition is satisfied.
+        failures = []
+        if result['algo'] != entry['algo']:
+            failures.append(f"algo={result['algo']!r} (expected {entry['algo']!r})")
+        if result['pubkey_len'] != entry['pk_len']:
+            failures.append(f"pk_len={result['pubkey_len']} (expected {entry['pk_len']})")
+        if result['sig_len'] != entry['sig_len']:
+            failures.append(f"sig_len={result['sig_len']} (expected {entry['sig_len']})")
+        if result['pubkey_prefix'] != entry['pk_prefix']:
+            failures.append(f"pk_prefix={result['pubkey_prefix']!r} (expected {entry['pk_prefix']!r})")
+        if result['sig_prefix'] != entry['sig_prefix']:
+            failures.append(f"sig_prefix={result['sig_prefix']!r} (expected {entry['sig_prefix']!r})")
+        if result['commitment'] != entry['tx_c_commitment']:
+            failures.append(
+                f"commitment={result['commitment'][:16]}... "
+                f"(expected {entry['tx_c_commitment'][:16]}...)"
+            )
+        if result['redeem_script'] != "757575757551":
+            failures.append(f"redeemScript={result['redeem_script']!r} (expected '757575757551')")
+        if result['header']['version'] != 1:
+            failures.append(f"header.version={result['header']['version']} (expected 1)")
+        if result['header']['part_total'] != 1:
+            failures.append(f"header.part_total={result['header']['part_total']} (expected 1)")
+        if result['header']['part_index'] != 0:
+            failures.append(f"header.part_index={result['header']['part_index']} (expected 0)")
+
+        if failures:
+            print(f"    VALIDATION:   FAILED — {'; '.join(failures)}")
+        else:
+            print(f"    VALIDATION:   PASSED — commitment and all carrier fields verified")
 
         return result
 
