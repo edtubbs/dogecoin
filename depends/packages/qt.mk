@@ -205,10 +205,6 @@ $(package)_cmake_opts += -DCMAKE_DISABLE_FIND_PACKAGE_WrapSystemMd4c=TRUE
 $(package)_cmake_opts += -DCMAKE_DISABLE_FIND_PACKAGE_WrapZSTD=TRUE
 endif
 ifeq ($(host_os),darwin)
-# macOS cross-compilation needs correct AR/RANLIB to create archives
-# Apple's ld can't read GNU ar format; use the toolchain's ar
-$(package)_cmake_opts += -DCMAKE_AR=$(toolchain_path)$(host_AR)
-$(package)_cmake_opts += -DCMAKE_RANLIB=$(toolchain_path)$(host_RANLIB)
 $(package)_cmake_opts += -DCMAKE_INSTALL_NAME_TOOL=true
 $(package)_cmake_opts += -DCMAKE_FRAMEWORK_PATH=$(OSX_SDK)/System/Library/Frameworks
 $(package)_cmake_opts += -DQT_INTERNAL_APPLE_SDK_VERSION=$(OSX_SDK_VERSION)

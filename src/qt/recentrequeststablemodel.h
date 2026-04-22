@@ -36,7 +36,7 @@ public:
         READWRITE(recipient);
 
         if (ser_action.ForRead())
-            date = QDateTime::fromTime_t(nDate);
+            date = QDateTime::fromSecsSinceEpoch(nDate);
     }
 };
 
