@@ -248,21 +248,43 @@ void TransactionRecord::updateStatus(const CWalletTx &wtx)
         pindex = (*mi).second;
 
     // Sort order, unrecorded transactions sort to the top.
-    // PQC Reveal (TX_R) records get a boosted sort-idx so they appear above
-    // their corresponding TX_C sub-records when both share the same block
-    // and wallet-received time (common when they are broadcast together).
+    //
+    // Time field: for confirmed transactions use the stable block timestamp so
+    // that all transactions in the same block share an identical time field and
+    // the sort-index (field 4) can cleanly order them.  For unconfirmed
+    // transactions fall back to nTimeReceived.
+    //
+    // PQC ordering: we want TX_C (commitment) records to appear ABOVE their
+    // paired TX_R (reveal) records, matching the natural send workflow (user
+    // sees "commitment sent" first, then "reveal confirmed" below it).
+    //
+    // TX_C records receive a sort-index boost (+1000) so they rank higher than
+    // TX_R within the same block (same time field).  For unconfirmed TX_C a
+    // small time boost (+5 s) overcomes TX_R being broadcast a few seconds
+    // after TX_C inside the same on_sendButton_clicked call.
+    //
     // The idx field is widened to %04d to accommodate the boost without
     // overflow (a TX_C realistically has far fewer than ~1000 sub-records).
+    unsigned int sort_time = wtx.nTimeReceived;
     int sort_idx = idx;
 #if ENABLE_LIBOQS
-    static const int PQC_TXR_SORT_BOOST = 1000;
-    if (pqcRole == PqcTxR)
-        sort_idx += PQC_TXR_SORT_BOOST;
+    static const int          PQC_TXC_IDX_BOOST  = 1000;
+    static const unsigned int PQC_TXC_TIME_BOOST = 5;   // seconds
+    if (pqcRole == PqcTxC || pqcRole == PqcTxCCommitment) {
+        sort_idx += PQC_TXC_IDX_BOOST;
+        if (!pindex)
+            sort_time += PQC_TXC_TIME_BOOST;
+    }
 #endif
+    // Overwrite with stable block time for confirmed transactions (after the
+    // ENABLE_LIBOQS block so the unconfirmed time boost only fires when !pindex).
+    if (pindex)
+        sort_time = (unsigned int)pindex->nTime;
+
     status.sortKey = strprintf("%010d-%01d-%010u-%04d",
         (pindex ? pindex->nHeight : std::numeric_limits<int>::max()),
         (wtx.IsCoinBase() ? 1 : 0),
-        wtx.nTimeReceived,
+        sort_time,
         sort_idx);
     status.countsForBalance = wtx.IsTrusted() && !(wtx.GetBlocksToMaturity() > 0);
     status.depth = wtx.GetDepthInMainChain();

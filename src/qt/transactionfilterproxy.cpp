@@ -115,18 +115,34 @@ int TransactionFilterProxy::rowCount(const QModelIndex &parent) const
 
 bool TransactionFilterProxy::lessThan(const QModelIndex &left, const QModelIndex &right) const
 {
-    // Primary key: date (rec->time), preserving the usual chronological order.
+    // For Date and Status column sorts, use status.sortKey as the sole
+    // comparison key.  The sortKey encodes (blockHeight, coinbase,
+    // sort_time, sort_idx) where sort_time is the stable block timestamp
+    // for confirmed transactions (identical for all tx in the same block)
+    // and sort_idx carries a +1000 boost for PQC Commitment (TX_C) records
+    // so they always appear above their paired PQC Reveal (TX_R) records.
+    //
+    // Using sortKey directly — rather than rec->time as a primary key —
+    // ensures that the Transactions screen and the Overview (Wow) screen
+    // produce the same ordering both before and after a wallet restart,
+    // regardless of differences in nTimeSmart computation paths.
+    if (left.column() == TransactionTableModel::Date ||
+        left.column() == TransactionTableModel::Status)
+    {
+        QString leftKey  = left.sibling(left.row(),  TransactionTableModel::Status).data(Qt::EditRole).toString();
+        QString rightKey = right.sibling(right.row(), TransactionTableModel::Status).data(Qt::EditRole).toString();
+        return leftKey < rightKey;
+    }
+
+    // For all other columns (Amount, Type, …) use the column value as the
+    // primary key with sortKey as a tiebreaker.
     QVariant leftData  = left.data(Qt::EditRole);
     QVariant rightData = right.data(Qt::EditRole);
 
     if (leftData != rightData)
         return QSortFilterProxyModel::lessThan(left, right);
 
-    // Tiebreaker: when two records share the same date (e.g. TX_C and TX_R
-    // confirmed in the same block), sort by the status.sortKey which already
-    // encodes PQC_TXR_SORT_BOOST so that PQC Reveal (TX_R) records sort
-    // above their paired PQC Commitment (TX_C) records.
-    QString leftKey  = left.sibling(left.row(),   TransactionTableModel::Status).data(Qt::EditRole).toString();
+    QString leftKey  = left.sibling(left.row(),  TransactionTableModel::Status).data(Qt::EditRole).toString();
     QString rightKey = right.sibling(right.row(), TransactionTableModel::Status).data(Qt::EditRole).toString();
     return leftKey < rightKey;
 }
