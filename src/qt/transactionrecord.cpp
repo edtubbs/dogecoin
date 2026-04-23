@@ -240,45 +240,12 @@ void TransactionRecord::updateStatus(const CWalletTx &wtx)
     if (mi != mapBlockIndex.end())
         pindex = (*mi).second;
 
-    // Sort order, unrecorded transactions sort to the top.
-    //
-    // Time field: for confirmed transactions use the stable block timestamp so
-    // that all transactions in the same block share an identical time field and
-    // the sort-index (field 4) can cleanly order them.  For unconfirmed
-    // transactions fall back to nTimeReceived.
-    //
-    // PQC ordering: TX_R (reveal) is the later event and should appear ABOVE
-    // TX_C (commitment) in the newest-first transaction list.
-    //
-    // TX_R records receive a sort-index boost (+1000) so they rank higher than
-    // TX_C within the same block (same stable block-time field).  For
-    // unconfirmed TX_R a small time boost (+5 s) ensures TX_R sits above TX_C
-    // even when both land in the wallet within the same second or when mempool
-    // propagation is slightly unpredictable.
-    //
-    // The idx field is widened to %04d to accommodate the boost without
-    // overflow (a TX_C realistically has far fewer than ~1000 sub-records).
-    unsigned int sort_time = wtx.nTimeReceived;
-    int sort_idx = idx;
-#if ENABLE_LIBOQS
-    static const int          PQC_TXR_IDX_BOOST  = 1000;
-    static const unsigned int PQC_TXR_TIME_BOOST = 5;   // seconds
-    if (pqcRole == PqcTxR) {
-        sort_idx += PQC_TXR_IDX_BOOST;
-        if (!pindex)
-            sort_time += PQC_TXR_TIME_BOOST;
-    }
-#endif
-    // Overwrite with stable block time for confirmed transactions (after the
-    // ENABLE_LIBOQS block so the unconfirmed time boost only fires when !pindex).
-    if (pindex)
-        sort_time = (unsigned int)pindex->nTime;
-
-    status.sortKey = strprintf("%010d-%01d-%010u-%04d",
+    // Sort order, unrecorded transactions sort to the top
+    status.sortKey = strprintf("%010d-%01d-%010u-%03d",
         (pindex ? pindex->nHeight : std::numeric_limits<int>::max()),
         (wtx.IsCoinBase() ? 1 : 0),
-        sort_time,
-        sort_idx);
+        wtx.nTimeReceived,
+        idx);
     status.countsForBalance = wtx.IsTrusted() && !(wtx.GetBlocksToMaturity() > 0);
     status.depth = wtx.GetDepthInMainChain();
     status.cur_num_blocks = chainActive.Height();
