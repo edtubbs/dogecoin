@@ -29,6 +29,7 @@ static const unsigned char PQC_TAG_RACCOON[4] = {'R', 'C', 'G', '4'};
 static const unsigned int PQC_TAG_BYTES = 4;
 static const unsigned int PQC_SCRIPT_BYTES = 2 + PQC_TAG_BYTES + PQC_COMMITMENT_BYTES;
 
+/** Map PQCCommitmentType to its 4-byte OP_RETURN script tag. Returns nullptr for unknown types. */
 static const unsigned char* GetTagForType(PQCCommitmentType type)
 {
     switch (type) {
@@ -45,6 +46,7 @@ static const unsigned char* GetTagForType(PQCCommitmentType type)
     }
 }
 
+/** Compute commitment = SHA256(public_key || signature). */
 bool PQCComputeCommitment(const std::vector<unsigned char>& public_key,
                           const std::vector<unsigned char>& signature,
                           uint256& commitment_out)
@@ -60,6 +62,7 @@ bool PQCComputeCommitment(const std::vector<unsigned char>& public_key,
     return true;
 }
 
+/** Build canonical OP_RETURN commitment script: OP_RETURN 0x24 TAG4 COMMIT32. */
 bool PQCBuildCommitmentScript(PQCCommitmentType type,
                               const uint256& commitment,
                               CScript& script_out)
@@ -78,6 +81,7 @@ bool PQCBuildCommitmentScript(PQCCommitmentType type,
     return true;
 }
 
+/** Parse canonical OP_RETURN commitment script and extract tag and 32-byte commitment. */
 bool PQCExtractCommitment(const CScript& script,
                           PQCCommitmentType& type_out,
                           uint256& commitment_out)
@@ -109,6 +113,7 @@ bool PQCExtractCommitment(const CScript& script,
     return true;
 }
 
+/** Return a human-readable string for a PQCCommitmentType (e.g. "FALCON512/FLC1"). */
 const char* PQCCommitmentTypeToString(PQCCommitmentType type)
 {
     switch (type) {
@@ -125,6 +130,7 @@ const char* PQCCommitmentTypeToString(PQCCommitmentType type)
     }
 }
 
+/** Parse a user-supplied algorithm name or 4-byte tag into a PQCCommitmentType. */
 bool ParsePQCCommitmentType(const std::string& type, PQCCommitmentType& type_out)
 {
     if (type == "falcon512" || type == "FALCON512" || type == "flc1" || type == "FLC1") {
@@ -144,6 +150,7 @@ bool ParsePQCCommitmentType(const std::string& type, PQCCommitmentType& type_out
     return false;
 }
 
+/** Scan tx.vout for the first OP_RETURN commitment output. */
 bool PQCExtractCommitmentFromTx(const CTransaction& tx,
                                 PQCCommitmentType& type_out,
                                 uint256& commitment_out,
@@ -158,7 +165,7 @@ bool PQCExtractCommitmentFromTx(const CTransaction& tx,
     return false;
 }
 
-// --- P2SH Data-Carrier (Carrier Mode) Implementation ---
+// P2SH Data-Carrier (Carrier Mode)
 
 /** Carrier redeemScript: OP_DROP OP_DROP OP_DROP OP_DROP OP_DROP OP_TRUE (6 bytes).
  *  Cleans TAG8, HDR8, CHUNK0, CHUNK1, CHUNK2 from stack and pushes true.
@@ -170,6 +177,7 @@ bool PQCBuildCarrierRedeemScript(CScript& script_out)
     return true;
 }
 
+/** P2SH scriptPubKey wrapping the canonical carrier redeemScript. */
 bool PQCBuildCarrierScriptPubKey(CScript& script_out)
 {
     CScript redeemScript;
@@ -180,12 +188,14 @@ bool PQCBuildCarrierScriptPubKey(CScript& script_out)
     return true;
 }
 
+/** Return the number of carrier parts required for a payload of payload_size bytes. */
 uint8_t PQCCarrierPartsNeeded(size_t payload_size)
 {
     if (payload_size == 0) return 0;
     return static_cast<uint8_t>((payload_size + PQC_CARRIER_PAYLOAD_PER_PART - 1) / PQC_CARRIER_PAYLOAD_PER_PART);
 }
 
+/** Map PQCCommitmentType to its 8-byte carrier TAG8. Returns nullptr for unknown types. */
 static const unsigned char* GetCarrierTagForType(PQCCommitmentType type)
 {
     switch (type) {
@@ -202,6 +212,7 @@ static const unsigned char* GetCarrierTagForType(PQCCommitmentType type)
     }
 }
 
+/** Serialise a PQCCarrierHeader into the 8-byte big-endian wire format. */
 static void EncodeCarrierHeader(const PQCCarrierHeader& hdr, unsigned char out[8])
 {
     out[0] = hdr.version;
@@ -214,6 +225,9 @@ static void EncodeCarrierHeader(const PQCCarrierHeader& hdr, unsigned char out[8
     out[7] = static_cast<unsigned char>(hdr.full_len & 0xFF);
 }
 
+/** Deserialise 8 bytes into a PQCCarrierHeader. Returns false if version != 0x01
+ *  or part_index >= part_total.
+ */
 static bool DecodeCarrierHeader(const unsigned char data[8], PQCCarrierHeader& hdr)
 {
     hdr.version = data[0];
@@ -365,8 +379,11 @@ bool PQCParseCarrierPartScriptSig(const CScript& scriptSig,
     return true;
 }
 
-// Internal helper: gather carrier parts from all inputs and reconstruct full payload.
-// Returns the extracted pubkey, sig, detected type, and first carrier input index.
+/** Gather all carrier parts from tx.vin, verify they are contiguous and from the
+ *  same algorithm, reassemble the full payload, and split it into pubkey + signature
+ *  using pk_len from the HDR8 header.  Returns false if any part is missing or
+ *  inconsistent.
+ */
 static bool ReconstructCarrierPayload(const CTransaction& tx,
                                        PQCCommitmentType& type_out,
                                        std::vector<unsigned char>& pubkey_out,
@@ -497,7 +514,7 @@ bool PQCVerifySignatureFromCarrier(const CTransaction& tx,
     return PQCVerify(type_out, pubkey, message, message_len, sig);
 }
 
-// --- TX_BASE Reconstruction (BIP spec compliance) ---
+// TX_BASE Reconstruction
 
 bool PQCReconstructTxBase(const CTransaction& txc,
                           CMutableTransaction& txBase_out,
@@ -544,6 +561,7 @@ bool PQCReconstructTxBase(const CTransaction& txc,
     return true;
 }
 
+/** Return the maximum signature length for a PQC type, via liboqs metadata. */
 size_t PQCMaxSignatureLength(PQCCommitmentType type)
 {
 #if ENABLE_LIBOQS
@@ -562,8 +580,9 @@ size_t PQCMaxSignatureLength(PQCCommitmentType type)
 #endif
 }
 
-// --- liboqs PQC Cryptographic Operations ---
+// liboqs PQC Cryptographic Operations
 
+/** Return the liboqs OQS_SIG algorithm name string for a PQC type. */
 const char* PQCGetOQSAlgorithmName(PQCCommitmentType type)
 {
 #if ENABLE_LIBOQS
@@ -585,6 +604,9 @@ const char* PQCGetOQSAlgorithmName(PQCCommitmentType type)
 #endif
 }
 
+/** Generate a PQC keypair using liboqs. Sizes are algorithm-dependent
+ *  (e.g. Falcon-512: pk=897 bytes, sk=1281 bytes).
+ */
 bool PQCGenerateKeypair(PQCCommitmentType type,
                          std::vector<unsigned char>& public_key_out,
                          std::vector<unsigned char>& secret_key_out)
@@ -616,6 +638,9 @@ bool PQCGenerateKeypair(PQCCommitmentType type,
 #endif
 }
 
+/** Sign message with a PQC secret key using liboqs.
+ *  signature_out is resized to the actual signature length after signing.
+ */
 bool PQCSign(PQCCommitmentType type,
              const std::vector<unsigned char>& secret_key,
              const unsigned char* message, size_t message_len,
@@ -657,6 +682,7 @@ bool PQCSign(PQCCommitmentType type,
 #endif
 }
 
+/** Verify a PQC signature using liboqs. Returns true only on OQS_SUCCESS. */
 bool PQCVerify(PQCCommitmentType type,
                const std::vector<unsigned char>& public_key,
                const unsigned char* message, size_t message_len,

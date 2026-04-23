@@ -264,31 +264,6 @@ The `pqc_commitment_tests` test suite validates all carrier primitives:
 - `pqc_cross_validate_carrier_primitives` — shared test vectors matching libdogecoin CLI output
 - Confirmed mainnet TX_R decode tests for all three algorithms
 
-### End-to-end dry-run (libdogecoin)
-
-The libdogecoin branch includes end-to-end test scripts for all three
-algorithms:
-
-```bash
-# Testnet
-./contrib/testnet_falcon_test.sh
-./contrib/testnet_dilithium2_test.sh
-./contrib/testnet_raccoong_test.sh
-
-# Mainnet
-./contrib/mainnet_falcon_test.sh
-./contrib/mainnet_dilithium2_test.sh
-./contrib/mainnet_raccoong_test.sh
-```
-
-Non-interactive dry-run mode:
-
-```bash
-NON_INTERACTIVE=1 AUTO_BROADCAST=1 \
-  RAW_UNSIGNED_TX=<hex> SCRIPT_PUBKEY=<hex> \
-  ./contrib/mainnet_falcon_test.sh
-```
-
 ### RPC test (Dogecoin Core)
 
 ```bash

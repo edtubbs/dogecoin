@@ -19,14 +19,16 @@
 EXPERIMENTAL_FEATURE
 #endif
 
+/** Supported post-quantum signature algorithms. */
 enum class PQCCommitmentType {
-    FALCON512,
-    DILITHIUM2,
+    FALCON512,   ///< Falcon-512 (NIST round 4 alternate)
+    DILITHIUM2,  ///< ML-DSA-44 / Dilithium2 (NIST standard)
 #ifdef ENABLE_LIBOQS_RACCOON
-    RACCOONG44,
+    RACCOONG44,  ///< Raccoon-G-44 (experimental)
 #endif
 };
 
+/** Commitment size in bytes (SHA256 output length). */
 static const unsigned int PQC_COMMITMENT_BYTES = 32;
 
 /** SHA256(public_key || signature). */
@@ -48,15 +50,24 @@ bool PQCExtractCommitment(const CScript& script,
                           PQCCommitmentType& type_out,
                           uint256& commitment_out);
 
+/** Return a human-readable string for a PQCCommitmentType (e.g. "FALCON512/FLC1"). */
 const char* PQCCommitmentTypeToString(PQCCommitmentType type);
+
+/** Parse a user-supplied algorithm name or tag into a PQCCommitmentType.
+ *  Accepts case-insensitive full names (falcon512, dilithium2, raccoong44)
+ *  and 4-byte tags (FLC1, DIL2, RCG4).  Returns false on unknown input.
+ */
 bool ParsePQCCommitmentType(const std::string& type, PQCCommitmentType& type_out);
 
+/** Scan tx.vout for the first OP_RETURN commitment output.
+ *  On success, sets type_out, commitment_out, and output_index_out.
+ */
 bool PQCExtractCommitmentFromTx(const CTransaction& tx,
                                 PQCCommitmentType& type_out,
                                 uint256& commitment_out,
                                 uint32_t& output_index_out);
 
-// --- P2SH Data-Carrier (Carrier Mode) ---
+// P2SH Data-Carrier (Carrier Mode)
 
 /** Maximum bytes per individual scriptSig push element (Bitcoin P2SH limit). */
 static const unsigned int PQC_CARRIER_MAX_CHUNK_BYTES = 520;
@@ -161,7 +172,7 @@ bool PQCVerifySignatureFromCarrier(const CTransaction& tx,
                                     uint16_t& pk_len_out,
                                     uint16_t& sig_len_out);
 
-// --- TX_BASE Reconstruction (BIP spec compliance) ---
+// TX_BASE Reconstruction
 
 /** Reconstruct TX_BASE from TX_C by stripping OP_RETURN and P2SH carrier
  *  outputs, restoring carrier cost to vout[0].
@@ -184,7 +195,7 @@ bool PQCReconstructTxBase(const CTransaction& txc,
  */
 size_t PQCMaxSignatureLength(PQCCommitmentType type);
 
-// --- liboqs PQC Cryptographic Operations ---
+// liboqs PQC Cryptographic Operations
 
 /** Get the liboqs OQS_SIG algorithm identifier string for a PQC type.
  *  Returns nullptr if the type is unknown or not supported. */
