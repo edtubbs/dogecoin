@@ -241,6 +241,7 @@ static bool DecodeCarrierHeader(const unsigned char data[8], PQCCarrierHeader& h
     return true;
 }
 
+/** Build carrier scriptSig with TAG8, HDR8, and up to 3 chunk pushes for the given part_index. */
 bool PQCBuildCarrierPartScriptSig(PQCCommitmentType type,
                                    const std::vector<unsigned char>& pubkey,
                                    const std::vector<unsigned char>& signature,
@@ -313,6 +314,7 @@ bool PQCBuildCarrierPartScriptSig(PQCCommitmentType type,
     return true;
 }
 
+/** Return true if the first push in scriptSig is a known 8-byte PQC carrier tag; set type_out. */
 bool PQCDetectCarrierScriptSig(const CScript& scriptSig, PQCCommitmentType& type_out)
 {
     // Decode the scriptSig to get push elements
@@ -347,6 +349,7 @@ bool PQCDetectCarrierScriptSig(const CScript& scriptSig, PQCCommitmentType& type
     return false;
 }
 
+/** Decode one carrier part scriptSig into type, header fields, and raw payload bytes. */
 bool PQCParseCarrierPartScriptSig(const CScript& scriptSig,
                                    PQCCommitmentType& type_out,
                                    PQCCarrierHeader& header_out,
@@ -459,6 +462,7 @@ static bool ReconstructCarrierPayload(const CTransaction& tx,
     return true;
 }
 
+/** Reassemble all carrier parts from tx.vin, then verify SHA256(pk||sig) == commitment. */
 bool PQCValidateCommitmentFromCarrier(const CTransaction& tx,
                                        const uint256& commitment,
                                        PQCCommitmentType& type_out,
@@ -480,6 +484,7 @@ bool PQCValidateCommitmentFromCarrier(const CTransaction& tx,
     return true;
 }
 
+/** Thin wrapper: reassemble carrier parts and split into pubkey + signature (no commitment check). */
 bool PQCExtractKeyMaterialFromCarrier(const CTransaction& tx,
                                        PQCCommitmentType& type_out,
                                        std::vector<unsigned char>& pubkey_out,
@@ -489,6 +494,7 @@ bool PQCExtractKeyMaterialFromCarrier(const CTransaction& tx,
     return ReconstructCarrierPayload(tx, type_out, pubkey_out, signature_out, carrier_input_index);
 }
 
+/** Validate carrier commitment and verify the PQC signature over message using liboqs. */
 bool PQCVerifySignatureFromCarrier(const CTransaction& tx,
                                     const uint256& commitment,
                                     const unsigned char* message, size_t message_len,
@@ -516,6 +522,7 @@ bool PQCVerifySignatureFromCarrier(const CTransaction& tx,
 
 // TX_BASE Reconstruction
 
+/** Strip OP_RETURN and P2SH carrier outputs from TX_C; restore carrier cost to vout[0]. */
 bool PQCReconstructTxBase(const CTransaction& txc,
                           CMutableTransaction& txBase_out,
                           CAmount& carrierCost_out)

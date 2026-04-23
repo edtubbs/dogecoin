@@ -322,7 +322,7 @@ QString TransactionDesc::toHTML(CWallet *wallet, CWalletTx &wtx, TransactionReco
     }
 
     if (hasPqcCommitment) {
-        // --- TX_C display ---
+        // TX_C display
         QString pqcTypeStr = QString::fromLatin1(PQCCommitmentTypeToString(pqcType));
         strHTML += "<br><b>" + tr("Commitment Transaction (TX_C)") + ":</b><br>";
         strHTML += "<b>" + tr("PQC algorithm") + ":</b> " + pqcTypeStr + "<br>";
@@ -522,7 +522,7 @@ QString TransactionDesc::toHTML(CWallet *wallet, CWalletTx &wtx, TransactionReco
             strHTML += "<b>" + tr("Carrier mode") + ":</b> " + tr("disabled (commitment-only, no P2SH carrier output)") + "<br>";
         }
     } else if (isTxR) {
-        // --- TX_R display (this transaction is a carrier reveal) ---
+        // TX_R display (this transaction is a carrier reveal)
 
         // Show From/To/Fee fields that the standard flow skips for TX_R
         // (carrier P2SH input is not IsMine so the normal debit/credit path

@@ -436,7 +436,7 @@ void WalletView::backupWalletEncrypted()
     progress.setLabelText(tr("Encrypting with AES-256-CBC (layer 1)..."));
     QApplication::processEvents();
 
-    // --- Layer 1: AES-256-CBC encryption with passphrase-derived key ---
+    // Layer 1: AES-256-CBC encryption with passphrase-derived key
     // NOTE: We use AES256CBCEncrypt directly instead of CCrypter::Encrypt
     // because CCrypter requires CKeyingMaterial (secure_allocator) which has
     // a 256 KB arena limit and would segfault for wallet files > 256 KB.
@@ -471,7 +471,7 @@ void WalletView::backupWalletEncrypted()
     QApplication::processEvents();
 
 #if ENABLE_LIBOQS
-    // --- Layer 2: ML-KEM-768 key encapsulation + AES-256-CBC ---
+    // Layer 2: ML-KEM-768 key encapsulation + AES-256-CBC
     // Generate a KEM keypair, encapsulate a shared secret, use it to
     // encrypt the AES ciphertext.  The KEM secret key is itself encrypted
     // with the PQC passphrase so the user must supply both passwords to
@@ -754,7 +754,7 @@ void WalletView::restoreWalletEncrypted()
 
     if (isV4) {
 #if ENABLE_LIBOQS
-        // --- V4: ML-KEM-768 decapsulation ---
+        // V4: ML-KEM-768 decapsulation
         const QByteArray kemAlg = fields.value("KEM_ALG");
         const QByteArray kemCtHex = fields.value("KEM_CT");
         const QByteArray kemSkKdf = fields.value("KEM_SK_KDF");
@@ -870,7 +870,7 @@ void WalletView::restoreWalletEncrypted()
         return;
 #endif // ENABLE_LIBOQS
     } else {
-        // --- V3: Legacy AES cascade decryption ---
+        // V3: Legacy AES cascade decryption
         const QByteArray pqcSaltHex = fields.value("PQC_SALT");
         const QByteArray pqcRoundsRaw = fields.value("PQC_ROUNDS");
         if (pqcSaltHex.isEmpty() || pqcRoundsRaw.isEmpty()) {
@@ -914,7 +914,7 @@ void WalletView::restoreWalletEncrypted()
         }
     }
 
-    // --- AES layer decryption (common to both V3 and V4) ---
+    // AES layer decryption (common to both V3 and V4)
     // Use AES256CBCDecrypt directly to avoid CKeyingMaterial 256 KB limit
     SecureString aesPass(aesPassphraseBytes.constData(), aesPassphraseBytes.constData() + aesPassphraseBytes.size());
     std::vector<unsigned char> aesSaltBytes(aesSalt.begin(), aesSalt.end());
