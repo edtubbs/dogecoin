@@ -27,9 +27,7 @@ import sys
 import unittest
 
 
-# ---------------------------------------------------------------------------
 # Helpers mirroring the C++ implementation
-# ---------------------------------------------------------------------------
 
 _TAG_MAP = {
     "falcon512":  b"FLC1",
@@ -70,15 +68,11 @@ def expected_script_hex(algo: str, pubkey_hex: str, sig_hex: str) -> str:
     return script.hex()
 
 
-# ---------------------------------------------------------------------------
 # Test cases
-# ---------------------------------------------------------------------------
 
 class TestGeneratePQCCommitmentContract(unittest.TestCase):
 
-    # ------------------------------------------------------------------
     # Commitment hex (GetHex-reversed SHA256)
-    # ------------------------------------------------------------------
 
     def test_commitment_hex_falcon512_known_vector(self) -> None:
         """SHA256(aa55 || bb66) reversed = a2d956fb..."""
@@ -119,9 +113,7 @@ class TestGeneratePQCCommitmentContract(unittest.TestCase):
         # Reversing back should give natural SHA256
         self.assertEqual(bytes.fromhex(rpc_commitment)[::-1].hex(), raw_sha256.hex())
 
-    # ------------------------------------------------------------------
     # scriptPubKey format
-    # ------------------------------------------------------------------
 
     def test_script_falcon512_known_vector(self) -> None:
         """OP_RETURN PUSH36 FLC1 <sha256 natural bytes>."""
@@ -176,9 +168,7 @@ class TestGeneratePQCCommitmentContract(unittest.TestCase):
         # And it must differ from the reversed form
         self.assertNotEqual(embedded, raw_sha256[::-1].hex())
 
-    # ------------------------------------------------------------------
     # Algorithm alias handling (mirrors ParsePQCCommitmentType)
-    # ------------------------------------------------------------------
 
     def test_flc1_alias_matches_falcon512(self) -> None:
         self.assertEqual(
@@ -198,9 +188,7 @@ class TestGeneratePQCCommitmentContract(unittest.TestCase):
             expected_script_hex("raccoong44", "aa55", "bb66"),
         )
 
-    # ------------------------------------------------------------------
     # Cross-check against pqc_verify_commitment.py output
-    # ------------------------------------------------------------------
 
     def test_script_matches_pqc_verify_commitment_output(self) -> None:
         """

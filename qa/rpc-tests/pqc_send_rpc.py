@@ -35,9 +35,7 @@ from test_framework.util import (
 )
 
 
-# ---------------------------------------------------------------------------
 # Helpers
-# ---------------------------------------------------------------------------
 
 def _sha256_natural(pubkey_hex: str, sig_hex: str) -> str:
     """SHA256(pubkey||sig) — natural byte order (wire order in scriptPubKey)."""
@@ -65,9 +63,7 @@ def _expected_script(algo: str, pubkey_hex: str, sig_hex: str) -> str:
     return "6a24" + tag + sha
 
 
-# ---------------------------------------------------------------------------
 # Test class
-# ---------------------------------------------------------------------------
 
 class PQCSendRPCTest(BitcoinTestFramework):
 
@@ -80,9 +76,7 @@ class PQCSendRPCTest(BitcoinTestFramework):
         self.nodes = start_nodes(1, self.options.tmpdir)
         self.is_network_split = False
 
-    # ------------------------------------------------------------------ #
-    # Helpers                                                              #
-    # ------------------------------------------------------------------ #
+    # Helpers
 
     def _check_pqc_available(self):
         """Return False (and print SKIP) if PQC RPCs are not compiled in."""
@@ -99,14 +93,12 @@ class PQCSendRPCTest(BitcoinTestFramework):
         """Mine 101 blocks so the coinbase output is spendable."""
         self.nodes[0].generate(101)
 
-    # ------------------------------------------------------------------ #
-    # generatepqccommitment                                                #
-    # ------------------------------------------------------------------ #
+    # generatepqccommitment
 
     def _test_generate_commitment(self):
         node = self.nodes[0]
 
-        # --- known-vector: falcon512 ---
+        # known-vector: falcon512
         result = node.generatepqccommitment("falcon512", "aa55", "bb66")
         assert "algorithm" in result, "missing 'algorithm' key"
         assert "commitment" in result, "missing 'commitment' key"
@@ -116,35 +108,35 @@ class PQCSendRPCTest(BitcoinTestFramework):
         assert_equal(result["scriptPubKey"], _expected_script("falcon512", "aa55", "bb66"))
         assert "FLC1" in result["algorithm"].upper()
 
-        # --- alias flc1 produces the same output ---
+        # alias flc1 produces the same output
         result_alias = node.generatepqccommitment("flc1", "aa55", "bb66")
         assert_equal(result["commitment"],   result_alias["commitment"])
         assert_equal(result["scriptPubKey"], result_alias["scriptPubKey"])
 
-        # --- dilithium2 tag ---
+        # dilithium2 tag
         result_dil = node.generatepqccommitment("dilithium2", "aa55", "bb66")
         assert result_dil["scriptPubKey"].startswith("6a2444494c32"), \
             "dilithium2 script must start with OP_RETURN PUSH36 DIL2"
         assert_equal(result_dil["commitment"], _sha256_reversed("aa55", "bb66"))
 
-        # --- dil2 alias ---
+        # dil2 alias
         result_dil2 = node.generatepqccommitment("dil2", "aabb", "ccdd")
         result_dil_full = node.generatepqccommitment("dilithium2", "aabb", "ccdd")
         assert_equal(result_dil2["commitment"],   result_dil_full["commitment"])
         assert_equal(result_dil2["scriptPubKey"], result_dil_full["scriptPubKey"])
 
-        # --- script is always 38 bytes (76 hex chars) ---
+        # script is always 38 bytes (76 hex chars)
         assert_equal(len(result["scriptPubKey"]), 76)
 
-        # --- commitment is always 32 bytes (64 hex chars) ---
+        # commitment is always 32 bytes (64 hex chars)
         assert_equal(len(result["commitment"]), 64)
 
-        # --- different inputs produce different commitment ---
+        # different inputs produce different commitment
         result2 = node.generatepqccommitment("falcon512", "aabb", "ccdd")
         assert result["commitment"] != result2["commitment"], \
             "different inputs must give different commitments"
 
-        # --- error: unknown algorithm ---
+        # error: unknown algorithm
         try:
             node.generatepqccommitment("unknown_algo", "aa55", "bb66")
             raise AssertionError("expected RPC error for unknown algorithm")
@@ -152,14 +144,14 @@ class PQCSendRPCTest(BitcoinTestFramework):
             assert "Unknown PQC algorithm" in str(exc) or "unknown" in str(exc).lower(), \
                 f"unexpected error message: {exc}"
 
-        # --- error: non-hex pubkey ---
+        # error: non-hex pubkey
         try:
             node.generatepqccommitment("falcon512", "zzzz", "bb66")
             raise AssertionError("expected RPC error for non-hex pubkey")
         except JSONRPCException as exc:
             assert "hex" in str(exc).lower(), f"unexpected error: {exc}"
 
-        # --- error: non-hex signature ---
+        # error: non-hex signature
         try:
             node.generatepqccommitment("falcon512", "aa55", "zzzz")
             raise AssertionError("expected RPC error for non-hex signature")
@@ -168,15 +160,13 @@ class PQCSendRPCTest(BitcoinTestFramework):
 
         print("  generatepqccommitment: PASS")
 
-    # ------------------------------------------------------------------ #
-    # sendpqccommitment                                                    #
-    # ------------------------------------------------------------------ #
+    # sendpqccommitment
 
     def _test_send_commitment(self):
         node = self.nodes[0]
         addr = node.getnewaddress()
 
-        # --- valid send ---
+        # valid send
         txc_txid = node.sendpqccommitment(addr, 4.0, "falcon512", "aa55", "bb66")
         assert isinstance(txc_txid, str), "txid must be a string"
         assert_equal(len(txc_txid), 64)
@@ -194,7 +184,7 @@ class PQCSendRPCTest(BitcoinTestFramework):
         assert expected_spk in spk_values, \
             f"TX_C vout must include PQC OP_RETURN script {expected_spk}; got {spk_values}"
 
-        # --- error: invalid address ---
+        # error: invalid address
         try:
             node.sendpqccommitment("notanaddress", 4.0, "falcon512", "aa55", "bb66")
             raise AssertionError("expected RPC error for invalid address")
@@ -202,7 +192,7 @@ class PQCSendRPCTest(BitcoinTestFramework):
             assert "address" in str(exc).lower() or "invalid" in str(exc).lower(), \
                 f"unexpected error: {exc}"
 
-        # --- error: unknown algorithm ---
+        # error: unknown algorithm
         try:
             node.sendpqccommitment(addr, 4.0, "badalgo", "aa55", "bb66")
             raise AssertionError("expected RPC error for bad algorithm")
@@ -210,7 +200,7 @@ class PQCSendRPCTest(BitcoinTestFramework):
             assert "algorithm" in str(exc).lower() or "unknown" in str(exc).lower(), \
                 f"unexpected error: {exc}"
 
-        # --- error: non-hex pubkey ---
+        # error: non-hex pubkey
         try:
             node.sendpqccommitment(addr, 4.0, "falcon512", "zzzz", "bb66")
             raise AssertionError("expected RPC error for non-hex pubkey")
@@ -225,14 +215,12 @@ class PQCSendRPCTest(BitcoinTestFramework):
         print("  sendpqccommitment: PASS")
         return txc_txid
 
-    # ------------------------------------------------------------------ #
-    # sendpqcreveal                                                         #
-    # ------------------------------------------------------------------ #
+    # sendpqcreveal
 
     def _test_send_reveal(self, txc_txid: str):
         node = self.nodes[0]
 
-        # --- valid reveal ---
+        # valid reveal
         txr_txid = node.sendpqcreveal(txc_txid, "falcon512", "aa55", "bb66")
         assert isinstance(txr_txid, str), "txid must be a string"
         assert_equal(len(txr_txid), 64)
@@ -258,7 +246,7 @@ class PQCSendRPCTest(BitcoinTestFramework):
         assert txr_info.get("confirmations", 0) >= 1, \
             "TX_R should be confirmed after mining"
 
-        # --- error: TX_C txid not in wallet ---
+        # error: TX_C txid not in wallet
         fake_txid = "00" * 32
         try:
             node.sendpqcreveal(fake_txid, "falcon512", "aa55", "bb66")
@@ -267,7 +255,7 @@ class PQCSendRPCTest(BitcoinTestFramework):
             assert "not found" in str(exc).lower() or "wallet" in str(exc).lower(), \
                 f"unexpected error: {exc}"
 
-        # --- error: wrong algorithm for existing TX_C ---
+        # error: wrong algorithm for existing TX_C
         try:
             node.sendpqcreveal(txc_txid, "badalgox", "aa55", "bb66")
             raise AssertionError("expected RPC error for bad algorithm")
@@ -275,7 +263,7 @@ class PQCSendRPCTest(BitcoinTestFramework):
             assert "algorithm" in str(exc).lower() or "unknown" in str(exc).lower(), \
                 f"unexpected error: {exc}"
 
-        # --- error: non-hex pubkey ---
+        # error: non-hex pubkey
         try:
             node.sendpqcreveal(txc_txid, "falcon512", "zzzz", "bb66")
             raise AssertionError("expected RPC error for non-hex pubkey")
@@ -284,9 +272,7 @@ class PQCSendRPCTest(BitcoinTestFramework):
 
         print("  sendpqcreveal: PASS")
 
-    # ------------------------------------------------------------------ #
-    # Full flow: dilithium2 alias                                          #
-    # ------------------------------------------------------------------ #
+    # Full flow: dilithium2 alias
 
     def _test_dilithium2_alias_flow(self):
         """Quick smoke-test using dil2 alias."""
@@ -314,9 +300,7 @@ class PQCSendRPCTest(BitcoinTestFramework):
 
         print("  dilithium2 (dil2) alias flow: PASS")
 
-    # ------------------------------------------------------------------ #
-    # Main entry point                                                     #
-    # ------------------------------------------------------------------ #
+    # Main entry point
 
     def run_test(self):
         if not self._check_pqc_available():
