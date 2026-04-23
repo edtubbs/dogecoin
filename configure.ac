@@ -237,6 +237,23 @@ AC_ARG_WITH([armv82-crypto],
   [armv82_crypto=$withval],
   [armv82_crypto=no])
 
+AC_ARG_WITH([liboqs],
+  [AS_HELP_STRING([--with-liboqs],
+  [enable liboqs support with upstream liboqs (Falcon-512 and Dilithium2 only; default is no)])],
+  [use_liboqs=$withval],
+  [use_liboqs=no])
+
+AC_ARG_WITH([liboqs-raccoon],
+  [AS_HELP_STRING([--with-liboqs-raccoon],
+  [enable liboqs support with edtubbs/liboqs fork (adds Raccoon-G-44; default is no)])],
+  [use_liboqs_raccoon=$withval],
+  [use_liboqs_raccoon=no])
+
+dnl --with-liboqs-raccoon implies --with-liboqs
+if test "x$use_liboqs_raccoon" = "xyes"; then
+  use_liboqs=yes
+fi
+
 AC_ARG_ENABLE(man,
     [AS_HELP_STRING([--disable-man],
                     [do not install man pages (default is to install)])],,
@@ -463,6 +480,8 @@ case $host in
      TARGET_OS=linux
      ;;
 esac
+
+liboqs_found=no
 
 if test x$use_pkgconfig = xyes; then
   m4_ifndef([PKG_PROG_PKG_CONFIG], [AC_MSG_ERROR(PKG_PROG_PKG_CONFIG macro not found. Please install pkg-config and re-run autogen.sh.)])
@@ -883,6 +902,10 @@ if test x$use_pkgconfig = xyes; then
         fi
       fi
 
+      if test "x$use_liboqs" != "xno"; then
+        PKG_CHECK_MODULES([LIBOQS], [liboqs], [liboqs_found=yes], [liboqs_found=no])
+      fi
+
       if test "x$use_zmq" = "xyes"; then
         PKG_CHECK_MODULES([ZMQ],[libzmq >= 4],
           [AC_DEFINE([ENABLE_ZMQ],[1],[Define to 1 to enable ZMQ functions])],
@@ -907,6 +930,12 @@ else
     if test x$TARGET_OS != xwindows; then
       AC_CHECK_LIB([event_pthreads],[main],EVENT_PTHREADS_LIBS=-levent_pthreads,AC_MSG_ERROR(libevent_pthreads missing))
     fi
+  fi
+
+  if test "x$use_liboqs" != "xno"; then
+    AC_CHECK_HEADER([oqs/oqs.h],[
+      AC_CHECK_LIB([oqs], [OQS_init], [LIBOQS_LIBS=-loqs; liboqs_found=yes], [liboqs_found=no])
+    ], [liboqs_found=no])
   fi
 
   if test "x$use_zmq" = "xyes"; then
@@ -936,6 +965,22 @@ else
     BITCOIN_QT_CHECK([AC_CHECK_LIB([qrencode], [main],[QR_LIBS=-lqrencode], [have_qrencode=no])])
     BITCOIN_QT_CHECK([AC_CHECK_HEADER([qrencode.h],, have_qrencode=no)])
   fi
+fi
+
+dnl liboqs support (--with-liboqs or --with-liboqs-raccoon)
+if test "x$use_liboqs" = "xyes"; then
+  DOGECOIN_REQUIRE_EXPERIMENTAL
+  if test "x$liboqs_found" != "xyes"; then
+    AC_MSG_ERROR([liboqs support requested but liboqs was not found])
+  fi
+  AC_DEFINE([ENABLE_LIBOQS],[1],[Define to 1 to enable liboqs support])
+else
+  AC_DEFINE([ENABLE_LIBOQS],[0],[Define to 1 to enable liboqs support])
+fi
+
+dnl --with-liboqs-raccoon adds Raccoon-G-44 support
+if test "x$use_liboqs_raccoon" = "xyes"; then
+  AC_DEFINE([ENABLE_LIBOQS_RACCOON],[1],[Define to 1 to enable Raccoon-G-44 via edtubbs/liboqs fork])
 fi
 
 if test x$intel_avx2 = xyes; then
@@ -1181,6 +1226,8 @@ AM_CONDITIONAL([ENABLE_QT],[test x$bitcoin_enable_qt = xyes])
 AM_CONDITIONAL([ENABLE_QT_TESTS],[test x$BUILD_TEST_QT = xyes])
 AM_CONDITIONAL([ENABLE_BENCH],[test x$use_bench = xyes])
 AM_CONDITIONAL([USE_QRCODE], [test x$use_qr = xyes])
+AM_CONDITIONAL([ENABLE_LIBOQS], [test x$use_liboqs = xyes])
+AM_CONDITIONAL([ENABLE_LIBOQS_RACCOON], [test x$use_liboqs_raccoon = xyes])
 AM_CONDITIONAL([USE_LCOV],[test x$use_lcov = xyes])
 AM_CONDITIONAL([GLIBC_BACK_COMPAT],[test x$use_glibc_compat = xyes])
 AM_CONDITIONAL([HARDEN],[test x$use_hardening = xyes])
@@ -1234,6 +1281,8 @@ AC_SUBST(CRYPTO_LIBS)
 AC_SUBST(SSL_LIBS)
 AC_SUBST(EVENT_LIBS)
 AC_SUBST(EVENT_PTHREADS_LIBS)
+AC_SUBST(LIBOQS_CFLAGS)
+AC_SUBST(LIBOQS_LIBS)
 AC_SUBST(ZMQ_LIBS)
 AC_SUBST(QR_LIBS)
 AC_SUBST(HAVE_FDATASYNC)
@@ -1317,6 +1366,10 @@ if test x$allow_experimental = xyes; then
     echo "    AVX2 crypto   = $intel_avx2"
     echo "    ARMv8 crypto  = $armv8_crypto"
     echo "    ARMv82 crypto = $armv82_crypto"
+    echo "    with liboqs   = $use_liboqs"
+    if test x$use_liboqs = xyes; then
+        echo "      raccoon     = $use_liboqs_raccoon"
+    fi
 fi
 echo
 echo "  target os     = $TARGET_OS"

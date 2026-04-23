@@ -3,6 +3,8 @@
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
+#include "config/bitcoin-config.h"
+
 #include "walletmodel.h"
 
 #include "addresstablemodel.h"
@@ -15,13 +17,22 @@
 
 #include "base58.h"
 #include "keystore.h"
+#include "script/standard.h"
+#if ENABLE_LIBOQS
+#include "pqc/pqc_commitment.h"
+#include "support/experimental.h"
+EXPERIMENTAL_FEATURE
+#endif
 #include "validation.h"
+#include "primitives/transaction.h" // for CMutableTransaction, MakeTransactionRef
 #include "net.h" // for g_connman
 #include "sync.h"
 #include "ui_interface.h"
 #include "util.h" // for GetBoolArg
+#include "wallet/coincontrol.h"
 #include "wallet/wallet.h"
 #include "wallet/walletdb.h" // for BackupWallet
+#include "utilstrencodings.h"
 
 #include <stdint.h>
 
@@ -233,6 +244,38 @@ WalletModel::SendCoinsReturn WalletModel::prepareTransaction(WalletModelTransact
         total += rcp.amount;
 
     }
+    Q_FOREACH(const SendCoinsRecipient &rcp, recipients)
+    {
+        if (!rcp.includePqcCommitment) {
+            continue;
+        }
+        if (!IsHex(rcp.pqcCommitmentScriptPubKey.toStdString())) {
+            return InvalidAmount;
+        }
+        std::vector<unsigned char> scriptBytes = ParseHex(rcp.pqcCommitmentScriptPubKey.toStdString());
+        if (scriptBytes.empty()) {
+            return InvalidAmount;
+        }
+        CScript scriptPubKey(scriptBytes.begin(), scriptBytes.end());
+        CRecipient recipient = {scriptPubKey, 0, false};
+        vecSend.push_back(recipient);
+
+        // Add P2SH carrier output(s) when carrier mode is enabled
+#if ENABLE_LIBOQS
+        if (rcp.pqcCarrierMode) {
+            CScript carrierScriptPubKey;
+            if (PQCBuildCarrierScriptPubKey(carrierScriptPubKey)) {
+                // One carrier output per part needed (1 DOGE each to avoid dust rejection)
+                uint8_t parts = rcp.pqcCarrierParts > 0 ? rcp.pqcCarrierParts : 1;
+                for (uint8_t p = 0; p < parts; ++p) {
+                    CRecipient carrierRecipient = {carrierScriptPubKey, 100000000, false};
+                    vecSend.push_back(carrierRecipient);
+                }
+            }
+        }
+#endif
+        break;
+    }
     if(setAddress.size() != nAddresses)
     {
         return DuplicateAddress;
@@ -251,7 +294,12 @@ WalletModel::SendCoinsReturn WalletModel::prepareTransaction(WalletModelTransact
         transaction.newPossibleKeyChange(wallet);
 
         CAmount nFeeRequired = 0;
-        int nChangePosRet = -1;
+        // Honor an explicit change-position request from the caller's
+        // CoinControl (used by the PQC carrier flow to keep TX_C layout
+        // identical to the signed TX_BASE template). Default -1 means
+        // CreateTransaction will pick a random position.
+        int nChangePosRet = (coinControl && coinControl->nChangePosition >= 0)
+                            ? coinControl->nChangePosition : -1;
         std::string strFailReason;
 
         CWalletTx *newTx = transaction.getTransaction();
@@ -281,6 +329,140 @@ WalletModel::SendCoinsReturn WalletModel::prepareTransaction(WalletModelTransact
 
     return SendCoinsReturn(OK);
 }
+
+#if ENABLE_LIBOQS
+bool WalletModel::prepareBaseTransaction(const QList<SendCoinsRecipient>& recipients,
+                                          const CCoinControl *coinControl,
+                                          CMutableTransaction& txBase_out,
+                                          CScript& scriptPubKeyForInput0_out,
+                                          CAmount& input0Amount_out,
+                                          std::vector<COutPoint>& selectedCoins_out,
+                                          CAmount& nFeeRet_out,
+                                          QString& error_out,
+                                          CTxDestination& changeAddr_out,
+                                          int& nChangePosRet_out,
+                                          uint32_t& nLockTimeRet_out,
+                                          PQCCommitmentType pqcType,
+                                          uint8_t carrierParts,
+                                          bool carrierMode)
+{
+    // Build vecSend with payment outputs + dummy OP_RETURN + carrier outputs.
+    // This mirrors what prepareTransaction will build for the real TX_C,
+    // so that the reconstructed TX_BASE matches on both signer and verifier.
+    std::vector<CRecipient> vecSend;
+    for (const auto& rcp : recipients) {
+        if (!validateAddress(rcp.address)) {
+            error_out = tr("Invalid address");
+            return false;
+        }
+        if (rcp.amount <= 0) {
+            error_out = tr("Invalid amount");
+            return false;
+        }
+        CScript scriptPubKey = GetScriptForDestination(CBitcoinAddress(rcp.address.toStdString()).Get());
+        vecSend.push_back({scriptPubKey, rcp.amount, rcp.fSubtractFeeFromAmount});
+    }
+
+    // Dummy OP_RETURN commitment (same size as real: 36 bytes for tag+hash)
+    uint256 dummyCommitment;
+    CScript dummyCommitScript;
+    if (!PQCBuildCommitmentScript(pqcType, dummyCommitment, dummyCommitScript)) {
+        error_out = tr("Failed to build dummy commitment script");
+        return false;
+    }
+    vecSend.push_back({dummyCommitScript, 0, false});
+
+    // Add carrier outputs (1 DOGE each) if carrier mode is enabled
+    if (carrierMode && carrierParts > 0) {
+        CScript carrierScriptPubKey;
+        if (PQCBuildCarrierScriptPubKey(carrierScriptPubKey)) {
+            for (uint8_t p = 0; p < carrierParts; ++p) {
+                vecSend.push_back({carrierScriptPubKey, 100000000, false}); // 1 DOGE
+            }
+        }
+    }
+
+    LOCK2(cs_main, wallet->cs_wallet);
+
+    CWalletTx wtxDummy;
+    wtxDummy.fTimeReceivedIsTxTime = true;
+    wtxDummy.BindWallet(wallet);
+    CReserveKey reserveKey(wallet);
+    // Seed the change position from the caller's CoinControl hint (if any),
+    // so successive calls (resolving the final carrier part count) can
+    // converge on a stable change layout that the real TX_C can reuse.
+    int nChangePosRet = (coinControl && coinControl->nChangePosition >= 0)
+                        ? coinControl->nChangePosition : -1;
+    std::string strFailReason;
+
+    // Create unsigned transaction (sign=false) to get TX_C structure
+    bool fCreated = wallet->CreateTransaction(vecSend, wtxDummy, reserveKey, nFeeRet_out,
+                                               nChangePosRet, strFailReason, coinControl, false);
+    // Keep the reserve key so the same change address is available for later
+    reserveKey.KeepKey();
+
+    if (!fCreated) {
+        error_out = QString::fromStdString(strFailReason);
+        return false;
+    }
+
+    // Expose the chosen change position so the caller can force the
+    // final TX_C to use the identical layout (otherwise CreateTransaction's
+    // random change-position placement breaks TX_BASE reconstruction).
+    nChangePosRet_out = nChangePosRet;
+
+    // Expose the chosen nLockTime so the caller can pin the final TX_C to
+    // the exact same locktime used when signing the TX_BASE template.
+    // Without this, GetLocktimeForNewTransaction()'s ~10% locktime
+    // back-dating can cause the final TX_C's nLockTime to drift from the
+    // signed template, breaking sighash32(TX_BASE) reconstruction on SPV
+    // verifiers such as libdogecoin.
+    nLockTimeRet_out = wtxDummy.tx->nLockTime;
+
+    // Extract change destination for reuse in the final TX_C
+    changeAddr_out = CNoDestination();
+    if (nChangePosRet >= 0 && static_cast<unsigned>(nChangePosRet) < wtxDummy.tx->vout.size()) {
+        CTxDestination dest;
+        if (ExtractDestination(wtxDummy.tx->vout[nChangePosRet].scriptPubKey, dest)) {
+            changeAddr_out = dest;
+        }
+    }
+
+    // Get coin selection
+    selectedCoins_out.clear();
+    if (wtxDummy.tx->vin.empty()) {
+        error_out = tr("Transaction has no inputs");
+        return false;
+    }
+    for (const auto& txin : wtxDummy.tx->vin) {
+        selectedCoins_out.push_back(txin.prevout);
+    }
+
+    // Look up the first input's prevout for scriptPubKey and amount
+    const COutPoint& prevout0 = wtxDummy.tx->vin[0].prevout;
+    auto it = wallet->mapWallet.find(prevout0.hash);
+    if (it == wallet->mapWallet.end()) {
+        error_out = tr("Could not find first input in wallet");
+        return false;
+    }
+    if (prevout0.n >= it->second.tx->vout.size()) {
+        error_out = tr("Input index out of range");
+        return false;
+    }
+    scriptPubKeyForInput0_out = it->second.tx->vout[prevout0.n].scriptPubKey;
+    input0Amount_out = it->second.tx->vout[prevout0.n].nValue;
+
+    // Reconstruct TX_BASE from the unsigned TX_C using the BIP spec approach:
+    // strip OP_RETURN + carriers, restore carrier cost to vout[0]
+    CAmount carrierCost = 0;
+    if (!PQCReconstructTxBase(*wtxDummy.tx, txBase_out, carrierCost)) {
+        error_out = tr("Failed to reconstruct TX_BASE from TX_C");
+        return false;
+    }
+
+    return true;
+}
+#endif
 
 WalletModel::SendCoinsReturn WalletModel::sendCoins(WalletModelTransaction &transaction)
 {
@@ -334,6 +516,133 @@ WalletModel::SendCoinsReturn WalletModel::sendCoins(WalletModelTransaction &tran
 
     return SendCoinsReturn(OK);
 }
+
+#if ENABLE_LIBOQS
+bool WalletModel::sendCarrierTx(const CTransaction& txc,
+                                 PQCCommitmentType pqcType,
+                                 const std::vector<unsigned char>& pubkey,
+                                 const std::vector<unsigned char>& signature,
+                                 uint256& txr_txid_out,
+                                 QString& error_out)
+{
+    // Step 1: Find ALL P2SH carrier outputs in TX_C
+    CScript carrierScriptPubKey;
+    if (!PQCBuildCarrierScriptPubKey(carrierScriptPubKey)) {
+        error_out = tr("Failed to build carrier scriptPubKey");
+        return false;
+    }
+
+    std::vector<std::pair<int, CAmount> > carrierOutputs; // (index, value)
+    for (unsigned int i = 0; i < txc.vout.size(); ++i) {
+        if (txc.vout[i].scriptPubKey == carrierScriptPubKey) {
+            carrierOutputs.push_back(std::make_pair(static_cast<int>(i), txc.vout[i].nValue));
+        }
+    }
+    if (carrierOutputs.empty()) {
+        error_out = tr("No P2SH carrier output found in TX_C");
+        return false;
+    }
+
+    // Step 2: Compute number of carrier parts needed
+    size_t payloadSize = pubkey.size() + signature.size();
+    uint8_t partsNeeded = PQCCarrierPartsNeeded(payloadSize);
+    if (partsNeeded == 0) {
+        error_out = tr("Invalid PQC payload size");
+        return false;
+    }
+
+    if (static_cast<size_t>(partsNeeded) > carrierOutputs.size()) {
+        error_out = tr("TX_C has %1 carrier output(s) but %2 needed for payload")
+            .arg(carrierOutputs.size()).arg(partsNeeded);
+        return false;
+    }
+
+    // Step 3: Build TX_R as a raw transaction with one input per carrier part
+    CMutableTransaction txr;
+    txr.nVersion = 1;
+    txr.nLockTime = 0;
+
+    CAmount totalCarrierValue = 0;
+    for (uint8_t p = 0; p < partsNeeded; ++p) {
+        CTxIn carrierInput(COutPoint(txc.GetHash(), carrierOutputs[p].first), CScript(), CTxIn::SEQUENCE_FINAL);
+        txr.vin.push_back(carrierInput);
+        totalCarrierValue += carrierOutputs[p].second;
+    }
+
+    // Step 4: Build carrier scriptSig for each part
+    for (uint8_t p = 0; p < partsNeeded; ++p) {
+        CScript carrierScriptSig;
+        if (!PQCBuildCarrierPartScriptSig(pqcType, pubkey, signature, p, carrierScriptSig)) {
+            error_out = tr("Failed to build carrier scriptSig for part %1").arg(p);
+            return false;
+        }
+        txr.vin[p].scriptSig = carrierScriptSig;
+    }
+
+    // Step 5: Estimate fee and set output
+    // Get a change address from the wallet first (to estimate full tx size)
+    CPubKey changePubKey;
+    {
+        LOCK(wallet->cs_wallet);
+        if (!wallet->GetKeyFromPool(changePubKey)) {
+            error_out = tr("Failed to get change address from wallet keypool");
+            return false;
+        }
+    }
+    CScript changeScript = GetScriptForDestination(changePubKey.GetID());
+    txr.vout.push_back(CTxOut(0, changeScript)); // placeholder value
+
+    // Serialize to estimate size
+    CTransaction txrTemp(txr);
+    unsigned int txrSize = ::GetSerializeSize(txrTemp, SER_NETWORK, PROTOCOL_VERSION);
+    CAmount fee = static_cast<CAmount>(txrSize) * PQC_CARRIER_FEE_RATE;
+    if (fee < PQC_CARRIER_MIN_FEE) fee = PQC_CARRIER_MIN_FEE;
+
+    CAmount outputValue = totalCarrierValue - fee;
+    if (outputValue <= 0) {
+        error_out = tr("Carrier output value too small to cover TX_R fee");
+        return false;
+    }
+    txr.vout[0].nValue = outputValue;
+
+    // Step 6: Submit to mempool and relay
+    CTransactionRef txrRef = MakeTransactionRef(std::move(txr));
+    txr_txid_out = txrRef->GetHash();
+
+    {
+        CValidationState state;
+        bool fMissingInputs = false;
+        LOCK(cs_main);
+        if (!AcceptToMemoryPool(mempool, state, txrRef, false /* fLimitFree */,
+                                &fMissingInputs, nullptr /* plTxnReplaced */,
+                                false /* fOverrideMempoolLimit */,
+                                0 /* nAbsurdFee */)) {
+            error_out = tr("TX_R rejected from mempool: %1").arg(QString::fromStdString(state.GetRejectReason()));
+            return false;
+        }
+    }
+
+    // Add to wallet so it appears in transaction list
+    {
+        LOCK(wallet->cs_wallet);
+        CWalletTx wtxr(wallet, txrRef);
+        wallet->AddToWallet(wtxr, false);
+    }
+
+    // Relay to peers
+    if (g_connman) {
+        CInv inv(MSG_TX, txr_txid_out);
+        g_connman->ForEachNode([&inv](CNode* pnode) {
+            pnode->PushInventory(inv);
+        });
+    }
+
+    LogPrintf("PQC: TX_R broadcast successfully: %s (spending %d TX_C carrier output(s) from %s)\n",
+              txr_txid_out.GetHex(), partsNeeded, txc.GetHash().GetHex());
+
+    return true;
+}
+#endif
 
 OptionsModel *WalletModel::getOptionsModel()
 {
@@ -662,6 +971,39 @@ bool WalletModel::saveReceiveRequest(const std::string &sAddress, const int64_t 
         return wallet->EraseDestData(dest, key);
     else
         return wallet->AddDestData(dest, key, sRequest);
+}
+
+bool WalletModel::getWalletMeta(const std::string &key, std::string *value) const
+{
+    LOCK(wallet->cs_wallet);
+    if (!wallet->vchDefaultKey.IsValid()) {
+        return false;
+    }
+    const CTxDestination dest = wallet->vchDefaultKey.GetID();
+    return wallet->GetDestData(dest, key, value);
+}
+
+bool WalletModel::saveWalletMeta(const std::string &key, const std::string &value)
+{
+    LOCK(wallet->cs_wallet);
+    if (!wallet->vchDefaultKey.IsValid()) {
+        return false;
+    }
+    const CTxDestination dest = wallet->vchDefaultKey.GetID();
+    bool ok = false;
+    if (value.empty())
+        ok = wallet->EraseDestData(dest, key);
+    else
+        ok = wallet->AddDestData(dest, key, value);
+    if (ok) {
+        Q_EMIT walletMetaChanged(QString::fromStdString(key));
+    }
+    return ok;
+}
+
+QString WalletModel::getWalletFilePath() const
+{
+    return QString::fromStdString((GetDataDir() / wallet->strWalletFile).string());
 }
 
 bool WalletModel::transactionCanBeAbandoned(uint256 hash) const

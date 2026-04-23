@@ -3,6 +3,8 @@
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
+#include "config/bitcoin-config.h"
+
 #include "transactionrecord.h"
 
 #include "base58.h"
@@ -10,6 +12,10 @@
 #include "validation.h"
 #include "timedata.h"
 #include "wallet/wallet.h"
+
+#if ENABLE_LIBOQS
+#include "pqc/pqc_commitment.h"
+#endif
 
 #include <stdint.h>
 
@@ -130,6 +136,27 @@ QList<TransactionRecord> TransactionRecord::decomposeTransaction(const CWallet *
                     continue;
                 }
 
+                // Skip unspendable outputs (OP_RETURN) that carry no value,
+                // unless this is a PQC commitment output (handled below).
+#if ENABLE_LIBOQS
+                {
+                    PQCCommitmentType opRetType;
+                    uint256 opRetCommitment;
+                    if (txout.scriptPubKey.IsUnspendable() && txout.nValue == 0 &&
+                        PQCExtractCommitment(txout.scriptPubKey, opRetType, opRetCommitment))
+                    {
+                        // PQC commitment OP_RETURN — show as a distinct entry
+                        sub.type = TransactionRecord::SendToOther;
+                        sub.address = opRetCommitment.GetHex();
+                        sub.debit = 0;
+                        sub.pqcRole = PqcTxCCommitment;
+                        sub.pqcCommitmentHash = opRetCommitment.GetHex();
+                        sub.pqcCommitmentAlgorithm = PQCCommitmentTypeToString(opRetType);
+                        parts.append(sub);
+                        continue;
+                    }
+                }
+#endif
                 CTxDestination address;
                 if (ExtractDestination(txout.scriptPubKey, address))
                 {
@@ -165,6 +192,39 @@ QList<TransactionRecord> TransactionRecord::decomposeTransaction(const CWallet *
             parts.last().involvesWatchAddress = involvesWatchAddress;
         }
     }
+
+#if ENABLE_LIBOQS
+    // Detect PQC transaction roles and tag the records
+    {
+        // Check if TX_C (has PQC commitment OP_RETURN)
+        PQCCommitmentType pqcType;
+        uint256 pqcCommitment;
+        uint32_t pqcOutputIndex = 0;
+        bool isTxC = PQCExtractCommitmentFromTx(*wtx.tx, pqcType, pqcCommitment, pqcOutputIndex);
+
+        // Check if TX_R (has carrier scriptSig in inputs)
+        bool isTxR = false;
+        if (!isTxC) {
+            for (uint32_t i = 0; i < wtx.tx->vin.size(); ++i) {
+                PQCCommitmentType inputType;
+                if (PQCDetectCarrierScriptSig(wtx.tx->vin[i].scriptSig, inputType)) {
+                    isTxR = true;
+                    break;
+                }
+            }
+        }
+
+        if (isTxC || isTxR) {
+            PqcRole role = isTxC ? PqcTxC : PqcTxR;
+            for (int i = 0; i < parts.size(); ++i) {
+                // Don't overwrite PqcTxCCommitment — it was already set
+                // for the OP_RETURN commitment output during debit processing.
+                if (parts[i].pqcRole == PqcNone)
+                    parts[i].pqcRole = role;
+            }
+        }
+    }
+#endif
 
     return parts;
 }
