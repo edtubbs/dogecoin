@@ -8,9 +8,7 @@ validation.
 
 ## Prerequisites
 
-Build libdogecoin with PQC support from the
-[copilot/run-end-to-end-tests-dilithium2-raccoon-g](https://github.com/edtubbs/libdogecoin/tree/copilot/run-end-to-end-tests-dilithium2-raccoon-g)
-branch:
+Build libdogecoin with PQC support:
 
 ```bash
 cd libdogecoin
