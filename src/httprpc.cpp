@@ -21,9 +21,23 @@
 #include <boost/algorithm/string.hpp> // boost::trim
 #include <boost/foreach.hpp> //BOOST_FOREACH
 #include <functional> // std::function
+#include <map>
 
 /** WWW-Authenticate to present with 401 Unauthorized response */
 static const char* WWW_AUTH_HEADER_DATA = "Basic realm=\"jsonrpc\"";
+
+/** MITRE ATT&CK T1110: Maximum failed auth attempts per IP before extended lockout */
+static const int RPC_AUTH_MAX_FAILURES = 5;
+/** MITRE ATT&CK T1110: Lockout duration in seconds after max failures exceeded */
+static const int RPC_AUTH_LOCKOUT_SECONDS = 300;
+
+/** Track failed RPC authentication attempts per IP */
+struct RPCAuthAttempt {
+    int nFailures;
+    int64_t nLastFailure;
+};
+static CCriticalSection cs_rpcauth;
+static std::map<std::string, RPCAuthAttempt> mapRPCAuthAttempts;
 
 /** Simple one-shot callback timer to be used by the RPC mechanism to e.g.
  * re-lock the wallet.
@@ -155,6 +169,28 @@ static bool HTTPReq_JSONRPC(HTTPRequest* req, const std::string &)
         req->WriteReply(HTTP_BAD_METHOD, "JSONRPC server handles only POST requests");
         return false;
     }
+
+    // MITRE ATT&CK T1110: Check per-IP rate limit before processing auth
+    std::string peerAddr = req->GetPeer().ToString();
+    {
+        LOCK(cs_rpcauth);
+        auto it = mapRPCAuthAttempts.find(peerAddr);
+        if (it != mapRPCAuthAttempts.end()) {
+            if (it->second.nFailures >= RPC_AUTH_MAX_FAILURES) {
+                int64_t elapsed = GetTime() - it->second.nLastFailure;
+                if (elapsed < RPC_AUTH_LOCKOUT_SECONDS) {
+                    LogPrintf("ThreadRPCServer rate-limited connection from %s (%d failures, %ds remaining)\n",
+                              peerAddr, it->second.nFailures, RPC_AUTH_LOCKOUT_SECONDS - elapsed);
+                    req->WriteHeader("WWW-Authenticate", WWW_AUTH_HEADER_DATA);
+                    req->WriteReply(HTTP_TOO_MANY_REQUESTS);
+                    return false;
+                }
+                // Lockout period expired, reset counter
+                it->second.nFailures = 0;
+            }
+        }
+    }
+
     // Check authorization
     std::pair<bool, std::string> authHeader = req->GetHeader("authorization");
     if (!authHeader.first) {
@@ -165,16 +201,32 @@ static bool HTTPReq_JSONRPC(HTTPRequest* req, const std::string &)
 
     JSONRPCRequest jreq;
     if (!RPCAuthorized(authHeader.second, jreq.authUser)) {
-        LogPrintf("ThreadRPCServer incorrect password attempt from %s\n", req->GetPeer().ToString());
+        LogPrintf("ThreadRPCServer incorrect password attempt from %s\n", peerAddr);
 
-        /* Deter brute-forcing
+        // MITRE ATT&CK T1110: Track failed attempts per IP with escalating delay
+        int nFailures;
+        {
+            LOCK(cs_rpcauth);
+            RPCAuthAttempt& attempt = mapRPCAuthAttempts[peerAddr];
+            attempt.nFailures++;
+            attempt.nLastFailure = GetTime();
+            nFailures = attempt.nFailures;
+        }
+
+        /* Deter brute-forcing with escalating delay (capped at 750ms to avoid thread exhaustion).
            If this results in a DoS the user really
            shouldn't have their RPC port exposed. */
-        MilliSleep(250);
+        MilliSleep(250 * std::min(nFailures, 3));
 
         req->WriteHeader("WWW-Authenticate", WWW_AUTH_HEADER_DATA);
         req->WriteReply(HTTP_UNAUTHORIZED);
         return false;
+    }
+
+    // Successful auth resets failure counter for this peer
+    {
+        LOCK(cs_rpcauth);
+        mapRPCAuthAttempts.erase(peerAddr);
     }
 
     try {
