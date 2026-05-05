@@ -363,22 +363,37 @@ QString TransactionTableModel::lookupAddress(const std::string &address, bool to
 
 QString TransactionTableModel::formatTxType(const TransactionRecord *wtx) const
 {
+    // PQC commitment OP_RETURN output gets its own label
+    if (wtx->pqcRole == TransactionRecord::PqcTxCCommitment)
+        return tr("PQC Commitment");
+    // PQC reveal transaction (TX_R)
+    if (wtx->pqcRole == TransactionRecord::PqcTxR)
+        return tr("PQC Reveal");
+
+    QString base;
     switch(wtx->type)
     {
     case TransactionRecord::RecvWithAddress:
-        return tr("Received with");
+        base = tr("Received with");
+        break;
     case TransactionRecord::RecvFromOther:
-        return tr("Received from");
+        base = tr("Received from");
+        break;
     case TransactionRecord::SendToAddress:
     case TransactionRecord::SendToOther:
-        return tr("Sent to");
+        base = tr("Sent to");
+        break;
     case TransactionRecord::SendToSelf:
-        return tr("Payment to yourself");
+        base = tr("Payment to yourself");
+        break;
     case TransactionRecord::Generated:
-        return tr("Mined");
+        base = tr("Mined");
+        break;
     default:
-        return QString();
+        break;
     }
+
+    return base;
 }
 
 QVariant TransactionTableModel::txAddressDecoration(const TransactionRecord *wtx) const
@@ -398,12 +413,37 @@ QVariant TransactionTableModel::txAddressDecoration(const TransactionRecord *wtx
     }
 }
 
+QVariant TransactionTableModel::txTypeDecoration(const TransactionRecord *wtx) const
+{
+    if (wtx->pqcRole == TransactionRecord::PqcTxC ||
+        wtx->pqcRole == TransactionRecord::PqcTxCCommitment)
+        return QIcon(":/icons/tx_pqc_c");
+    if (wtx->pqcRole == TransactionRecord::PqcTxR)
+        return QIcon(":/icons/tx_pqc_r");
+    return QVariant();
+}
+
 QString TransactionTableModel::formatTxToAddress(const TransactionRecord *wtx, bool tooltip) const
 {
     QString watchAddress;
     if (tooltip) {
         // Mark transactions involving watch-only addresses by adding " (watch-only)"
         watchAddress = wtx->involvesWatchAddress ? QString(" (") + tr("watch-only") + QString(")") : "";
+    }
+
+    // PQC commitment OP_RETURN — show truncated commitment hash with algorithm type
+    if (wtx->pqcRole == TransactionRecord::PqcTxCCommitment && !wtx->pqcCommitmentHash.empty()) {
+        QString hash = QString::fromStdString(wtx->pqcCommitmentHash);
+        QString algo = QString::fromStdString(wtx->pqcCommitmentAlgorithm);
+        if (algo.contains('/'))
+            algo = algo.left(algo.indexOf('/'));
+        if (tooltip) {
+            return tr("PQC commitment (%1): ").arg(algo) + hash;
+        }
+        // Truncated display: [ALGO] first 8 + ... + last 8 hex chars
+        if (hash.length() > 20)
+            return QString("[%1] %2...%3").arg(algo, hash.left(8), hash.right(8));
+        return QString("[%1] %2").arg(algo, hash);
     }
 
     switch(wtx->type)
@@ -503,10 +543,35 @@ QVariant TransactionTableModel::txWatchonlyDecoration(const TransactionRecord *w
 QString TransactionTableModel::formatTooltip(const TransactionRecord *rec) const
 {
     QString tooltip = formatTxStatus(rec) + QString("\n") + formatTxType(rec);
-    if(rec->type==TransactionRecord::RecvFromOther || rec->type==TransactionRecord::SendToOther ||
-       rec->type==TransactionRecord::SendToAddress || rec->type==TransactionRecord::RecvWithAddress)
+    // For PQC commitment entries, the switch block below provides the full
+    // tooltip detail; skip the generic formatTxToAddress to avoid duplication.
+    if(rec->pqcRole != TransactionRecord::PqcTxCCommitment &&
+       (rec->type==TransactionRecord::RecvFromOther || rec->type==TransactionRecord::SendToOther ||
+        rec->type==TransactionRecord::SendToAddress || rec->type==TransactionRecord::RecvWithAddress))
     {
         tooltip += QString(" ") + formatTxToAddress(rec, true);
+    }
+    // Add PQC role description on hover
+    switch(rec->pqcRole)
+    {
+    case TransactionRecord::PqcTxC:
+        tooltip += QString("\n") + tr("PQC Commitment — contains OP_RETURN commitment hash and P2SH carrier output");
+        break;
+    case TransactionRecord::PqcTxCCommitment:
+        {
+            QString algo = QString::fromStdString(rec->pqcCommitmentAlgorithm);
+            if (algo.contains('/'))
+                algo = algo.left(algo.indexOf('/'));
+            tooltip += QString("\n") + tr("%1 — SHA256(pubkey || signature) hash embedded in this output").arg(algo);
+        }
+        if (!rec->pqcCommitmentHash.empty())
+            tooltip += QString("\n") + tr("Commitment: ") + QString::fromStdString(rec->pqcCommitmentHash);
+        break;
+    case TransactionRecord::PqcTxR:
+        tooltip += QString("\n") + tr("PQC Reveal — carries the post-quantum public key and signature in scriptSig");
+        break;
+    default:
+        break;
     }
     return tooltip;
 }
@@ -526,6 +591,8 @@ QVariant TransactionTableModel::data(const QModelIndex &index, int role) const
             return txStatusDecoration(rec);
         case Watchonly:
             return txWatchonlyDecoration(rec);
+        case Type:
+            return txTypeDecoration(rec);
         case ToAddress:
             return txAddressDecoration(rec);
         }
@@ -533,6 +600,11 @@ QVariant TransactionTableModel::data(const QModelIndex &index, int role) const
     case Qt::DecorationRole:
     {
         QIcon icon = qvariant_cast<QIcon>(index.data(RawDecorationRole));
+        // PQC icons are grayscale+alpha with shading detail; skip
+        // TextColorIcon which would replace all RGB with a single color,
+        // turning the detailed shield into a solid-color blob.
+        if (index.column() == Type && rec->pqcRole != TransactionRecord::PqcNone)
+            return icon;
         return platformStyle->TextColorIcon(icon);
     }
     case Qt::DisplayRole:
@@ -647,6 +719,8 @@ QVariant TransactionTableModel::data(const QModelIndex &index, int role) const
         return formatTxAmount(rec, false, BitcoinUnits::separatorNever);
     case StatusRole:
         return rec->status.status;
+    case PqcDecorationRole:
+        return txTypeDecoration(rec);
     }
     return QVariant();
 }

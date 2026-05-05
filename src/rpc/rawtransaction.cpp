@@ -4,6 +4,8 @@
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
+#include "config/bitcoin-config.h"
+
 #include "base58.h"
 #include "chain.h"
 #include "coins.h"
@@ -15,6 +17,11 @@
 #include "merkleblock.h"
 #include "net.h"
 #include "policy/policy.h"
+#if ENABLE_LIBOQS
+#include "pqc/pqc_commitment.h"
+#include "support/experimental.h"
+EXPERIMENTAL_FEATURE
+#endif
 #include "primitives/transaction.h"
 #include "rpc/server.h"
 #include "script/script.h"
@@ -107,6 +114,42 @@ void TxToJSON(const CTransaction& tx, const uint256 hashBlock, UniValue& entry)
         vout.push_back(out);
     }
     entry.pushKV("vout", vout);
+
+#if ENABLE_LIBOQS
+    PQCCommitmentType pqcType;
+    uint256 pqcCommitment;
+    uint32_t pqcOutputIndex = 0;
+    if (PQCExtractCommitmentFromTx(tx, pqcType, pqcCommitment, pqcOutputIndex)) {
+        UniValue pqc(UniValue::VOBJ);
+        pqc.pushKV("detected", true);
+        pqc.pushKV("type", PQCCommitmentTypeToString(pqcType));
+        pqc.pushKV("commitment", pqcCommitment.GetHex());
+        pqc.pushKV("output_index", (int64_t)pqcOutputIndex);
+
+        // Carrier mode validation: extract PQC pubkey+sig from P2SH carrier scriptSig
+        PQCCommitmentType carrierType;
+        uint32_t carrierInputIndex = 0;
+        uint16_t carrierPkLen = 0;
+        uint16_t carrierSigLen = 0;
+        const bool carrierValidated = PQCValidateCommitmentFromCarrier(tx, pqcCommitment, carrierType, carrierInputIndex, carrierPkLen, carrierSigLen);
+        pqc.pushKV("carrier_validated", carrierValidated);
+        if (carrierValidated) {
+            pqc.pushKV("carrier_input_index", (int64_t)carrierInputIndex);
+            pqc.pushKV("carrier_pk_len", (int64_t)carrierPkLen);
+            pqc.pushKV("carrier_sig_len", (int64_t)carrierSigLen);
+
+            // Extract and report the raw PQC public key and signature hex
+            std::vector<unsigned char> carrierPubkey, carrierSig;
+            if (PQCExtractKeyMaterialFromCarrier(tx, carrierType, carrierPubkey, carrierSig)) {
+                pqc.pushKV("carrier_pk_hex", HexStr(carrierPubkey.begin(), carrierPubkey.end()));
+                pqc.pushKV("carrier_sig_hex", HexStr(carrierSig.begin(), carrierSig.end()));
+                pqc.pushKV("carrier_algorithm", PQCGetOQSAlgorithmName(carrierType) ? PQCGetOQSAlgorithmName(carrierType) : "unknown");
+            }
+        }
+
+        entry.pushKV("pqc_commitment", pqc);
+    }
+#endif
 
     if (!hashBlock.IsNull()) {
         entry.pushKV("blockhash", hashBlock.GetHex());

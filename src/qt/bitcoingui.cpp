@@ -116,6 +116,9 @@ BitcoinGUI::BitcoinGUI(const PlatformStyle *_platformStyle, const NetworkStyle *
     toggleHideAction(0),
     encryptWalletAction(0),
     backupWalletAction(0),
+    backupWalletEncryptedAction(0),
+    restoreWalletEncryptedAction(0),
+    pqcSignatureDialogAction(0),
     changePassphraseAction(0),
     aboutQtAction(0),
     openRPCConsoleAction(0),
@@ -375,6 +378,12 @@ void BitcoinGUI::createActions()
     encryptWalletAction->setCheckable(true);
     backupWalletAction = new QAction(platformStyle->TextColorIcon(":/icons/filesave"), tr("&Backup Wallet..."), this);
     backupWalletAction->setStatusTip(tr("Backup wallet to another location"));
+    backupWalletEncryptedAction = new QAction(platformStyle->TextColorIcon(":/icons/lock_closed"), tr("Backup Wallet (PQC Envelope)..."), this);
+    backupWalletEncryptedAction->setStatusTip(tr("Backup wallet with double encryption (AES-256-CBC + ML-KEM-768)"));
+    restoreWalletEncryptedAction = new QAction(platformStyle->TextColorIcon(":/icons/open"), tr("Restore Wallet (PQC Envelope)..."), this);
+    restoreWalletEncryptedAction->setStatusTip(tr("Decrypt and restore a PQC envelope wallet backup"));
+    pqcSignatureDialogAction = new QAction(platformStyle->TextColorIcon(":/icons/edit"), tr("Manage &PQC Keys..."), this);
+    pqcSignatureDialogAction->setStatusTip(tr("Manage PQC signature and wallet-export keys"));
     changePassphraseAction = new QAction(platformStyle->TextColorIcon(":/icons/key"), tr("&Change Passphrase..."), this);
     changePassphraseAction->setStatusTip(tr("Change the passphrase used for wallet encryption"));
     signMessageAction = new QAction(platformStyle->TextColorIcon(":/icons/edit"), tr("Sign &message..."), this);
@@ -425,6 +434,9 @@ EXPERIMENTAL_FEATURE
     {
         connect(encryptWalletAction, SIGNAL(triggered(bool)), walletFrame, SLOT(encryptWallet(bool)));
         connect(backupWalletAction, SIGNAL(triggered()), walletFrame, SLOT(backupWallet()));
+        connect(backupWalletEncryptedAction, SIGNAL(triggered()), walletFrame, SLOT(backupWalletEncrypted()));
+        connect(restoreWalletEncryptedAction, SIGNAL(triggered()), walletFrame, SLOT(restoreWalletEncrypted()));
+        connect(pqcSignatureDialogAction, SIGNAL(triggered()), walletFrame, SLOT(showPQCSignatureDialog()));
         connect(changePassphraseAction, SIGNAL(triggered()), walletFrame, SLOT(changePassphrase()));
         connect(signMessageAction, SIGNAL(triggered()), this, SLOT(gotoSignMessageTab()));
         connect(verifyMessageAction, SIGNAL(triggered()), this, SLOT(gotoVerifyMessageTab()));
@@ -460,6 +472,9 @@ void BitcoinGUI::createMenuBar()
     {
         file->addAction(openAction);
         file->addAction(backupWalletAction);
+        file->addAction(backupWalletEncryptedAction);
+        file->addAction(restoreWalletEncryptedAction);
+        file->addAction(pqcSignatureDialogAction);
         file->addAction(signMessageAction);
         file->addAction(verifyMessageAction);
         file->addAction(paperWalletAction);
@@ -607,6 +622,9 @@ void BitcoinGUI::setWalletActionsEnabled(bool enabled)
     historyAction->setEnabled(enabled);
     encryptWalletAction->setEnabled(enabled);
     backupWalletAction->setEnabled(enabled);
+    backupWalletEncryptedAction->setEnabled(enabled);
+    restoreWalletEncryptedAction->setEnabled(enabled);
+    pqcSignatureDialogAction->setEnabled(enabled);
     changePassphraseAction->setEnabled(enabled);
     signMessageAction->setEnabled(enabled);
     verifyMessageAction->setEnabled(enabled);
@@ -619,11 +637,15 @@ void BitcoinGUI::setWalletActionsEnabled(bool enabled)
 void BitcoinGUI::createTrayIcon(const NetworkStyle *networkStyle)
 {
 #ifndef Q_OS_MAC
+    if (!QSystemTrayIcon::isSystemTrayAvailable()) {
+        trayIcon = nullptr;
+    } else {
     trayIcon = new QSystemTrayIcon(this);
     QString toolTip = tr("%1 client").arg(tr(PACKAGE_NAME)) + " " + networkStyle->getTitleAddText();
     trayIcon->setToolTip(toolTip);
     trayIcon->setIcon(networkStyle->getTrayAndWindowIcon());
     trayIcon->hide();
+    }
 #endif
 
     notificator = new Notificator(QApplication::applicationName(), trayIcon, this);

@@ -21,6 +21,11 @@
 #include "policy/fees.h"
 #include "policy/policy.h"
 #include "pow.h"
+#if ENABLE_LIBOQS
+#include "pqc/pqc_commitment.h"
+#include "support/experimental.h"
+EXPERIMENTAL_FEATURE
+#endif
 #include "primitives/block.h"
 #include "primitives/pureheader.h"
 #include "primitives/transaction.h"
@@ -1039,6 +1044,36 @@ bool AcceptToMemoryPoolWorker(CTxMemPool& pool, CValidationState& state, const C
             if (!pool.exists(hash))
                 return state.DoS(0, false, REJECT_INSUFFICIENTFEE, "mempool full");
         }
+
+#if ENABLE_LIBOQS
+        PQCCommitmentType pqc_type;
+        uint256 pqc_commitment;
+        uint32_t pqc_output_index = 0;
+        if (PQCExtractCommitmentFromTx(tx, pqc_type, pqc_commitment, pqc_output_index)) {
+            // Carrier mode validation (P2SH carrier scriptSig)
+            PQCCommitmentType carrier_type;
+            uint32_t carrier_input_index = 0;
+            uint16_t carrier_pk_len = 0;
+            uint16_t carrier_sig_len = 0;
+            if (PQCValidateCommitmentFromCarrier(tx, pqc_commitment, carrier_type, carrier_input_index, carrier_pk_len, carrier_sig_len)) {
+                LogPrint("mempool", "PQC commitment validated via carrier for mempool tx %s: type=%s vout=%u carrier_vin=%u pk_len=%u sig_len=%u commitment=%s\n",
+                    hash.ToString(), PQCCommitmentTypeToString(carrier_type), pqc_output_index, carrier_input_index,
+                    carrier_pk_len, carrier_sig_len, pqc_commitment.GetHex());
+                // Extract PQC key material for informational logging
+                std::vector<unsigned char> pqc_pubkey, pqc_sig;
+                if (PQCExtractKeyMaterialFromCarrier(tx, carrier_type, pqc_pubkey, pqc_sig)) {
+                    LogPrint("mempool", "PQC carrier key material extracted for tx %s: algorithm=%s pk_len=%u sig_len=%u pk_prefix=%s sig_prefix=%s (signature verification requires signing message)\n",
+                        hash.ToString(), PQCGetOQSAlgorithmName(carrier_type) ? PQCGetOQSAlgorithmName(carrier_type) : "unknown",
+                        pqc_pubkey.size(), pqc_sig.size(),
+                        HexStr(pqc_pubkey.begin(), pqc_pubkey.begin() + std::min((size_t)8, pqc_pubkey.size())),
+                        HexStr(pqc_sig.begin(), pqc_sig.begin() + std::min((size_t)8, pqc_sig.size())));
+                }
+            } else {
+                LogPrint("mempool", "PQC commitment accepted without carrier match for mempool tx %s: type=%s vout=%u commitment=%s\n",
+                    hash.ToString(), PQCCommitmentTypeToString(pqc_type), pqc_output_index, pqc_commitment.GetHex());
+            }
+        }
+#endif
     }
 
     GetMainSignals().SyncTransaction(tx, NULL, CMainSignals::SYNC_TRANSACTION_NOT_IN_BLOCK);

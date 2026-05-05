@@ -9,13 +9,17 @@
 #include "walletmodel.h"
 
 #include <QDialog>
+#include <QLineEdit>
 #include <QMessageBox>
 #include <QString>
 #include <QTimer>
 
 class ClientModel;
+class QCheckBox;
+class QComboBox;
 class OptionsModel;
 class PlatformStyle;
+class QPushButton;
 class SendCoinsEntry;
 class SendCoinsRecipient;
 
@@ -63,6 +67,19 @@ private:
     bool fNewRecipientAllowed;
     bool fFeeMinimized;
     const PlatformStyle *platformStyle;
+    QComboBox *pqcKeyPairComboBox;
+    QLineEdit *pqcCommitmentLineEdit;
+    QCheckBox *pqcIncludeCommitmentCheckBox;
+    QCheckBox *pqcCarrierModeCheckBox;
+    QPushButton *pqcLoadStoredKeyButton;
+    QPushButton *pqcGenerateButton;
+    QPushButton *pqcDecodeButton;
+    QString pqcSelectedAlgorithm;
+    QString pqcSelectedPublicKeyHex;
+    QString pqcSelectedSignatureHex;
+    QString pqcSigningMessageHex;
+    QString pqcCommitmentScriptPubKeyHex;
+    std::vector<unsigned char> pqcDecryptedSecretKey; // PQC secret key held until send
 
     // Process WalletModel::SendCoinsReturn and generate a pair consisting
     // of a message and message flags for use in Q_EMIT message().
@@ -94,6 +111,10 @@ private Q_SLOTS:
     void updateMinFeeLabel();
     void updateFeeLabel();
     void updateGlobalFeeVariables();
+    void refreshPqcKeyInventory();
+    void onUseStoredPqcKeyClicked();
+    void onGeneratePqcCommitmentClicked();
+    void onDecodePqcCommitmentClicked();
 
 Q_SIGNALS:
     // Fired when a message should be reported to the user

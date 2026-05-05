@@ -181,6 +181,11 @@ testScripts = [
     'getmocktime.py',
     'uptime.py',
     'p2p-getdata.py',
+    'pqc_carrier_validation.py',
+    'pqc_verify_commitment_test.py',
+    'pqc_testnet_checkpoint_scan_test.py',
+    'pqc_rpc_generate_commitment_test.py',
+    'pqc_send_rpc.py',
 ]
 if ENABLE_ZMQ:
     testScripts.append('zmq_test.py')
@@ -189,6 +194,7 @@ testScriptsExt = [
     'pruning.py',
     # vv Tests less than 20m vv
     'smartfees.py',
+    'pqc_testnet_checkpoint_scan.py',
     # vv Tests less than 5m vv
     'maxuploadtarget.py',
     'mempool_packages.py',
