@@ -49,7 +49,12 @@
 #include <QClipboard>
 #include <QDateTime>
 #include <QDesktopServices>
+#if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
 #include <QDesktopWidget>
+#else
+#include <QGuiApplication>
+#include <QScreen>
+#endif
 #include <QDoubleValidator>
 #include <QFileDialog>
 #include <QFont>
@@ -838,7 +843,11 @@ void restoreWindowGeometry(const QString& strSetting, const QSize& defaultSize, 
     QSize size = settings.value(strSetting + "Size", defaultSize).toSize();
 
     if (!pos.x() && !pos.y()) {
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+        QRect screen = QGuiApplication::primaryScreen()->geometry();
+#else
         QRect screen = QApplication::desktop()->screenGeometry();
+#endif
         pos.setX((screen.width() - size.width()) / 2);
         pos.setY((screen.height() - size.height()) / 2);
     }

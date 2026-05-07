@@ -190,7 +190,7 @@ jobs:
             check-security: true
             check-symbols: false
             dep-opts: ""
-            config-opts: "--with-gui=qt6 --enable-c++17 --disable-tests"
+            config-opts: "--with-gui=qt6 --enable-c++17 --disable-tests CPPFLAGS=-DBOOST_NO_AUTO_PTR"
             goal: deploy
             sdk: 10.11
             sdk-shasum: "bec9d089ebf2e2dd59b1a811a38ec78ebd5da18cbbcd6ab39d1e59f64ac5033f"

@@ -24,7 +24,12 @@
 
 #include <QApplication>
 #include <QCloseEvent>
+#if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
 #include <QDesktopWidget>
+#else
+#include <QGuiApplication>
+#include <QScreen>
+#endif
 #include <QPainter>
 #include <QRadialGradient>
 
@@ -132,7 +137,11 @@ SplashScreen::SplashScreen(Qt::WindowFlags f, const NetworkStyle *networkStyle) 
     QRect r(QPoint(), QSize(pixmap.size().width()/devicePixelRatio,pixmap.size().height()/devicePixelRatio));
     resize(r.size());
     setFixedSize(r.size());
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+    move(QGuiApplication::primaryScreen()->geometry().center() - r.center());
+#else
     move(QApplication::desktop()->screenGeometry().center() - r.center());
+#endif
 
     subscribeToCoreSignals();
 }
