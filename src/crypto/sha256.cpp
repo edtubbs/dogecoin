@@ -54,13 +54,61 @@ static const uint32_t K[] =
 extern "C" void sha256_block_sse(const void *, void *);
 extern "C" void sha256_block_avx(const void *, void *);
 
+// SHA256_ARGS structure matching Intel assembly expectations
+// Must match the layout defined in intel/include/mb_mgr_datastruct.inc
 typedef struct {
-    void **data;   // Array of pointers to input data
-    void **state;  // Array of pointers to state arrays
-    uint64_t inp_size; // Size of input data in blocks per hash
-} SHA256_ARGS;
+    // Transposed digest: 8 digest words, each containing 8 lane values
+    // Layout: [a0 a1 a2 a3 a4 a5 a6 a7] [b0 b1 ... b7] ... [h0 h1 ... h7]
+    uint32_t digest[8][8];  // 8 digest words × 8 lanes × 4 bytes = 256 bytes
+    
+    // Array of pointers to input data (8 pointers for 8-way processing)
+    const unsigned char* data_ptr[8];  // 8 × 8 bytes = 64 bytes
+} SHA256_ARGS_AVX2;
 
-extern "C" void sha256_oct_avx2(SHA256_ARGS *args, uint64_t bytes);
+extern "C" void sha256_oct_avx2(SHA256_ARGS_AVX2 *args, uint64_t num_blocks);
+
+// Helper function to process 8 independent SHA256 hashes in parallel using AVX2
+// Each hash processes 'blocks' number of 64-byte blocks
+// states: array of 8 pointers to uint32_t[8] (initial hash states)
+// data: array of 8 pointers to input data
+// blocks: number of 64-byte blocks to process for each hash
+static void sha256_process_x8_avx2(uint32_t* states[8], const unsigned char* data[8], size_t blocks)
+{
+    if (blocks == 0) return;
+    
+    // Setup SHA256_ARGS structure for 8-way processing
+    SHA256_ARGS_AVX2 args;
+    
+    // Transpose the input states into the digest array
+    // The assembly expects transposed digest: digest[word][lane]
+    // where word is 0-7 (a-h) and lane is 0-7
+    for (int word = 0; word < 8; ++word) {
+        for (int lane = 0; lane < 8; ++lane) {
+            args.digest[word][lane] = states[lane][word];
+        }
+    }
+    
+    // Setup data pointers - each lane processes its own independent hash
+    for (int lane = 0; lane < 8; ++lane) {
+        args.data_ptr[lane] = data[lane];
+    }
+    
+    // Call the 8-way assembly function
+    sha256_oct_avx2(&args, blocks);
+    
+    // Transpose the output back to individual states
+    for (int word = 0; word < 8; ++word) {
+        for (int lane = 0; lane < 8; ++lane) {
+            states[lane][word] = args.digest[word][lane];
+        }
+    }
+}
+
+// Wrapper for external use (e.g., from hash.cpp)
+extern "C" void sha256_process_x8_avx2_wrapper(uint32_t* states[8], const unsigned char* data[8], size_t blocks)
+{
+    sha256_process_x8_avx2(states, data, blocks);
+}
 
 // Internal implementation code.
 namespace
@@ -268,33 +316,13 @@ void Transform_ARMV8(uint32_t* s, const unsigned char* chunk, size_t blocks)
 void Transform_AVX2(uint32_t* s, const unsigned char* chunk, size_t blocks)
 {
 #if defined(USE_AVX2_8WAY)
-    // Perform SHA256 x 8 (Intel AVX2 8-way)
-    EXPERIMENTAL_FEATURE
-    while (blocks >= 8) {
-        const unsigned char* data_ptrs[8];
-        uint32_t* state_ptrs[8];
-
-        // Initialize pointers x 8
-        for (int i = 0; i < 8; ++i) {
-            data_ptrs[i] = chunk + i * 64;  // Block is 64 bytes
-            state_ptrs[i] = s;              // Same state
-        }
-
-        // Setup SHA256 args
-        SHA256_ARGS args;
-        args.data = const_cast<void**>(reinterpret_cast<const void**>(data_ptrs));
-        args.state = reinterpret_cast<void**>(state_ptrs);
-        args.inp_size = 1;  // Processing one block per hash
-
-        sha256_oct_avx2(&args, 64);  // Process blocks
-
-        // Move to the next blocks
-        chunk += 8 * 64;
-        blocks -= 8;
-    }
-
-    // Process remaining blocks individually
+    // Note: The 8-way AVX2 optimization is designed for processing 8 independent
+    // hashes in parallel, not for processing sequential blocks of a single hash.
+    // For now, fall through to single-block processing.
+    // TODO: Consider batching when processing multiple independent hashes.
     while (blocks--) {
+        // Perform SHA256 one block (Intel AVX2)
+        EXPERIMENTAL_FEATURE
         sha256_block_avx(chunk, s);
         chunk += 64;
     }

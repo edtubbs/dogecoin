@@ -131,6 +131,85 @@ static void MerkleComputation(const std::vector<uint256>& leaves, uint256* proot
 }
 
 uint256 ComputeMerkleRoot(const std::vector<uint256>& leaves, bool* mutated) {
+#if defined(USE_AVX2_8WAY)
+    // Optimized path for 8-way parallel processing when we have enough leaves
+    // and don't need branch computation
+    if (leaves.size() >= 16) {
+        // Use a level-by-level approach that's easier to batch
+        std::vector<uint256> current_level = leaves;
+        bool level_mutated = false;
+        
+        while (current_level.size() > 1) {
+            std::vector<uint256> next_level;
+            next_level.reserve((current_level.size() + 1) / 2);
+            
+            size_t i = 0;
+            // Process pairs in batches of 8
+            while (i + 15 < current_level.size()) {
+                // We have at least 8 pairs to process
+                const unsigned char* batch_inputs[8];
+                size_t batch_lengths[8];
+                unsigned char* batch_outputs[8];
+                unsigned char batch_input_storage[8][64];
+                uint256 batch_results[8];
+                
+                // Prepare 8 pairs for batch processing
+                for (size_t j = 0; j < 8; j++) {
+                    size_t idx = i + j * 2;
+                    // Check for mutation (left == right)
+                    if (current_level[idx] == current_level[idx + 1]) {
+                        level_mutated = true;
+                    }
+                    // Concatenate two hashes
+                    memcpy(batch_input_storage[j], current_level[idx].begin(), 32);
+                    memcpy(batch_input_storage[j] + 32, current_level[idx + 1].begin(), 32);
+                    batch_inputs[j] = batch_input_storage[j];
+                    batch_lengths[j] = 64;
+                    batch_outputs[j] = batch_results[j].begin();
+                }
+                
+                // Process batch
+                CHash256Batch::Finalize8(batch_inputs, batch_lengths, batch_outputs, 8);
+                
+                // Add results to next level
+                for (size_t j = 0; j < 8; j++) {
+                    next_level.push_back(batch_results[j]);
+                }
+                
+                i += 16;  // Processed 8 pairs (16 hashes)
+            }
+            
+            // Process remaining pairs sequentially
+            while (i < current_level.size()) {
+                uint256 result;
+                if (i + 1 < current_level.size()) {
+                    // Normal pair
+                    if (current_level[i] == current_level[i + 1]) {
+                        level_mutated = true;
+                    }
+                    CHash256().Write(current_level[i].begin(), 32)
+                             .Write(current_level[i + 1].begin(), 32)
+                             .Finalize(result.begin());
+                    i += 2;
+                } else {
+                    // Odd one out - hash with itself
+                    CHash256().Write(current_level[i].begin(), 32)
+                             .Write(current_level[i].begin(), 32)
+                             .Finalize(result.begin());
+                    i += 1;
+                }
+                next_level.push_back(result);
+            }
+            
+            current_level = std::move(next_level);
+        }
+        
+        if (mutated) *mutated = level_mutated;
+        return current_level.empty() ? uint256() : current_level[0];
+    }
+#endif
+    
+    // Fallback to original algorithm for small trees or when 8-way is not available
     uint256 hash;
     MerkleComputation(leaves, &hash, mutated, -1, NULL);
     return hash;

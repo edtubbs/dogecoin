@@ -41,6 +41,29 @@ public:
     }
 };
 
+#if defined(USE_AVX2_8WAY)
+/** Batch hasher for computing 8 independent double-SHA256 hashes in parallel using AVX2.
+ *  This provides significant speedup (4-6x) when hashing 8 or more independent inputs.
+ *  Use cases: merkle tree computation, batch transaction hashing, etc.
+ */
+class CHash256Batch {
+public:
+    static const size_t OUTPUT_SIZE = CSHA256::OUTPUT_SIZE;
+    static const size_t BATCH_SIZE = 8;
+    
+    /** Compute double-SHA256 for up to 8 independent inputs in parallel.
+     *  @param inputs Array of pointers to input data
+     *  @param input_lengths Array of input data lengths (in bytes)
+     *  @param outputs Array of pointers to output buffers (each must be 32 bytes)
+     *  @param count Number of hashes to compute (1-8)
+     */
+    static void Finalize8(const unsigned char* inputs[8], 
+                         const size_t input_lengths[8],
+                         unsigned char* outputs[8],
+                         size_t count);
+};
+#endif // USE_AVX2_8WAY
+
 /** A hasher class for Bitcoin's 160-bit hash (SHA-256 + RIPEMD-160). */
 class CHash160 {
 private:
