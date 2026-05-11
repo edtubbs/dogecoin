@@ -19,6 +19,16 @@ EXPERIMENTAL_FEATURE
 #include <oqs/oqs.h>
 #endif
 
+#ifdef ENABLE_LIBOQS_RACCOON
+// In-tree Raccoon-G-44 C port (vendored from edtubbs/libdogecoin@0.1.5-dev-pqc-carrier).
+// The ENABLE_LIBOQS_RACCOON macro name is preserved across the codebase as the
+// Raccoon-G-44 visibility gate; the implementation lives natively under
+// src/raccoon_g/.
+#include "raccoon_g/raccoong.h"
+#include "raccoon_g/thrc.h"
+#include "raccoon_g/dogecoin/random.h"
+#endif
+
 static const unsigned char PQC_COMMITMENT_OP_RETURN = OP_RETURN;
 static const unsigned char PQC_COMMITMENT_PUSH_LEN = 36;
 static const unsigned char PQC_TAG_FALCON[4] = {'F', 'L', 'C', '1'};
@@ -568,9 +578,17 @@ bool PQCReconstructTxBase(const CTransaction& txc,
     return true;
 }
 
-/** Return the maximum signature length for a PQC type, via liboqs metadata. */
+/** Return the maximum signature length for a PQC type.
+ *  Falcon-512 / Dilithium2 lengths come from liboqs metadata; Raccoon-G-44
+ *  comes from the in-tree port's RACCOONG_SIG_BYTES constant.
+ */
 size_t PQCMaxSignatureLength(PQCCommitmentType type)
 {
+#ifdef ENABLE_LIBOQS_RACCOON
+    if (type == PQCCommitmentType::RACCOONG44) {
+        return raccoong_sig_max_len();
+    }
+#endif
 #if ENABLE_LIBOQS
     const char* alg_name = PQCGetOQSAlgorithmName(type);
     if (!alg_name) return 0;
@@ -587,9 +605,11 @@ size_t PQCMaxSignatureLength(PQCCommitmentType type)
 #endif
 }
 
-// liboqs PQC Cryptographic Operations
+// liboqs PQC Cryptographic Operations (Falcon-512 and Dilithium2).
+// Raccoon-G-44 is served by the in-tree port under src/raccoon_g/.
 
-/** Return the liboqs OQS_SIG algorithm name string for a PQC type. */
+/** Return the liboqs OQS_SIG algorithm name string for a PQC type, or nullptr
+ *  for types not served by liboqs (such as Raccoon-G-44). */
 const char* PQCGetOQSAlgorithmName(PQCCommitmentType type)
 {
 #if ENABLE_LIBOQS
@@ -598,10 +618,6 @@ const char* PQCGetOQSAlgorithmName(PQCCommitmentType type)
         return OQS_SIG_alg_falcon_512;
     case PQCCommitmentType::DILITHIUM2:
         return OQS_SIG_alg_ml_dsa_44;
-#ifdef ENABLE_LIBOQS_RACCOON
-    case PQCCommitmentType::RACCOONG44:
-        return "Raccoon-G-44";
-#endif
     default:
         return nullptr;
     }
@@ -611,13 +627,36 @@ const char* PQCGetOQSAlgorithmName(PQCCommitmentType type)
 #endif
 }
 
-/** Generate a PQC keypair using liboqs. Sizes are algorithm-dependent
- *  (e.g. Falcon-512: pk=897 bytes, sk=1281 bytes).
+/** Generate a PQC keypair. Falcon-512 / Dilithium2 use liboqs; Raccoon-G-44
+ *  uses the in-tree port (32-byte seed -> raccoong_keygen_from_seed).
  */
 bool PQCGenerateKeypair(PQCCommitmentType type,
                          std::vector<unsigned char>& public_key_out,
                          std::vector<unsigned char>& secret_key_out)
 {
+#ifdef ENABLE_LIBOQS_RACCOON
+    if (type == PQCCommitmentType::RACCOONG44) {
+        public_key_out.resize(raccoong_pk_len());
+        secret_key_out.resize(raccoong_sk_len());
+        uint8_t seed[32];
+        if (!dogecoin_random_bytes(seed, sizeof(seed), 0)) {
+            public_key_out.clear();
+            secret_key_out.clear();
+            return false;
+        }
+        bool ok = raccoong_keygen_from_seed(seed,
+                                            public_key_out.data(), public_key_out.size(),
+                                            secret_key_out.data(), secret_key_out.size()) != 0;
+        // Wipe the ephemeral seed.
+        volatile uint8_t* p = seed;
+        for (size_t i = 0; i < sizeof(seed); ++i) p[i] = 0;
+        if (!ok) {
+            public_key_out.clear();
+            secret_key_out.clear();
+        }
+        return ok;
+    }
+#endif
 #if ENABLE_LIBOQS
     const char* alg_name = PQCGetOQSAlgorithmName(type);
     if (!alg_name) return false;
@@ -645,7 +684,8 @@ bool PQCGenerateKeypair(PQCCommitmentType type,
 #endif
 }
 
-/** Sign message with a PQC secret key using liboqs.
+/** Sign message with a PQC secret key. Falcon-512 / Dilithium2 use liboqs;
+ *  Raccoon-G-44 uses the in-tree port's raccoong_sign.
  *  signature_out is resized to the actual signature length after signing.
  */
 bool PQCSign(PQCCommitmentType type,
@@ -653,6 +693,22 @@ bool PQCSign(PQCCommitmentType type,
              const unsigned char* message, size_t message_len,
              std::vector<unsigned char>& signature_out)
 {
+#ifdef ENABLE_LIBOQS_RACCOON
+    if (type == PQCCommitmentType::RACCOONG44) {
+        if (secret_key.empty() || !message || message_len == 0) return false;
+        if (secret_key.size() != raccoong_sk_len()) return false;
+        signature_out.resize(raccoong_sig_max_len());
+        size_t sig_len = signature_out.size();
+        if (raccoong_sign(secret_key.data(), secret_key.size(),
+                          message, message_len,
+                          signature_out.data(), &sig_len) == 0) {
+            signature_out.clear();
+            return false;
+        }
+        signature_out.resize(sig_len);
+        return true;
+    }
+#endif
 #if ENABLE_LIBOQS
     const char* alg_name = PQCGetOQSAlgorithmName(type);
     if (!alg_name) return false;
@@ -689,12 +745,38 @@ bool PQCSign(PQCCommitmentType type,
 #endif
 }
 
-/** Verify a PQC signature using liboqs. Returns true only on OQS_SUCCESS. */
+/** Verify a PQC signature. Falcon-512 / Dilithium2 use liboqs; Raccoon-G-44
+ *  uses the in-tree port's raccoong_verify. */
+const char* PQCGetVerifierName(PQCCommitmentType type)
+{
+#ifdef ENABLE_LIBOQS_RACCOON
+    if (type == PQCCommitmentType::RACCOONG44) {
+        return "raccoong_verify()";
+    }
+#endif
+#if ENABLE_LIBOQS
+    if (PQCGetOQSAlgorithmName(type) != nullptr) {
+        return "OQS_SIG_verify()";
+    }
+#endif
+    (void)type;
+    return "PQCVerify()";
+}
+
 bool PQCVerify(PQCCommitmentType type,
                const std::vector<unsigned char>& public_key,
                const unsigned char* message, size_t message_len,
                const std::vector<unsigned char>& signature)
 {
+#ifdef ENABLE_LIBOQS_RACCOON
+    if (type == PQCCommitmentType::RACCOONG44) {
+        if (public_key.empty() || !message || message_len == 0 || signature.empty()) return false;
+        if (public_key.size() != raccoong_pk_len()) return false;
+        return raccoong_verify(public_key.data(), public_key.size(),
+                               message, message_len,
+                               signature.data(), signature.size()) != 0;
+    }
+#endif
 #if ENABLE_LIBOQS
     const char* alg_name = PQCGetOQSAlgorithmName(type);
     if (!alg_name) return false;
