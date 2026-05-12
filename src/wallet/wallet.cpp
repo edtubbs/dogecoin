@@ -348,8 +348,8 @@ bool CWallet::ChangeWalletPassphrase(const SecureString& strOldWalletPassphrase,
                 crypter.SetKeyFromPassphrase(strNewWalletPassphrase, pMasterKey.second.vchSalt, pMasterKey.second.nDeriveIterations, pMasterKey.second.nDerivationMethod);
                 pMasterKey.second.nDeriveIterations = (pMasterKey.second.nDeriveIterations + pMasterKey.second.nDeriveIterations * 100 / ((double)(GetTimeMillis() - nStartTime))) / 2;
 
-                if (pMasterKey.second.nDeriveIterations < 25000)
-                    pMasterKey.second.nDeriveIterations = 25000;
+                if (pMasterKey.second.nDeriveIterations < 100000)
+                    pMasterKey.second.nDeriveIterations = 100000;
 
                 LogPrintf("Wallet passphrase changed to an nDeriveIterations of %i\n", pMasterKey.second.nDeriveIterations);
 
@@ -607,15 +607,15 @@ bool CWallet::EncryptWallet(const SecureString& strWalletPassphrase)
 
     CCrypter crypter;
     int64_t nStartTime = GetTimeMillis();
-    crypter.SetKeyFromPassphrase(strWalletPassphrase, kMasterKey.vchSalt, 25000, kMasterKey.nDerivationMethod);
-    kMasterKey.nDeriveIterations = 2500000 / ((double)(GetTimeMillis() - nStartTime));
+    crypter.SetKeyFromPassphrase(strWalletPassphrase, kMasterKey.vchSalt, 100000, kMasterKey.nDerivationMethod);
+    kMasterKey.nDeriveIterations = 10000000 / ((double)(GetTimeMillis() - nStartTime));
 
     nStartTime = GetTimeMillis();
     crypter.SetKeyFromPassphrase(strWalletPassphrase, kMasterKey.vchSalt, kMasterKey.nDeriveIterations, kMasterKey.nDerivationMethod);
     kMasterKey.nDeriveIterations = (kMasterKey.nDeriveIterations + kMasterKey.nDeriveIterations * 100 / ((double)(GetTimeMillis() - nStartTime))) / 2;
 
-    if (kMasterKey.nDeriveIterations < 25000)
-        kMasterKey.nDeriveIterations = 25000;
+    if (kMasterKey.nDeriveIterations < 100000)
+        kMasterKey.nDeriveIterations = 100000;
 
     LogPrintf("Encrypting Wallet with an nDeriveIterations of %i\n", kMasterKey.nDeriveIterations);
 
@@ -3879,6 +3879,39 @@ bool CWallet::InitLoadWallet()
         return false;
     }
     pwalletMain = pwallet;
+
+    // Least Authority Audit Issue C: Warn if wallet uses legacy (non-HD) key derivation
+    if (!pwallet->IsHDEnabled()) {
+        InitWarning(_("WARNING: This wallet uses legacy (non-HD) key derivation. "
+                      "Consider creating a new HD wallet for improved key management and recovery."));
+        LogPrintf("WARNING: Wallet does not use HD key derivation (BIP32). "
+                  "Legacy wallets have limited recovery options.\n");
+    }
+
+    // Least Authority Audit Issue D: Automatic wallet backup on startup
+    if (pwallet->fFileBacked && !GetBoolArg("-disableautobackup", false)) {
+        const fs::path backupDir = GetBackupDir();
+        if (!backupDir.empty()) {
+            // Use timestamped filename to retain multiple backup points
+            int64_t nTime = GetTime();
+            std::string backupFilename = strprintf("wallet-autobackup-%d.dat", nTime);
+            fs::path backupPath = backupDir / backupFilename;
+            try {
+                if (!fs::exists(backupDir)) {
+                    fs::create_directories(backupDir);
+                }
+                if (pwallet->BackupWallet(backupPath.string())) {
+                    LogPrintf("Automatic wallet backup created: %s\n", backupPath.string());
+                } else {
+                    LogPrintf("WARNING: Failed to create automatic wallet backup at %s\n", backupPath.string());
+                }
+            } catch (const fs::filesystem_error& e) {
+                LogPrintf("WARNING: Failed to create automatic wallet backup: %s\n", e.what());
+            }
+        } else {
+            LogPrintf("WARNING: No backup directory configured, skipping automatic wallet backup.\n");
+        }
+    }
 
     return true;
 }
