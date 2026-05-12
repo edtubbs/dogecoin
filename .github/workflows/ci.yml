@@ -222,7 +222,7 @@ jobs:
       - name: Install packages
         run: |
           apt-get update
-          apt-get install -y build-essential libtool autotools-dev automake \
+          apt-get install -y build-essential cmake libtool autotools-dev automake \
                pkg-config bsdmainutils curl ca-certificates ccache rsync git \
                procps bison python3 python3-pip python3-setuptools python3-wheel
           apt-get install -y ${{ matrix.packages }}

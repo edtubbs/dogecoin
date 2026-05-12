@@ -50,6 +50,19 @@ public:
         icon = platformStyle->SingleColorIcon(icon);
         icon.paint(painter, decorationRect);
 
+        // Paint PQC badge icon (small shield overlay) if this is a PQC transaction
+        QVariant pqcVar = index.data(TransactionTableModel::PqcDecorationRole);
+        if (pqcVar.canConvert<QIcon>()) {
+            QIcon pqcIcon = qvariant_cast<QIcon>(pqcVar);
+            if (!pqcIcon.isNull()) {
+                int badgeSize = DECORATION_SIZE / 2;
+                QRect pqcRect(decorationRect.right() - badgeSize + 2,
+                              decorationRect.bottom() - badgeSize + 2,
+                              badgeSize, badgeSize);
+                pqcIcon.paint(painter, pqcRect);
+            }
+        }
+
         QDateTime date = index.data(TransactionTableModel::DateRole).toDateTime();
         QString address = index.data(Qt::DisplayRole).toString();
         qint64 amount = index.data(TransactionTableModel::AmountRole).toLongLong();
