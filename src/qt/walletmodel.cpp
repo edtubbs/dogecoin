@@ -1021,6 +1021,8 @@ std::vector<std::pair<std::string, std::string>> WalletModel::listWalletMetaWith
     }
     return out;
 }
+
+QString WalletModel::getWalletFilePath() const
 {
     return QString::fromStdString((GetDataDir() / wallet->strWalletFile).string());
 }
