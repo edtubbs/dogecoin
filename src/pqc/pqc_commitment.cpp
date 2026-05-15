@@ -747,6 +747,22 @@ bool PQCSign(PQCCommitmentType type,
 
 /** Verify a PQC signature. Falcon-512 / Dilithium2 use liboqs; Raccoon-G-44
  *  uses the in-tree port's raccoong_verify. */
+const char* PQCGetVerifierName(PQCCommitmentType type)
+{
+#ifdef ENABLE_LIBOQS_RACCOON
+    if (type == PQCCommitmentType::RACCOONG44) {
+        return "raccoong_verify()";
+    }
+#endif
+#if ENABLE_LIBOQS
+    if (PQCGetOQSAlgorithmName(type) != nullptr) {
+        return "OQS_SIG_verify()";
+    }
+#endif
+    (void)type;
+    return "PQCVerify()";
+}
+
 bool PQCVerify(PQCCommitmentType type,
                const std::vector<unsigned char>& public_key,
                const unsigned char* message, size_t message_len,

@@ -1241,7 +1241,7 @@ void SendCoinsDialog::onDecodePqcCommitmentClicked()
 
             html += "<b>" + tr("TX_C sighash (hex)") + ":</b> "
                   + GUIUtil::HtmlEscape(pqcSigningMessageHex.isEmpty() ? tr("n/a") : pqcSigningMessageHex) + "<br>";
-            html += "<b>" + tr("OQS_SIG_verify() cryptographic check") + ":</b> "
+            html += "<b>" + QString::fromLatin1(PQCGetVerifierName(detectedType)) + " " + tr("cryptographic check") + ":</b> "
                   + (cryptoVerified
                        ? "<span style=\"color:green;\">" + tr("PASSED") + "</span>"
                        : "<span style=\"color:red;\">" + tr("FAILED") + "</span>") + "<br>";
@@ -1254,7 +1254,7 @@ void SendCoinsDialog::onDecodePqcCommitmentClicked()
                 if (!pkMatch) failReason += tr("public key mismatch") + "; ";
                 if (!sigMatch) failReason += tr("signature mismatch") + "; ";
                 if (!commitmentMatch) failReason += tr("commitment mismatch") + "; ";
-                if (!cryptoVerified) failReason += tr("OQS_SIG_verify() failed") + "; ";
+                if (!cryptoVerified) failReason += QString::fromLatin1(PQCGetVerifierName(detectedType)) + " " + tr("failed") + "; ";
                 html += "<b>" + tr("PQC signature validation") + ":</b> <span style=\"color:red;\">"
                       + tr("FAILED — %1").arg(failReason) + "</span><br>";
             }
