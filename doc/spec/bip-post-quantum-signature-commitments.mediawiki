@@ -200,6 +200,8 @@ The 23-byte canonical carrier scriptPubKey (<code>OP_HASH160 <h160> OP_EQUAL</co
 
 Future carriers reusing this redeem template MUST register a distinct 8-byte TAG8 to avoid collision with the PQ prefixes defined above.
 
+''Note on enforcement scope:'' TAG8 dispatch and the "reject reuse of an existing prefix" rule above are enforced by the carrier-aware <em>SPV / wallet validators</em> that this proposal defines; they are not consensus rules. At the base-layer script level the canonical 23-byte P2SH spk and its 5×OP_DROP + OP_TRUE redeem template are valid for any prefix push (carrier or otherwise), and consensus nodes that do not implement this proposal will continue to accept such spends without inspecting TAG8. Implementations of this proposal MUST therefore treat TAG8 disambiguation as a strict carrier-validator rule and MUST NOT rely on the network to reject mis-tagged or future-tagged carriers on their behalf.
+
 ====Phase 1: Verification using on-chain data only====
 
 Given TX_R:

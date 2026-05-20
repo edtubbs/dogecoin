@@ -1464,7 +1464,7 @@ if test x$allow_experimental = xyes; then
     echo "    ARMV82_CXXFLAGS = $ARMV82_CXXFLAGS"
     echo "    LIB BIP39     = $use_lib"
     echo "    BIP39         = $use_bip39"
-    echo "    with liboqs   = $use_liboqs"
+    echo "    with liboqs    = $use_liboqs"
     echo "    with raccoon-g = $use_raccoon_g"
 fi
 echo

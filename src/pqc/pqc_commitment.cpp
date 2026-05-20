@@ -9,10 +9,12 @@
 #include "pubkey.h"
 #include "script/script.h"
 #include "script/standard.h"
+#include "support/cleanse.h"
 #include "support/experimental.h"
 
 #include <string.h>
 #include <algorithm>
+#include <mutex>
 
 #if ENABLE_LIBOQS
 EXPERIMENTAL_FEATURE
@@ -27,6 +29,21 @@ EXPERIMENTAL_FEATURE
 #include "raccoon_g/raccoong.h"
 #include "raccoon_g/thrc.h"
 #include "raccoon_g/dogecoin/random.h"
+
+namespace {
+// The Raccoon-G-44 keygen/sign/verify primitives in src/raccoon_g/thrc.c
+// use file-scope `static polyr` scratch (documented at src/raccoon_g/thrc.h
+// ~lines 112-130). The upstream port requires callers to externally
+// serialize all keygen / sign / verify / HD-derive calls. This mutex
+// provides that serialization for every Raccoon-G-44 entry point exposed
+// through PQCGenerateKeypair / PQCSign / PQCVerify so concurrent Qt + RPC
+// callers (or two Qt clicks in flight) cannot race on the shared scratch.
+std::mutex& RaccoonGMutex()
+{
+    static std::mutex m;
+    return m;
+}
+} // namespace
 #endif
 
 static const unsigned char PQC_COMMITMENT_OP_RETURN = OP_RETURN;
@@ -636,10 +653,17 @@ bool PQCGenerateKeypair(PQCCommitmentType type,
 {
 #ifdef ENABLE_LIBOQS_RACCOON
     if (type == PQCCommitmentType::RACCOONG44) {
+        std::lock_guard<std::mutex> lock(RaccoonGMutex());
+        // Cheap belt-and-braces guard: today raccoong_is_ready() returns
+        // true unconditionally, but if a future change makes it gate on
+        // (e.g.) MPFR init we want to refuse silently rather than march
+        // into the in-tree port with uninitialised state.
+        if (!raccoong_is_ready()) return false;
         public_key_out.resize(raccoong_pk_len());
         secret_key_out.resize(raccoong_sk_len());
         uint8_t seed[32];
         if (!dogecoin_random_bytes(seed, sizeof(seed), 0)) {
+            memory_cleanse(secret_key_out.data(), secret_key_out.size());
             public_key_out.clear();
             secret_key_out.clear();
             return false;
@@ -648,9 +672,12 @@ bool PQCGenerateKeypair(PQCCommitmentType type,
                                             public_key_out.data(), public_key_out.size(),
                                             secret_key_out.data(), secret_key_out.size()) != 0;
         // Wipe the ephemeral seed.
-        volatile uint8_t* p = seed;
-        for (size_t i = 0; i < sizeof(seed); ++i) p[i] = 0;
+        memory_cleanse(seed, sizeof(seed));
         if (!ok) {
+            // The C port may have written partial secret material into the
+            // output buffer before failing; wipe it before releasing the
+            // allocation back to the standard allocator.
+            memory_cleanse(secret_key_out.data(), secret_key_out.size());
             public_key_out.clear();
             secret_key_out.clear();
         }
@@ -695,6 +722,8 @@ bool PQCSign(PQCCommitmentType type,
 {
 #ifdef ENABLE_LIBOQS_RACCOON
     if (type == PQCCommitmentType::RACCOONG44) {
+        std::lock_guard<std::mutex> lock(RaccoonGMutex());
+        if (!raccoong_is_ready()) return false;
         if (secret_key.empty() || !message || message_len == 0) return false;
         if (secret_key.size() != raccoong_sk_len()) return false;
         signature_out.resize(raccoong_sig_max_len());
@@ -770,6 +799,8 @@ bool PQCVerify(PQCCommitmentType type,
 {
 #ifdef ENABLE_LIBOQS_RACCOON
     if (type == PQCCommitmentType::RACCOONG44) {
+        std::lock_guard<std::mutex> lock(RaccoonGMutex());
+        if (!raccoong_is_ready()) return false;
         if (public_key.empty() || !message || message_len == 0 || signature.empty()) return false;
         if (public_key.size() != raccoong_pk_len()) return false;
         return raccoong_verify(public_key.data(), public_key.size(),

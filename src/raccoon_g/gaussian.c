@@ -40,6 +40,25 @@
  * The seed-driven path (`gaussian_sample`) returns false in this session;
  * SHAKE256 plumbing lands in Session 6 alongside the rest of the upstream
  * XOF construction.
+ *
+ * SECURITY / SIDE-CHANNEL WARNING -----------------------------------------
+ * This sampler intentionally drives MPFR at 256-bit precision so the
+ * outputs are byte-exact against the upstream mpmath reference. MPFR is
+ * NOT constant-time: it performs data-dependent malloc/free per
+ * coefficient, has data-dependent rounding paths and branch counts, and
+ * makes no constant-time guarantees. Because this routine consumes the
+ * secret seed material used to derive the Raccoon-G-44 secret key
+ * polynomials (`s`, `e1`), running it in adversarial-observer environments
+ * can leak information about the secret via timing / cache side channels.
+ *
+ * The Raccoon-G-44 port shipped in this tree is gated as
+ * `EXPERIMENTAL_FEATURE` and the README in src/raccoon_g/ documents that
+ * the port is "not-for-production until audit". Removing that gate (i.e.
+ * flipping Raccoon-G-44 to a production signing path) is BLOCKED on
+ * replacing this MPFR-backed sampler with a constant-time integer/fixed
+ * point implementation that does not branch or allocate on secret-derived
+ * data.
+ * -------------------------------------------------------------------------
  */
 
 #include "gaussian.h"
