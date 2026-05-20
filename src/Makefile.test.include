@@ -155,6 +155,7 @@ if ENABLE_RACCOON_G
 # into the existing test framework.
 BITCOIN_TESTS += \
   test/pqc_raccoong_kat_tests.cpp \
+  test/pqc_raccoong_verify_fuzz_tests.cpp \
   test/utest.h \
   test/raccoong_polyr_tests.c \
   test/raccoong_ntt_tests.c \
