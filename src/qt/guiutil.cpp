@@ -63,6 +63,7 @@
 #include <QDir>
 #include <QFont>
 #include <QLineEdit>
+#include <QRegularExpression>
 #include <QSettings>
 #include <QStandardPaths>
 #include <QTextDocument> // for Qt::mightBeRichText
@@ -305,20 +306,11 @@ QList<QModelIndex> getEntryData(QAbstractItemView *view, int column)
  */
 static QString getFirstFilterSuffix(const QString& selectedFilter)
 {
-    const QString suffixMarker("(*.");
-    const int open = selectedFilter.indexOf(suffixMarker);
-    if (open == -1) return QString();
-
-    const int start = open + suffixMarker.size();
-    const int close = selectedFilter.indexOf(')', start);
-    const int space = selectedFilter.indexOf(' ', start);
-    // Stop at the first separator after the suffix: a space separates multiple
-    // suffixes ("*.foo *.bar"), while ')' terminates a single-suffix filter.
-    const int end = (space != -1 && (close == -1 || space < close)) ? space : close;
-    if (end == -1 || end <= start) return QString();
-
-    return selectedFilter.mid(start, end - start);
+    const QRegularExpression filter_re(".* \\(\\*\\.([^\\s\\)]+)");
+    const QRegularExpressionMatch match = filter_re.match(selectedFilter);
+    return match.hasMatch() ? match.captured(1) : QString();
 }
+
 
 QString getSaveFileName(QWidget *parent, const QString &caption, const QString &dir,
     const QString &filter,
