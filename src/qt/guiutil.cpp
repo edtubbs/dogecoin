@@ -304,9 +304,9 @@ QList<QModelIndex> getEntryData(QAbstractItemView *view, int column)
  * @return The first suffix without the leading wildcard/dot ("foo"), or an
  *         empty string if the filter does not contain a valid suffix pattern.
  */
-static QString getFirstFilterSuffix(const QString& selectedFilter)
+static QString extractFirstFilterSuffix(const QString& selectedFilter)
 {
-    const QRegularExpression filter_re(".* \\(\\*\\.([^\\s\\)]+)");
+    const QRegularExpression filter_re(".* \\(\\*\\.([^\\s\\)]+)(?:[\\s\\)])");
     const QRegularExpressionMatch match = filter_re.match(selectedFilter);
     return match.hasMatch() ? match.captured(1) : QString();
 }
@@ -330,7 +330,7 @@ QString getSaveFileName(QWidget *parent, const QString &caption, const QString &
     QString result = QDir::toNativeSeparators(QFileDialog::getSaveFileName(parent, caption, myDir, filter, &selectedFilter));
 
     /* Extract first suffix from filter pattern "Description (*.foo)" or "Description (*.foo *.bar ...) */
-    QString selectedSuffix = getFirstFilterSuffix(selectedFilter);
+    QString selectedSuffix = extractFirstFilterSuffix(selectedFilter);
 
     /* Add suffix if needed */
     QFileInfo info(result);
@@ -373,7 +373,7 @@ QString getOpenFileName(QWidget *parent, const QString &caption, const QString &
     if(selectedSuffixOut)
     {
         /* Extract first suffix from filter pattern "Description (*.foo)" or "Description (*.foo *.bar ...) */
-        *selectedSuffixOut = getFirstFilterSuffix(selectedFilter);
+        *selectedSuffixOut = extractFirstFilterSuffix(selectedFilter);
     }
     return result;
 }
