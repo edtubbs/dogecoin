@@ -312,6 +312,8 @@ static QString getFirstFilterSuffix(const QString& selectedFilter)
     const int start = open + suffixMarker.size();
     const int close = selectedFilter.indexOf(')', start);
     const int space = selectedFilter.indexOf(' ', start);
+    // Stop at the first separator after the suffix: a space separates multiple
+    // suffixes ("*.foo *.bar"), while ')' terminates a single-suffix filter.
     const int end = (space != -1 && (close == -1 || space < close)) ? space : close;
     if (end == -1 || end <= start) return QString();
 
