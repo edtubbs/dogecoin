@@ -296,12 +296,15 @@ QList<QModelIndex> getEntryData(QAbstractItemView *view, int column)
     return view->selectionModel()->selectedRows(column);
 }
 
+// Extract the first file extension suffix from a Qt filter pattern, e.g.
+// "Description (*.foo *.bar)" returns "foo".
 static QString getFirstFilterSuffix(const QString& selectedFilter)
 {
-    const int open = selectedFilter.indexOf("(*.");
+    const QString suffixMarker("(*.");
+    const int open = selectedFilter.indexOf(suffixMarker);
     if (open == -1) return QString();
 
-    const int start = open + 3;
+    const int start = open + suffixMarker.size();
     int end = selectedFilter.indexOf(' ', start);
     const int close = selectedFilter.indexOf(')', start);
     if (end == -1 || (close != -1 && close < end)) end = close;
