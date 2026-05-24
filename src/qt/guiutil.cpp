@@ -306,8 +306,8 @@ QList<QModelIndex> getEntryData(QAbstractItemView *view, int column)
  */
 static QString extractFirstFilterSuffix(const QString& selectedFilter)
 {
-    const QString qtFilterFirstSuffixPattern(".* \\(\\*\\.([^\\s)]+)");
-    const QRegularExpression filter_re(qtFilterFirstSuffixPattern);
+    const QString firstSuffixPattern(".* \\(\\*\\.([^\\s)]+)");
+    const QRegularExpression filter_re(firstSuffixPattern);
     const QRegularExpressionMatch match = filter_re.match(selectedFilter);
     return match.hasMatch() ? match.captured(1) : QString();
 }
