@@ -11,6 +11,8 @@
 #include "qvalidatedlineedit.h"
 #include "walletmodel.h"
 
+#include <QLocale>
+
 #include "base58.h"
 #include "primitives/transaction.h"
 #include "init.h"
@@ -57,9 +59,12 @@
 #endif
 #include <QDoubleValidator>
 #include <QFileDialog>
+#include <QFileInfo>
+#include <QDir>
 #include <QFont>
 #include <QLineEdit>
 #include <QSettings>
+#include <QStandardPaths>
 #include <QTextDocument> // for Qt::mightBeRichText
 #include <QThread>
 #include <QMouseEvent>
@@ -91,7 +96,7 @@ namespace GUIUtil {
 
 QString dateTimeStr(const QDateTime &date)
 {
-    return date.date().toString(Qt::SystemLocaleShortDate) + QString(" ") + date.toString("hh:mm");
+    return QLocale::system().toString(date.date(), QLocale::ShortFormat) + QString(" ") + date.toString("hh:mm");
 }
 
 QString dateTimeStr(qint64 nTime)
@@ -291,6 +296,20 @@ QList<QModelIndex> getEntryData(QAbstractItemView *view, int column)
     return view->selectionModel()->selectedRows(column);
 }
 
+static QString getFirstFilterSuffix(const QString& selectedFilter)
+{
+    const int open = selectedFilter.indexOf("(*.");
+    if (open == -1) return QString();
+
+    const int start = open + 3;
+    int end = selectedFilter.indexOf(' ', start);
+    const int close = selectedFilter.indexOf(')', start);
+    if (end == -1 || (close != -1 && close < end)) end = close;
+    if (end == -1 || end <= start) return QString();
+
+    return selectedFilter.mid(start, end - start);
+}
+
 QString getSaveFileName(QWidget *parent, const QString &caption, const QString &dir,
     const QString &filter,
     QString *selectedSuffixOut)
@@ -309,12 +328,7 @@ QString getSaveFileName(QWidget *parent, const QString &caption, const QString &
     QString result = QDir::toNativeSeparators(QFileDialog::getSaveFileName(parent, caption, myDir, filter, &selectedFilter));
 
     /* Extract first suffix from filter pattern "Description (*.foo)" or "Description (*.foo *.bar ...) */
-    QRegExp filter_re(".* \\(\\*\\.(.*)[ \\)]");
-    QString selectedSuffix;
-    if(filter_re.exactMatch(selectedFilter))
-    {
-        selectedSuffix = filter_re.cap(1);
-    }
+    QString selectedSuffix = getFirstFilterSuffix(selectedFilter);
 
     /* Add suffix if needed */
     QFileInfo info(result);
@@ -357,13 +371,7 @@ QString getOpenFileName(QWidget *parent, const QString &caption, const QString &
     if(selectedSuffixOut)
     {
         /* Extract first suffix from filter pattern "Description (*.foo)" or "Description (*.foo *.bar ...) */
-        QRegExp filter_re(".* \\(\\*\\.(.*)[ \\)]");
-        QString selectedSuffix;
-        if(filter_re.exactMatch(selectedFilter))
-        {
-            selectedSuffix = filter_re.cap(1);
-        }
-        *selectedSuffixOut = selectedSuffix;
+        *selectedSuffixOut = getFirstFilterSuffix(selectedFilter);
     }
     return result;
 }

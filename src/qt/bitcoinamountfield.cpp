@@ -3,6 +3,8 @@
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
+#include <boost/date_time/gregorian/gregorian.hpp>
+
 #include "bitcoinamountfield.h"
 
 #include "bitcoinunits.h"
