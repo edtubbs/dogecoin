@@ -297,7 +297,8 @@ QList<QModelIndex> getEntryData(QAbstractItemView *view, int column)
 }
 
 // Extract the first file extension suffix from a Qt filter pattern, e.g.
-// "Description (*.foo *.bar)" returns "foo".
+// "Description (*.foo *.bar)" returns "foo". Returns an empty string if
+// no valid suffix is found.
 static QString getFirstFilterSuffix(const QString& selectedFilter)
 {
     const QString suffixMarker("(*.");
@@ -305,9 +306,10 @@ static QString getFirstFilterSuffix(const QString& selectedFilter)
     if (open == -1) return QString();
 
     const int start = open + suffixMarker.size();
-    int end = selectedFilter.indexOf(' ', start);
     const int close = selectedFilter.indexOf(')', start);
-    if (end == -1 || (close != -1 && close < end)) end = close;
+    int end = close;
+    const int space = selectedFilter.indexOf(' ', start);
+    if (space != -1 && (close == -1 || space < close)) end = space;
     if (end == -1 || end <= start) return QString();
 
     return selectedFilter.mid(start, end - start);
