@@ -50,9 +50,9 @@
 
 /** Create a deep copy of a key event for posting to another widget.
  *
- * Qt6 protects QKeyEvent's copy constructor. The input event must remain
- * valid for this call; QApplication::postEvent takes ownership of the returned
- * event pointer.
+ * Qt6 protects QKeyEvent's copy constructor. The input event must be non-null
+ * and remain valid for this call; QApplication::postEvent takes ownership of
+ * the returned event pointer.
  */
 static QKeyEvent* duplicateKeyEvent(const QKeyEvent* event)
 {
