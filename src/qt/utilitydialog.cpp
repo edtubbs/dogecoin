@@ -82,7 +82,7 @@ HelpMessageDialog::HelpMessageDialog(QWidget *parent, bool about) :
         QString licenseInfo = QString::fromStdString(LicenseInfo());
         QString licenseInfoHTML = licenseInfo;
         // Make URLs clickable
-        static const QRegularExpression uri("<([^>]+)>");
+        static const QRegularExpression uri("<([^>]*)>");
         licenseInfoHTML.replace(uri, "<a href=\"\\1\">\\1</a>");
         // Replace newlines with HTML breaks
         licenseInfoHTML.replace("\n", "<br>");
