@@ -59,6 +59,7 @@
 
 namespace {
 // Match URIs enclosed in angle brackets with minimal matching, equivalent to QRegExp::setMinimal(true).
+// The capture group is reused as \1 in the replacement to preserve the URI content.
 const QRegularExpression kUriRegex("<(.*?)>");
 }
 
