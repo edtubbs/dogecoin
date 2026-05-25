@@ -58,9 +58,13 @@
 #include "walletmodel.h"
 
 namespace {
-// Match URIs enclosed in angle brackets with minimal matching, equivalent to QRegExp::setMinimal(true).
-// The capture group is reused as \1 in the replacement to preserve the URI content.
-static const QRegularExpression URI_REGEX(R"(<(.*?)>)");
+const QRegularExpression& uriRegex()
+{
+    // Match URIs enclosed in angle brackets with minimal matching, equivalent to QRegExp::setMinimal(true).
+    // The capture group is reused as \1 in the replacement to preserve the URI content.
+    static const QRegularExpression regex(R"(<(.*?)>)");
+    return regex;
+}
 }
 
 /** "Help message" or "About" dialog box */
@@ -88,7 +92,7 @@ HelpMessageDialog::HelpMessageDialog(QWidget *parent, bool about) :
         QString licenseInfo = QString::fromStdString(LicenseInfo());
         QString licenseInfoHTML = licenseInfo;
         // Make URLs clickable
-        licenseInfoHTML.replace(URI_REGEX, "<a href=\"\\1\">\\1</a>");
+        licenseInfoHTML.replace(uriRegex(), "<a href=\"\\1\">\\1</a>");
         // Replace newlines with HTML breaks
         licenseInfoHTML.replace("\n", "<br>");
 

@@ -56,6 +56,7 @@
  */
 static QKeyEvent* duplicateKeyEvent(const QKeyEvent* event)
 {
+    Q_ASSERT(event);
     return new QKeyEvent(event->type(), event->key(), event->modifiers(),
                          event->text(), event->isAutoRepeat(), event->count());
 }
