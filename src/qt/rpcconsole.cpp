@@ -48,7 +48,11 @@
 // TODO: receive errors and debug messages through ClientModel
 
 
-// Qt6 protects QKeyEvent's copy constructor; QApplication::postEvent takes ownership of the returned event.
+/** Create a deep copy of a key event for posting to another widget.
+ *
+ * Qt6 protects QKeyEvent's copy constructor. QApplication::postEvent takes
+ * ownership of the returned event pointer.
+ */
 static QKeyEvent* duplicateKeyEvent(const QKeyEvent* event)
 {
     return new QKeyEvent(event->type(), event->key(), event->modifiers(),

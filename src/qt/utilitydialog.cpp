@@ -60,7 +60,7 @@
 namespace {
 // Match URIs enclosed in angle brackets with minimal matching, equivalent to QRegExp::setMinimal(true).
 // The capture group is reused as \1 in the replacement to preserve the URI content.
-const QRegularExpression kUriRegex("<(.*?)>", QRegularExpression::OptimizeOnFirstUsageOption);
+const QRegularExpression URI_REGEX("<(.*?)>", QRegularExpression::OptimizeOnFirstUsageOption);
 }
 
 /** "Help message" or "About" dialog box */
@@ -88,7 +88,7 @@ HelpMessageDialog::HelpMessageDialog(QWidget *parent, bool about) :
         QString licenseInfo = QString::fromStdString(LicenseInfo());
         QString licenseInfoHTML = licenseInfo;
         // Make URLs clickable
-        licenseInfoHTML.replace(kUriRegex, "<a href=\"\\1\">\\1</a>");
+        licenseInfoHTML.replace(URI_REGEX, "<a href=\"\\1\">\\1</a>");
         // Replace newlines with HTML breaks
         licenseInfoHTML.replace("\n", "<br>");
 
