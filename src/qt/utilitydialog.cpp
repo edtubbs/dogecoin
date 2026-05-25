@@ -58,7 +58,7 @@
 #include "walletmodel.h"
 
 namespace {
-const QRegularExpression URI_REGEXP("<(.*?)>", QRegularExpression::NoPatternOption);
+const QRegularExpression uriRegexp("<(.*?)>");
 }
 
 /** "Help message" or "About" dialog box */
@@ -86,7 +86,7 @@ HelpMessageDialog::HelpMessageDialog(QWidget *parent, bool about) :
         QString licenseInfo = QString::fromStdString(LicenseInfo());
         QString licenseInfoHTML = licenseInfo;
         // Make URLs clickable
-        licenseInfoHTML.replace(URI_REGEXP, "<a href=\"\\1\">\\1</a>");
+        licenseInfoHTML.replace(uriRegexp, "<a href=\"\\1\">\\1</a>");
         // Replace newlines with HTML breaks
         licenseInfoHTML.replace("\n", "<br>");
 
