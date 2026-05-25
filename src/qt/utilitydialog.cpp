@@ -58,7 +58,7 @@
 #include "walletmodel.h"
 
 namespace {
-const QRegularExpression URI_REGEXP("<([^>]*)>");
+const QRegularExpression URI_REGEXP("<(.*?)>", QRegularExpression::NoPatternOption);
 }
 
 /** "Help message" or "About" dialog box */
