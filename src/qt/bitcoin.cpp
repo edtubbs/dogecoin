@@ -7,6 +7,8 @@
 #include "config/bitcoin-config.h"
 #endif
 
+#include <array>
+
 #include <boost/date_time/gregorian/gregorian.hpp>
 
 #include "bitcoingui.h"

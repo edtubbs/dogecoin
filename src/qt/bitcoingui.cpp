@@ -7,6 +7,8 @@
 #include "config/bitcoin-config.h"
 #endif
 
+#include <array>
+
 #if defined(__APPLE__)
 // Include Boost Gregorian before Qt headers. Qt's QStringBuilder defines an
 // operator% overload that can be selected by Boost date code on macOS if Qt

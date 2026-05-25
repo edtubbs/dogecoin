@@ -7,6 +7,8 @@
 #include "config/bitcoin-config.h"
 #endif
 
+#include <array>
+
 #include "splashscreen.h"
 
 #include "networkstyle.h"

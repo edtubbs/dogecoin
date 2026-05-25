@@ -47,6 +47,13 @@
 // TODO: make it possible to filter out categories (esp debug messages when implemented)
 // TODO: receive errors and debug messages through ClientModel
 
+
+static QKeyEvent* duplicateKeyEvent(const QKeyEvent* event)
+{
+    return new QKeyEvent(event->type(), event->key(), event->modifiers(),
+                         event->text(), event->isAutoRepeat(), event->count());
+}
+
 const int CONSOLE_HISTORY = 50;
 const int INITIAL_TRAFFIC_GRAPH_MINS = 30;
 const QSize FONT_RANGE(4, 40);
@@ -498,7 +505,7 @@ bool RPCConsole::eventFilter(QObject* obj, QEvent *event)
         case Qt::Key_PageDown:
             if(obj == ui->lineEdit)
             {
-                QApplication::postEvent(ui->messagesWidget, new QKeyEvent(*keyevt));
+                QApplication::postEvent(ui->messagesWidget, duplicateKeyEvent(keyevt));
                 return true;
             }
             break;
@@ -506,7 +513,7 @@ bool RPCConsole::eventFilter(QObject* obj, QEvent *event)
         case Qt::Key_Enter:
             // forward these events to lineEdit
             if(obj == autoCompleter->popup()) {
-                QApplication::postEvent(ui->lineEdit, new QKeyEvent(*keyevt));
+                QApplication::postEvent(ui->lineEdit, duplicateKeyEvent(keyevt));
                 return true;
             }
             break;
@@ -519,7 +526,7 @@ bool RPCConsole::eventFilter(QObject* obj, QEvent *event)
                   ((mod & Qt::ShiftModifier) && key == Qt::Key_Insert)))
             {
                 ui->lineEdit->setFocus();
-                QApplication::postEvent(ui->lineEdit, new QKeyEvent(*keyevt));
+                QApplication::postEvent(ui->lineEdit, duplicateKeyEvent(keyevt));
                 return true;
             }
         }
