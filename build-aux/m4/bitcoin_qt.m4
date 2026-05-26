@@ -382,7 +382,7 @@ AC_DEFUN([_BITCOIN_QT_FIND_LIBS_WITH_PKGCONFIG],[
       QT_LIB_PREFIX=Qt6
       bitcoin_qt_got_major_vers=6
     fi
-    qt6_modules="Qt6Core Qt6Gui Qt6Network Qt6Widgets"
+    qt6_modules="Qt6Core Qt6Gui Qt6Network Qt6Widgets Qt6PrintSupport"
     BITCOIN_QT_CHECK([
       if test x$bitcoin_qt_want_version = xqt6 || ( test x$bitcoin_qt_want_version = xauto && test x$auto_priority_version = xqt6 ); then
         PKG_CHECK_MODULES([QT], [$qt6_modules], [QT_INCLUDES="$QT_CFLAGS"; have_qt=yes],[have_qt=no])
@@ -417,7 +417,7 @@ AC_DEFUN([_BITCOIN_QT_FIND_LIBS_WITHOUT_PKGCONFIG],[
   TEMP_LIBS="$LIBS"
   BITCOIN_QT_CHECK([
     if test x$qt_include_path != x; then
-      QT_INCLUDES="-I$qt_include_path -I$qt_include_path/QtCore -I$qt_include_path/QtGui -I$qt_include_path/QtWidgets -I$qt_include_path/QtNetwork -I$qt_include_path/QtTest -I$qt_include_path/QtDBus"
+      QT_INCLUDES="-I$qt_include_path -I$qt_include_path/QtCore -I$qt_include_path/QtGui -I$qt_include_path/QtWidgets -I$qt_include_path/QtPrintSupport -I$qt_include_path/QtNetwork -I$qt_include_path/QtTest -I$qt_include_path/QtDBus"
       CPPFLAGS="$QT_INCLUDES $CPPFLAGS"
     fi
   ])
@@ -457,7 +457,7 @@ AC_DEFUN([_BITCOIN_QT_FIND_LIBS_WITHOUT_PKGCONFIG],[
     dnl libraries have complex inter-dependencies. Instead of trying to link,
     dnl just verify the library files exist.
     if test x$qt_lib_path != x; then
-      for _qt6lib in Core Gui Network Widgets; do
+      for _qt6lib in Core Gui Network Widgets PrintSupport; do
         _qt6libfile="$qt_lib_path/lib${QT_LIB_PREFIX}${_qt6lib}.a"
         if test ! -f "$_qt6libfile"; then
           _qt6libfile="$qt_lib_path/lib${QT_LIB_PREFIX}${_qt6lib}.so"

@@ -95,7 +95,6 @@ $(package)_config_opts += -no-feature-lcdnumber
 $(package)_config_opts += -no-feature-libresolv
 $(package)_config_opts += -no-feature-networkdiskcache
 $(package)_config_opts += -no-feature-networkproxy
-$(package)_config_opts += -no-feature-printsupport
 $(package)_config_opts += -no-feature-sessionmanager
 $(package)_config_opts += -no-feature-socks5
 $(package)_config_opts += -no-feature-sql
@@ -132,7 +131,6 @@ $(package)_config_opts += -no-feature-qtplugininfo
 endif
 
 $(package)_config_opts_darwin := -no-dbus
-$(package)_config_opts_darwin += -no-feature-printsupport
 $(package)_config_opts_darwin += -no-freetype
 # Qt 6 requires pkg-config files for proper module detection - explicitly enable
 $(package)_config_opts_darwin += -pkg-config
