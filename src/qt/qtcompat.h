@@ -11,6 +11,8 @@
 // Force the legacy QGenericArgument overload of QMetaObject::invokeMethod.
 // Some Qt 6 headers use std::array CTAD in the variadic template overloads,
 // which is not available in the macOS release SDK's libc++.
+// Use with QMetaObject::invokeMethod arguments stored in local variables that
+// remain alive for the duration of the invokeMethod call.
 #define GUIUTIL_QT_ARG(type, value) QGenericArgument(#type, static_cast<const void *>(&(value)))
 
 // QFontMetrics::width() was deprecated in Qt 5.11 and removed in Qt 6.

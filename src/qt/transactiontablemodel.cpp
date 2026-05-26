@@ -717,10 +717,10 @@ public:
     {
         QString strHash = QString::fromStdString(hash.GetHex());
         qDebug() << "NotifyTransactionChanged: " + strHash + " status= " + QString::number(status);
-        int transactionStatus = status;
+        int statusValue = status;
         QMetaObject::invokeMethod(ttm, "updateTransaction", Qt::QueuedConnection,
                                   GUIUTIL_QT_ARG(QString, strHash),
-                                  GUIUTIL_QT_ARG(int, transactionStatus),
+                                  GUIUTIL_QT_ARG(int, statusValue),
                                   GUIUTIL_QT_ARG(bool, showTransaction));
     }
 private:
