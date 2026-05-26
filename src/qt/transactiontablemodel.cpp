@@ -12,6 +12,7 @@
 #include "guiutil.h"
 #include "optionsmodel.h"
 #include "platformstyle.h"
+#include "qtcompat.h"
 #include "transactiondesc.h"
 #include "transactionrecord.h"
 #include "walletmodel.h"
@@ -716,10 +717,11 @@ public:
     {
         QString strHash = QString::fromStdString(hash.GetHex());
         qDebug() << "NotifyTransactionChanged: " + strHash + " status= " + QString::number(status);
+        int statusInt = status;
         QMetaObject::invokeMethod(ttm, "updateTransaction", Qt::QueuedConnection,
-                                  Q_ARG(QString, strHash),
-                                  Q_ARG(int, status),
-                                  Q_ARG(bool, showTransaction));
+                                  GUIUTIL_QT_ARG(QString, strHash),
+                                  GUIUTIL_QT_ARG(int, statusInt),
+                                  GUIUTIL_QT_ARG(bool, showTransaction));
     }
 private:
     uint256 hash;
@@ -757,11 +759,19 @@ static void ShowProgress(TransactionTableModel *ttm, const std::string &title, i
     {
         fQueueNotifications = false;
         if (vQueueNotifications.size() > 10) // prevent balloon spam, show maximum 10 balloons
-            QMetaObject::invokeMethod(ttm, "setProcessingQueuedTransactions", Qt::QueuedConnection, Q_ARG(bool, true));
+        {
+            bool processingQueuedTransactions = true;
+            QMetaObject::invokeMethod(ttm, "setProcessingQueuedTransactions", Qt::QueuedConnection,
+                                      GUIUTIL_QT_ARG(bool, processingQueuedTransactions));
+        }
         for (unsigned int i = 0; i < vQueueNotifications.size(); ++i)
         {
             if (vQueueNotifications.size() - i <= 10)
-                QMetaObject::invokeMethod(ttm, "setProcessingQueuedTransactions", Qt::QueuedConnection, Q_ARG(bool, false));
+            {
+                bool processingQueuedTransactions = false;
+                QMetaObject::invokeMethod(ttm, "setProcessingQueuedTransactions", Qt::QueuedConnection,
+                                          GUIUTIL_QT_ARG(bool, processingQueuedTransactions));
+            }
 
             vQueueNotifications[i].invoke(ttm);
         }

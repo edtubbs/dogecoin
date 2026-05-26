@@ -1198,18 +1198,16 @@ static bool ThreadSafeMessageBox(BitcoinGUI *gui, const std::string& message, co
     style &= ~CClientUIInterface::SECURE;
     bool ret = false;
     // In case of modal message, use blocking connection to wait for user to click a button
-#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
-    QMetaObject::invokeMethod(gui, [gui, caption, message, style, &ret]() {
-        gui->message(QString::fromStdString(caption), QString::fromStdString(message), style, &ret);
-    }, modal ? GUIUtil::blockingGUIThreadConnection() : Qt::QueuedConnection);
-#else
+    QString captionStr = QString::fromStdString(caption);
+    QString messageStr = QString::fromStdString(message);
+    unsigned int messageStyle = style;
+    bool* retPtr = &ret;
     QMetaObject::invokeMethod(gui, "message",
                                modal ? GUIUtil::blockingGUIThreadConnection() : Qt::QueuedConnection,
-                               Q_ARG(QString, QString::fromStdString(caption)),
-                               Q_ARG(QString, QString::fromStdString(message)),
-                               Q_ARG(unsigned int, style),
-                               Q_ARG(bool*, &ret));
-#endif
+                               GUIUTIL_QT_ARG(QString, captionStr),
+                               GUIUTIL_QT_ARG(QString, messageStr),
+                               GUIUTIL_QT_ARG(unsigned int, messageStyle),
+                               GUIUTIL_QT_ARG(bool*, retPtr));
     return ret;
 }
 

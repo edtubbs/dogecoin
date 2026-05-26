@@ -11,6 +11,7 @@
 #include "guiconstants.h"
 #include "guiutil.h"
 #include "peertablemodel.h"
+#include "qtcompat.h"
 
 #include "chainparams.h"
 #include "checkpoints.h"
@@ -258,34 +259,35 @@ void ClientModel::updateBanlist()
 static void ShowProgress(ClientModel *clientmodel, const std::string &title, int nProgress)
 {
     // emits signal "showProgress"
+    QString titleStr = QString::fromStdString(title);
     QMetaObject::invokeMethod(clientmodel, "showProgress", Qt::QueuedConnection,
-                              Q_ARG(QString, QString::fromStdString(title)),
-                              Q_ARG(int, nProgress));
+                              GUIUTIL_QT_ARG(QString, titleStr),
+                              GUIUTIL_QT_ARG(int, nProgress));
 }
 
 static void NotifyNumConnectionsChanged(ClientModel *clientmodel, int newNumConnections)
 {
     // Too noisy: qDebug() << "NotifyNumConnectionsChanged: " + QString::number(newNumConnections);
     QMetaObject::invokeMethod(clientmodel, "updateNumConnections", Qt::QueuedConnection,
-                              Q_ARG(int, newNumConnections));
+                              GUIUTIL_QT_ARG(int, newNumConnections));
 }
 
 static void NotifyNetworkActiveChanged(ClientModel *clientmodel, bool networkActive)
 {
     QMetaObject::invokeMethod(clientmodel, "updateNetworkActive", Qt::QueuedConnection,
-                              Q_ARG(bool, networkActive));
+                              GUIUTIL_QT_ARG(bool, networkActive));
 }
 
 static void NotifyAlertChanged(ClientModel *clientmodel)
 {
     qDebug() << "NotifyAlertChanged";
-    QMetaObject::invokeMethod(clientmodel, "updateAlert", Qt::QueuedConnection);
+    QMetaObject::invokeMethod(clientmodel, "updateAlert", Qt::QueuedConnection, QGenericArgument());
 }
 
 static void BannedListChanged(ClientModel *clientmodel)
 {
     qDebug() << QString("%1: Requesting update for peer banlist").arg(__func__);
-    QMetaObject::invokeMethod(clientmodel, "updateBanlist", Qt::QueuedConnection);
+    QMetaObject::invokeMethod(clientmodel, "updateBanlist", Qt::QueuedConnection, QGenericArgument());
 }
 
 static void BlockTipChanged(ClientModel *clientmodel, bool initialSync, const CBlockIndex *pIndex, bool fHeader)
@@ -307,11 +309,14 @@ static void BlockTipChanged(ClientModel *clientmodel, bool initialSync, const CB
     // if we are in-sync, update the UI regardless of last update time
     if (!initialSync || now - nLastUpdateNotification > MODEL_UPDATE_DELAY) {
         //pass a async signal to the UI thread
+        int height = pIndex->nHeight;
+        QDateTime blockDate = QDateTime::fromSecsSinceEpoch(pIndex->GetBlockTime());
+        double verificationProgress = clientmodel->getVerificationProgress(pIndex);
         QMetaObject::invokeMethod(clientmodel, "numBlocksChanged", Qt::QueuedConnection,
-                                  Q_ARG(int, pIndex->nHeight),
-                                  Q_ARG(QDateTime, QDateTime::fromSecsSinceEpoch(pIndex->GetBlockTime())),
-                                  Q_ARG(double, clientmodel->getVerificationProgress(pIndex)),
-                                  Q_ARG(bool, fHeader));
+                                  GUIUTIL_QT_ARG(int, height),
+                                  GUIUTIL_QT_ARG(QDateTime, blockDate),
+                                  GUIUTIL_QT_ARG(double, verificationProgress),
+                                  GUIUTIL_QT_ARG(bool, fHeader));
         nLastUpdateNotification = now;
     }
 }

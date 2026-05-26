@@ -12,6 +12,7 @@
 #include "guiconstants.h"
 #include "guiutil.h"
 #include "paymentserver.h"
+#include "qtcompat.h"
 #include "recentrequeststablemodel.h"
 #include "transactiontablemodel.h"
 
@@ -421,7 +422,7 @@ bool WalletModel::backupWallet(const QString &filename)
 static void NotifyKeyStoreStatusChanged(WalletModel *walletmodel, CCryptoKeyStore *wallet)
 {
     qDebug() << "NotifyKeyStoreStatusChanged";
-    QMetaObject::invokeMethod(walletmodel, "updateStatus", Qt::QueuedConnection);
+    QMetaObject::invokeMethod(walletmodel, "updateStatus", Qt::QueuedConnection, QGenericArgument());
 }
 
 static void NotifyAddressBookChanged(WalletModel *walletmodel, CWallet *wallet,
@@ -433,12 +434,13 @@ static void NotifyAddressBookChanged(WalletModel *walletmodel, CWallet *wallet,
     QString strPurpose = QString::fromStdString(purpose);
 
     qDebug() << "NotifyAddressBookChanged: " + strAddress + " " + strLabel + " isMine=" + QString::number(isMine) + " purpose=" + strPurpose + " status=" + QString::number(status);
+    int statusInt = status;
     QMetaObject::invokeMethod(walletmodel, "updateAddressBook", Qt::QueuedConnection,
-                              Q_ARG(QString, strAddress),
-                              Q_ARG(QString, strLabel),
-                              Q_ARG(bool, isMine),
-                              Q_ARG(QString, strPurpose),
-                              Q_ARG(int, status));
+                              GUIUTIL_QT_ARG(QString, strAddress),
+                              GUIUTIL_QT_ARG(QString, strLabel),
+                              GUIUTIL_QT_ARG(bool, isMine),
+                              GUIUTIL_QT_ARG(QString, strPurpose),
+                              GUIUTIL_QT_ARG(int, statusInt));
 }
 
 static void NotifyTransactionChanged(WalletModel *walletmodel, CWallet *wallet, const uint256 &hash, ChangeType status)
@@ -446,21 +448,22 @@ static void NotifyTransactionChanged(WalletModel *walletmodel, CWallet *wallet, 
     Q_UNUSED(wallet);
     Q_UNUSED(hash);
     Q_UNUSED(status);
-    QMetaObject::invokeMethod(walletmodel, "updateTransaction", Qt::QueuedConnection);
+    QMetaObject::invokeMethod(walletmodel, "updateTransaction", Qt::QueuedConnection, QGenericArgument());
 }
 
 static void ShowProgress(WalletModel *walletmodel, const std::string &title, int nProgress)
 {
     // emits signal "showProgress"
+    QString titleStr = QString::fromStdString(title);
     QMetaObject::invokeMethod(walletmodel, "showProgress", Qt::QueuedConnection,
-                              Q_ARG(QString, QString::fromStdString(title)),
-                              Q_ARG(int, nProgress));
+                              GUIUTIL_QT_ARG(QString, titleStr),
+                              GUIUTIL_QT_ARG(int, nProgress));
 }
 
 static void NotifyWatchonlyChanged(WalletModel *walletmodel, bool fHaveWatchonly)
 {
     QMetaObject::invokeMethod(walletmodel, "updateWatchOnlyFlag", Qt::QueuedConnection,
-                              Q_ARG(bool, fHaveWatchonly));
+                              GUIUTIL_QT_ARG(bool, fHaveWatchonly));
 }
 
 void WalletModel::subscribeToCoreSignals()
