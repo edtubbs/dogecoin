@@ -717,10 +717,10 @@ public:
     {
         QString strHash = QString::fromStdString(hash.GetHex());
         qDebug() << "NotifyTransactionChanged: " + strHash + " status= " + QString::number(status);
-        int statusInt = status;
+        int transactionStatus = status;
         QMetaObject::invokeMethod(ttm, "updateTransaction", Qt::QueuedConnection,
                                   GUIUTIL_QT_ARG(QString, strHash),
-                                  GUIUTIL_QT_ARG(int, statusInt),
+                                  GUIUTIL_QT_ARG(int, transactionStatus),
                                   GUIUTIL_QT_ARG(bool, showTransaction));
     }
 private:
@@ -760,17 +760,17 @@ static void ShowProgress(TransactionTableModel *ttm, const std::string &title, i
         fQueueNotifications = false;
         if (vQueueNotifications.size() > 10) // prevent balloon spam, show maximum 10 balloons
         {
-            bool processingQueuedTransactions = true;
+            bool startProcessing = true;
             QMetaObject::invokeMethod(ttm, "setProcessingQueuedTransactions", Qt::QueuedConnection,
-                                      GUIUTIL_QT_ARG(bool, processingQueuedTransactions));
+                                      GUIUTIL_QT_ARG(bool, startProcessing));
         }
         for (unsigned int i = 0; i < vQueueNotifications.size(); ++i)
         {
             if (vQueueNotifications.size() - i <= 10)
             {
-                bool processingQueuedTransactions = false;
+                bool stopProcessing = false;
                 QMetaObject::invokeMethod(ttm, "setProcessingQueuedTransactions", Qt::QueuedConnection,
-                                          GUIUTIL_QT_ARG(bool, processingQueuedTransactions));
+                                          GUIUTIL_QT_ARG(bool, stopProcessing));
             }
 
             vQueueNotifications[i].invoke(ttm);
