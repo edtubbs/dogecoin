@@ -65,7 +65,7 @@ bool BaseIndex::Init()
     m_best_block_index = locator.IsNull() ? nullptr : FindForkInGlobalIndex(chainActive, locator);
     const CBlockIndex* best = m_best_block_index.load();
     const CBlockIndex* tip = chainActive.Tip();
-    m_synced = best != nullptr && best == tip;
+    m_synced = best != nullptr && best == tip && tip->nChainTx > 0;
     return true;
 }
 
