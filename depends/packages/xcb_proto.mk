@@ -18,6 +18,9 @@ define $(package)_build_cmds
 endef
 
 define $(package)_stage_cmds
+  sed -i 's/import sys, os, py_compile, imp/import sys, os, py_compile, importlib.util/' py-compile && \
+  sed -i "s/hasattr(imp, 'get_tag')/hasattr(importlib.util, 'cache_from_source')/" py-compile && \
+  sed -i 's/imp.cache_from_source/importlib.util.cache_from_source/g' py-compile && \
   $(MAKE) DESTDIR=$($(package)_staging_dir) install
 endef
 
