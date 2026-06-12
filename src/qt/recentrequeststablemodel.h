@@ -28,7 +28,7 @@ public:
 
     template <typename Stream, typename Operation>
     inline void SerializationOp(Stream& s, Operation ser_action) {
-        unsigned int nDate = date.toTime_t();
+        unsigned int nDate = date.toSecsSinceEpoch();
 
         READWRITE(this->nVersion);
         READWRITE(id);
