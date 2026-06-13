@@ -457,6 +457,13 @@ AC_DEFUN([_BITCOIN_QT_FIND_LIBS_WITHOUT_PKGCONFIG],[
     dnl libraries have complex inter-dependencies. Instead of trying to link,
     dnl just verify the library files exist.
     if test x$qt_lib_path != x; then
+      dnl Qt6 static libraries have cyclic dependencies (e.g. Qt6Widgets needs
+      dnl Qt6Gui symbols, and Qt6Gui needs Qt6Core). GNU ld processes static
+      dnl archives in a single left-to-right pass, so wrap all Qt6 libs in a
+      dnl linker group on non-Darwin platforms to allow multiple resolution passes.
+      if test x$TARGET_OS != xdarwin; then
+        LIBS="$LIBS -Wl,--start-group"
+      fi
       for _qt6lib in Core Gui Network Widgets PrintSupport; do
         _qt6libfile="$qt_lib_path/lib${QT_LIB_PREFIX}${_qt6lib}.a"
         if test ! -f "$_qt6libfile"; then
@@ -472,6 +479,9 @@ AC_DEFUN([_BITCOIN_QT_FIND_LIBS_WITHOUT_PKGCONFIG],[
           LIBS="$LIBS -l${QT_LIB_PREFIX}${_qt6lib}"
         fi
       done
+      if test x$TARGET_OS != xdarwin; then
+        LIBS="$LIBS -Wl,--end-group"
+      fi
     else
       dnl No explicit lib path - try the standard AC_CHECK_LIB approach
       BITCOIN_QT_CHECK(AC_CHECK_LIB([${QT_LIB_PREFIX}Core]   ,[main],,BITCOIN_QT_FAIL(lib$QT_LIB_PREFIXCore not found)))

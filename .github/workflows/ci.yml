@@ -26,7 +26,7 @@ jobs:
       CACHE_NONCE: "1"
       WINEDEBUG: fixme-all
       WINEPREFIX: /tmp/wineprefix/
-      SDK_URL: https://depends.dogecoincore.org
+      SDK_URL: https://bitcoincore.org/depends-sources/sdks
       # Use GCC-11 for Qt 6 C++20 constexpr support
       CC: gcc-11
       CXX: g++-11
