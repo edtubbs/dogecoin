@@ -458,6 +458,12 @@ AC_DEFUN([_BITCOIN_QT_FIND_LIBS_WITHOUT_PKGCONFIG],[
   BITCOIN_QT_CHECK(AC_CHECK_LIB([${QT_LIB_PREFIX}Widgets],[main],,BITCOIN_QT_FAIL(lib$QT_LIB_PREFIXWidgets not found)))
   BITCOIN_QT_CHECK(AC_CHECK_LIB([${QT_LIB_PREFIX}PrintSupport],[main],,BITCOIN_QT_FAIL(lib$QT_LIB_PREFIXPrintSupport not found)))
   QT_LIBS="$LIBS"
+  if test x$qt_lib_path != x && test x$TARGET_OS != xdarwin; then
+    dnl Static Qt archives can have cyclic dependencies (for example Widgets ->
+    dnl Gui -> Core). GNU ld only scans static archives once, so group them to
+    dnl allow multiple resolution passes when using the non-pkg-config path.
+    QT_LIBS="-Wl,--start-group $QT_LIBS -Wl,--end-group"
+  fi
   LIBS="$TEMP_LIBS"
 
   BITCOIN_QT_CHECK([
