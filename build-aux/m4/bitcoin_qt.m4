@@ -457,14 +457,23 @@ AC_DEFUN([_BITCOIN_QT_FIND_LIBS_WITHOUT_PKGCONFIG],[
     dnl libraries have complex inter-dependencies. Instead of trying to link,
     dnl just verify the library files exist.
     if test x$qt_lib_path != x; then
-      dnl Qt6 static libraries have cyclic dependencies (e.g. Qt6Widgets needs
-      dnl Qt6Gui symbols, and Qt6Gui needs Qt6Core). GNU ld processes static
-      dnl archives in a single left-to-right pass, so wrap all Qt6 libs in a
-      dnl linker group on non-Darwin platforms to allow multiple resolution passes.
+      dnl Static Qt6 modules must be linked in dependency order (dependents
+      dnl before their dependencies) so a single left-to-right ld pass can
+      dnl resolve every symbol: Widgets needs Gui, Gui needs Core, and Core
+      dnl needs its bundled zlib/PCRE2.  libtool keeps plain -l flags in the
+      dnl order given and positions them after the application archives, which
+      dnl is exactly where the Qt libraries need to be.  A linker group is also
+      dnl emitted on non-Darwin platforms as a safety net for any remaining
+      dnl cyclic references.
+      dnl
+      dnl The required modules (Core/Gui/Network/Widgets/PrintSupport) fail the
+      dnl build if missing; the bundled third-party libraries (zlib, PCRE2,
+      dnl libpng, harfbuzz), Qt6DBus and the external font/keyboard libraries
+      dnl are only added when present so other platforms are unaffected.
       if test x$TARGET_OS != xdarwin; then
         LIBS="$LIBS -Wl,--start-group"
       fi
-      for _qt6lib in Core Gui Network Widgets PrintSupport; do
+      for _qt6lib in Widgets PrintSupport Network Gui DBus BundledLibpng BundledHarfbuzz Core BundledZLIB BundledPcre2; do
         _qt6libfile="$qt_lib_path/lib${QT_LIB_PREFIX}${_qt6lib}.a"
         if test ! -f "$_qt6libfile"; then
           _qt6libfile="$qt_lib_path/lib${QT_LIB_PREFIX}${_qt6lib}.so"
@@ -473,10 +482,22 @@ AC_DEFUN([_BITCOIN_QT_FIND_LIBS_WITHOUT_PKGCONFIG],[
           _qt6libfile="$qt_lib_path/lib${QT_LIB_PREFIX}${_qt6lib}.dylib"
         fi
         if test ! -f "$_qt6libfile"; then
-          BITCOIN_QT_FAIL([lib${QT_LIB_PREFIX}${_qt6lib} not found in $qt_lib_path])
+          case " Core Gui Network Widgets PrintSupport " in
+            *" $_qt6lib "*)
+              BITCOIN_QT_FAIL([lib${QT_LIB_PREFIX}${_qt6lib} not found in $qt_lib_path]) ;;
+            *) : ;;
+          esac
         else
           AC_MSG_NOTICE([Found lib${QT_LIB_PREFIX}${_qt6lib}: $_qt6libfile])
           LIBS="$LIBS -l${QT_LIB_PREFIX}${_qt6lib}"
+        fi
+      done
+      dnl External shared libraries the static Qt6 Gui/Widgets modules reference
+      dnl (font rendering and keyboard handling). Added only when present.
+      for _qt6extlib in freetype fontconfig xkbcommon; do
+        if test -f "$qt_lib_path/lib${_qt6extlib}.a" || test -f "$qt_lib_path/lib${_qt6extlib}.so" || test -f "$qt_lib_path/lib${_qt6extlib}.dylib"; then
+          AC_MSG_NOTICE([Found lib${_qt6extlib} for Qt6])
+          LIBS="$LIBS -l${_qt6extlib}"
         fi
       done
       if test x$TARGET_OS != xdarwin; then
