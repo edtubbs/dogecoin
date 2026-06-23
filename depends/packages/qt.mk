@@ -19,6 +19,7 @@ $(package)_patches += qtbase_skip_tools.patch
 $(package)_patches += rcc_hardcode_timestamp.patch
 $(package)_patches += qttools_skip_dependencies.patch
 $(package)_patches += static_fixes.patch
+$(package)_patches += qtbase_qconcatenable_sfinae.patch
 
 $(package)_qttranslations_file_name=$(qt_details_qttranslations_file_name)
 $(package)_qttranslations_sha256_hash=$(qt_details_qttranslations_sha256_hash)
@@ -134,6 +135,10 @@ $(package)_config_opts_darwin := -no-dbus
 $(package)_config_opts_darwin += -no-freetype
 # Qt 6 requires pkg-config files for proper module detection - explicitly enable
 $(package)_config_opts_darwin += -pkg-config
+# The macOS depends SDK (MacOSX10.11) ships a libc++ without <filesystem>, which
+# Qt's auto-detection nonetheless reports as available. Force the feature off so
+# the public <QtCore/qfile.h> header does not pull in the missing <filesystem>.
+$(package)_config_opts_darwin += -no-feature-cxx17_filesystem
 
 $(package)_config_opts_linux := -dbus-runtime
 $(package)_config_opts_linux += -fontconfig
@@ -159,7 +164,11 @@ $(package)_config_env_darwin := OBJC="$$($(package)_cc)"
 $(package)_config_env_darwin += OBJCXX="$$($(package)_cxx)"
 
 $(package)_cmake_opts := -DCMAKE_PREFIX_PATH=$(host_prefix)
-$(package)_cmake_opts += -DQT_FEATURE_cxx20=ON
+# Build Qt with C++17 to match the standard the application is compiled with
+# (configure.ac caps the project at C++17). Building Qt with C++20 while the
+# app links against it as C++17 produces thousands of undefined references
+# (e.g. comparison operators) at link time on MinGW/Linux.
+$(package)_cmake_opts += -DQT_FEATURE_cxx20=OFF
 $(package)_cmake_opts += -DQT_ENABLE_CXX_EXTENSIONS=OFF
 # Force Qt to build with older cmake (Ubuntu 20.04 has 3.16, Qt prefers 3.21+)
 # This is not officially supported but necessary for compatibility.
@@ -275,6 +284,11 @@ define $(package)_preprocess_cmds
 endef
 ifeq ($(host),$(build))
   $(package)_preprocess_cmds += && patch -p1 -i $($(package)_patch_dir)/qttools_skip_dependencies.patch
+endif
+# The QConcatenable/operator% vs Boost.Date_Time clash is a clang-only hard
+# error, so the SFINAE fix is only needed for the macOS (darwin) Qt build.
+ifeq ($(host_os),darwin)
+  $(package)_preprocess_cmds += && patch -p1 -i $($(package)_patch_dir)/qtbase_qconcatenable_sfinae.patch
 endif
 
 define $(package)_config_cmds

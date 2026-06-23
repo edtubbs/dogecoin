@@ -1,0 +1,30 @@
+qtbase: make the primary QConcatenable template a complete (empty) type
+
+QStringBuilder declares a global `operator%` that is meant to be removed
+from overload resolution for non-concatenable types via the SFINAE guard
+`std::void_t<typename QConcatenableEx<A>::type, ...>`. Because the primary
+`QConcatenable` template is only forward-declared, accessing `::type` for a
+foreign type triggers "implicit instantiation of undefined template" which
+is a hard error under clang rather than a substitution failure.
+
+This surfaces on macOS (clang) when Boost.Date_Time's internal modulo on
+`boost::gregorian::greg_year` is resolved while Qt's `operator%` is in scope,
+breaking the build of essentially every Qt translation unit that transitively
+includes Boost (via boost/thread -> boost/date_time).
+
+Giving the primary template an empty definition turns the `::type` access
+into a clean substitution failure, so `operator%` is correctly discarded and
+the built-in/Boost operator is used. Specializations are unaffected, so valid
+QStringBuilder concatenations keep working.
+
+--- a/qtbase/src/corelib/text/qstringbuilder.h
++++ b/qtbase/src/corelib/text/qstringbuilder.h
+@@ -31,7 +31,7 @@ struct Q_CORE_EXPORT QAbstractConcatenable
+     static void appendLatin1To(QLatin1StringView in, QChar *out) noexcept;
+ };
+ 
+-template <typename T> struct QConcatenable;
++template <typename T> struct QConcatenable {};
+ 
+ template <typename T>
+ using QConcatenableEx = QConcatenable<q20::remove_cvref_t<T>>;
