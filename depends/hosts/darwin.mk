@@ -19,3 +19,8 @@ darwin_debug_CFLAGS=-O1
 darwin_debug_CXXFLAGS=$(darwin_debug_CFLAGS)
 
 darwin_native_toolchain=native_cctools
+
+darwin_cmake_system_name=Darwin
+# Darwin version, which corresponds to OSX_MIN_VERSION (macOS 10.8 == Darwin 12).
+# See https://en.wikipedia.org/wiki/Darwin_(operating_system)
+darwin_cmake_system_version=12.0
