@@ -25,7 +25,6 @@
 
 #ifdef HAVE_SYS_GETRANDOM
 #include <sys/syscall.h>
-#include <linux/random.h>
 #endif
 #if defined(HAVE_GETENTROPY)
 #include <unistd.h>
