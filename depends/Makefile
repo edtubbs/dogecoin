@@ -9,7 +9,7 @@ NO_UPNP ?=
 NO_PQC ?=
 LIBOQS_RACCOON ?=
 AVX2 ?=
-FALLBACK_DOWNLOAD_PATH ?= https://bitcoincore.org/depends-sources
+FALLBACK_DOWNLOAD_PATH ?= https://depends.dogecoincore.org
 
 BUILD = $(shell ./config.guess)
 HOST ?= $(BUILD)
