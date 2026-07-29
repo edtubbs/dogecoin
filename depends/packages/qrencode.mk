@@ -1,20 +1,13 @@
 package=qrencode
 $(package)_version=3.4.4
-$(package)_download_path=https://archive.debian.org/debian/pool/main/q/qrencode
+$(package)_download_path=https://snapshot.debian.org/archive/debian/20151220T000000Z/pool/main/q/qrencode
 $(package)_download_file=qrencode_$($(package)_version).orig.tar.bz2
-$(package)_file_name=qrencode-$($(package)_version).tar.bz2
+$(package)_file_name=qrencode-$(qrencode_version).tar.bz2
 $(package)_sha256_hash=efe5188b1ddbcbf98763b819b146be6a90481aac30cfc8d858ab78a19cde1fa5
 
 define $(package)_set_vars
 $(package)_config_opts=--disable-shared -without-tools --disable-sdltest
 $(package)_config_opts_linux=--with-pic
-endef
-
-define $(package)_preprocess_cmds
-  mkdir -p m4 && \
-  echo 'AC_DEFUN([AM_PATH_SDL],[])' > m4/sdl.m4 && \
-  echo 'AC_DEFUN([AM_ICONV_LINK],[])' > m4/iconv.m4 && \
-  autoreconf -fi
 endef
 
 define $(package)_config_cmds

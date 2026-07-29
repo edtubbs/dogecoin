@@ -26,7 +26,13 @@ jobs:
       CACHE_NONCE: "1"
       WINEDEBUG: fixme-all
       WINEPREFIX: /tmp/wineprefix/
-      SDK_URL: https://bitcoincore.org/depends-sources/sdks
+      # Space-separated list of SDK mirrors, tried in order. dogecoincore is
+      # primary; additional entries are fallbacks for when it is unreachable
+      # (e.g. expired TLS cert). Downloaded tarball is checksum-verified after
+      # fetch regardless of which mirror served it.
+      # TODO(revert): trim back to the dogecoincore mirror once its certificate
+      # is renewed.
+      SDK_URL: "https://depends.dogecoincore.org https://bitcoincore.org/depends-sources/sdks"
       # Use GCC-11 for Qt 6 C++20 constexpr support
       CC: gcc-11
       CXX: g++-11
@@ -242,7 +248,7 @@ jobs:
           # such as std::__throw_bad_array_new_length with -static-libstdc++).
           apt-get install -y gcc-11 g++-11
           update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-11 110 --slave /usr/bin/g++ g++ /usr/bin/g++-11
-          python3 -m pip install setuptools==70.3.0 --upgrade
+          python3 -m pip install setuptools==70.3.0 --upgrade pip
           python3 -m pip install lief==0.12.3
 
       - name: Post install
@@ -250,11 +256,11 @@ jobs:
         run: ${{ matrix.postinstall }}
 
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: SDK cache
         if: ${{ matrix.sdk }}
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         env:
           cache-name: sdk
         with:
@@ -268,13 +274,25 @@ jobs:
         run: |
           mkdir -p ./depends/sdk-sources
           mkdir -p ./depends/SDKs
-          echo "${{ matrix.sdk-shasum }}  depends/sdk-sources/${{ env.sdk-filename }}" | sha256sum -c || \
-          curl --location --fail $SDK_URL/${{ env.sdk-filename }} -o depends/sdk-sources/${{ env.sdk-filename }} &&\
-          echo "${{ matrix.sdk-shasum }}  depends/sdk-sources/${{ env.sdk-filename }}" | sha256sum -c
+          if ! echo "${{ matrix.sdk-shasum }}  depends/sdk-sources/${{ env.sdk-filename }}" | sha256sum -c; then
+            fetched=0
+            for base in $SDK_URL; do
+              echo "Fetching ${{ env.sdk-filename }} from $base"
+              if curl --location --fail "$base/${{ env.sdk-filename }}" -o depends/sdk-sources/${{ env.sdk-filename }}; then
+                fetched=1
+                break
+              fi
+            done
+            if [ "$fetched" != 1 ]; then
+              echo "error: could not download ${{ env.sdk-filename }} from any SDK_URL mirror" >&2
+              exit 1
+            fi
+            echo "${{ matrix.sdk-shasum }}  depends/sdk-sources/${{ env.sdk-filename }}" | sha256sum -c
+          fi
           tar -C depends/SDKs -xf depends/sdk-sources/${{ env.sdk-filename }}
 
       - name: Dependency cache
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         env:
           cache-name: depends
         with:
@@ -286,7 +304,7 @@ jobs:
           make $MAKEJOBS -C depends HOST=${{ matrix.host }} ${{ matrix.dep-opts }}
 
       - name: CCache
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         env:
           cache-name: ccache
         with:
@@ -334,7 +352,7 @@ jobs:
           rm -rf qa/cache || true
 
       - name: Upload artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: dogecoin-${{ github.sha }}-${{ matrix.name }}
           path: |

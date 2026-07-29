@@ -1015,7 +1015,7 @@ void ClickableLabel::mouseReleaseEvent(QMouseEvent *event)
 {
     Q_EMIT clicked(event->pos());
 }
-    
+
 void ClickableProgressBar::mouseReleaseEvent(QMouseEvent *event)
 {
     Q_EMIT clicked(event->pos());
