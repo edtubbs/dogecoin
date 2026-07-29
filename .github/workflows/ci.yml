@@ -234,7 +234,15 @@ jobs:
         run: |
           apt-get update
           apt-get install -y software-properties-common
-          add-apt-repository -y ppa:ubuntu-toolchain-r/test
+          # Launchpad is intermittently flaky when many jobs hit it at once
+          # ("'~ubuntu-toolchain-r' user or team does not exist"); retry with
+          # backoff before giving up.
+          for i in 1 2 3 4 5; do
+            add-apt-repository -y ppa:ubuntu-toolchain-r/test && break
+            if [ "$i" = "5" ]; then echo "error: could not add ubuntu-toolchain-r PPA" >&2; exit 1; fi
+            echo "add-apt-repository failed; retrying in $((i * 15))s..." >&2
+            sleep $((i * 15))
+          done
           apt-get update
           apt-get install -y build-essential libtool autotools-dev automake \
                pkg-config bsdmainutils curl ca-certificates ccache rsync git \

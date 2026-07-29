@@ -158,6 +158,13 @@ $(package)_config_opts_mingw32 += -no-freetype
 $(package)_config_opts_mingw32 += -pkg-config
 
 # CMake build options.
+# The darwin cross toolchain uses clang 6.0.1, which predates the
+# -ffile-prefix-map flag (clang 10+); fall back to -fdebug-prefix-map there.
+ifeq ($(host_os),darwin)
+$(package)_prefix_map_flag := -fdebug-prefix-map
+else
+$(package)_prefix_map_flag := -ffile-prefix-map
+endif
 $(package)_config_env := CC="$$($(package)_cc)"
 $(package)_config_env += CXX="$$($(package)_cxx)"
 $(package)_config_env_darwin := OBJC="$$($(package)_cc)"
@@ -180,17 +187,17 @@ $(package)_cmake_opts += --log-level=STATUS
 endif
 
 $(package)_cmake_opts += -DQT_USE_DEFAULT_CMAKE_OPTIMIZATION_FLAGS=ON
-$(package)_cmake_opts += -DCMAKE_C_FLAGS="$$($(package)_cppflags) $$($$($(package)_type)_CFLAGS) -ffile-prefix-map=$$($(package)_extract_dir)=/usr"
+$(package)_cmake_opts += -DCMAKE_C_FLAGS="$$($(package)_cppflags) $$($$($(package)_type)_CFLAGS) $$($(package)_prefix_map_flag)=$$($(package)_extract_dir)=/usr"
 $(package)_cmake_opts += -DCMAKE_C_FLAGS_RELEASE="$$($$($(package)_type)_release_CFLAGS)"
 $(package)_cmake_opts += -DCMAKE_C_FLAGS_DEBUG="$$($$($(package)_type)_debug_CFLAGS)"
-$(package)_cmake_opts += -DCMAKE_CXX_FLAGS="$$($(package)_cppflags) $$($$($(package)_type)_CXXFLAGS) -ffile-prefix-map=$$($(package)_extract_dir)=/usr"
+$(package)_cmake_opts += -DCMAKE_CXX_FLAGS="$$($(package)_cppflags) $$($$($(package)_type)_CXXFLAGS) $$($(package)_prefix_map_flag)=$$($(package)_extract_dir)=/usr"
 $(package)_cmake_opts += -DCMAKE_CXX_FLAGS_RELEASE="$$($$($(package)_type)_release_CXXFLAGS)"
 $(package)_cmake_opts += -DCMAKE_CXX_FLAGS_DEBUG="$$($$($(package)_type)_debug_CXXFLAGS)"
 ifeq ($(host_os),darwin)
-$(package)_cmake_opts += -DCMAKE_OBJC_FLAGS="$$($(package)_cppflags) $$($$($(package)_type)_CFLAGS) -ffile-prefix-map=$$($(package)_extract_dir)=/usr"
+$(package)_cmake_opts += -DCMAKE_OBJC_FLAGS="$$($(package)_cppflags) $$($$($(package)_type)_CFLAGS) $$($(package)_prefix_map_flag)=$$($(package)_extract_dir)=/usr"
 $(package)_cmake_opts += -DCMAKE_OBJC_FLAGS_RELEASE="$$($$($(package)_type)_release_CFLAGS)"
 $(package)_cmake_opts += -DCMAKE_OBJC_FLAGS_DEBUG="$$($$($(package)_type)_debug_CFLAGS)"
-$(package)_cmake_opts += -DCMAKE_OBJCXX_FLAGS="$$($(package)_cppflags) $$($$($(package)_type)_CXXFLAGS) -ffile-prefix-map=$$($(package)_extract_dir)=/usr"
+$(package)_cmake_opts += -DCMAKE_OBJCXX_FLAGS="$$($(package)_cppflags) $$($$($(package)_type)_CXXFLAGS) $$($(package)_prefix_map_flag)=$$($(package)_extract_dir)=/usr"
 $(package)_cmake_opts += -DCMAKE_OBJCXX_FLAGS_RELEASE="$$($$($(package)_type)_release_CXXFLAGS)"
 $(package)_cmake_opts += -DCMAKE_OBJCXX_FLAGS_DEBUG="$$($$($(package)_type)_debug_CXXFLAGS)"
 endif
