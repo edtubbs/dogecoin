@@ -20,6 +20,9 @@ $(package)_patches += rcc_hardcode_timestamp.patch
 $(package)_patches += qttools_skip_dependencies.patch
 $(package)_patches += static_fixes.patch
 $(package)_patches += qtbase_qconcatenable_sfinae.patch
+$(package)_patches += qtbase_gui_no_d3d12.patch
+$(package)_patches += qtbase_cocoa_no_uti.patch
+$(package)_patches += qtbase_x86intrin_no_error.patch
 
 $(package)_qttranslations_file_name=$(qt_details_qttranslations_file_name)
 $(package)_qttranslations_sha256_hash=$(qt_details_qttranslations_sha256_hash)
@@ -287,7 +290,10 @@ define $(package)_preprocess_cmds
   patch -p1 -i $($(package)_patch_dir)/qtbase_plugins_windows11style.patch && \
   patch -p1 -i $($(package)_patch_dir)/static_fixes.patch && \
   patch -p1 -i $($(package)_patch_dir)/qtbase_skip_tools.patch && \
-  patch -p1 -i $($(package)_patch_dir)/rcc_hardcode_timestamp.patch
+  patch -p1 -i $($(package)_patch_dir)/rcc_hardcode_timestamp.patch && \
+  patch -p1 -i $($(package)_patch_dir)/qtbase_gui_no_d3d12.patch && \
+  patch -p1 -i $($(package)_patch_dir)/qtbase_cocoa_no_uti.patch && \
+  patch -p1 -i $($(package)_patch_dir)/qtbase_x86intrin_no_error.patch
 endef
 ifeq ($(host),$(build))
   $(package)_preprocess_cmds += && patch -p1 -i $($(package)_patch_dir)/qttools_skip_dependencies.patch

@@ -1,0 +1,35 @@
+configure: do not treat missing x86 intrinsics support as fatal
+
+The darwin cross toolchain uses clang 6.0.1, whose <immintrin.h> does
+not declare the full intrinsics set exercised by the x86intrin config
+test (e.g. _rdseed32_step), so QT_FEATURE_x86intrin evaluates to OFF.
+Qt then adds a fatal ERROR report entry whose message embeds the raw
+compiler output; the parentheses/quotes in that output additionally
+break qt_configure_process_add_report_entry argument re-parsing
+("Unknown arguments: ("). Downgrade the entry to a WARNING with a
+static message so configure completes and Qt simply builds without
+SSE/AVX code paths.
+
+--- a/qtbase/configure.cmake
++++ b/qtbase/configure.cmake
+@@ -1278,18 +1278,11 @@
+ ]=]
+         )
+     else()
+-        string(CONCAT error_message
+-            "x86 intrinsics support missing. Check your compiler settings.\n"
+-            "If this is an error, report at https://bugreports.qt.io with your compiler ID and "
+-            "version, and this output:\n"
+-            "\n"
+-            "${TEST_x86intrin_OUTPUT}"
+-        )
+         qt_configure_add_report_entry(
+-            TYPE ERROR
++            TYPE WARNING
+             CONDITION (NOT QT_FEATURE_x86intrin)
+-            MESSAGE "${error_message}"
++            MESSAGE "x86 intrinsics support missing; building without SSE/AVX code paths. See config.tests/x86intrin for details."
+         )
+     endif()
+ endif()
+ qt_configure_add_report_entry(

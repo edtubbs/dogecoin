@@ -1,0 +1,59 @@
+cocoa: drop the UniformTypeIdentifiers framework dependency
+
+The UniformTypeIdentifiers framework was introduced with the macOS 11
+SDK. The depends darwin build uses the MacOSX10.11 SDK, where the
+framework does not exist, making FWUniformTypeIdentifiers resolve to
+NOTFOUND and aborting the CMake generate step for the cocoa plugin.
+
+Remove the framework from the link line and drop the only user in the
+cocoa plugin: the UTTypeDirectory save-panel extension-reset
+workaround in qcocoafiledialoghelper.mm (a cosmetic refinement that
+older Qt versions lived without; allowedContentTypes is a macOS 11+
+API and would not compile against the 10.11 SDK anyway).
+
+--- a/qtbase/src/plugins/platforms/cocoa/CMakeLists.txt
++++ b/qtbase/src/plugins/platforms/cocoa/CMakeLists.txt
+@@ -56,7 +56,6 @@
+         ${FWIOSurface}
+         ${FWMetal}
+         ${FWQuartzCore}
+-        ${FWUniformTypeIdentifiers}
+         Qt::Core
+         Qt::CorePrivate
+         Qt::Gui
+--- a/qtbase/src/plugins/platforms/cocoa/qcocoafiledialoghelper.mm
++++ b/qtbase/src/plugins/platforms/cocoa/qcocoafiledialoghelper.mm
+@@ -27,8 +27,6 @@
+ #include <qpa/qplatformtheme.h>
+ #include <qpa/qplatformnativeinterface.h>
+ 
+-#include <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
+-
+ QT_USE_NAMESPACE
+ 
+ using namespace Qt::StringLiterals;
+@@ -448,24 +446,6 @@
+ 
+     m_panel.allowedFileTypes = [self computeAllowedFileTypes];
+ 
+-    // Setting allowedFileTypes to nil is not enough to reset any
+-    // automatically added extension based on a previous filter.
+-    // This is problematic because extensions can in some cases
+-    // be hidden from the user, resulting in confusion when the
+-    // resulting file name doesn't match the current empty filter.
+-    // We work around this by temporarily resetting the allowed
+-    // content type to one without an extension, which forces
+-    // the save panel to update and remove the extension.
+-    const bool nameFieldHasExtension = m_panel.nameFieldStringValue.pathExtension.length > 0;
+-    if (!m_panel.allowedFileTypes && !nameFieldHasExtension && !openpanel_cast(m_panel)) {
+-        if (!UTTypeDirectory.preferredFilenameExtension) {
+-            m_panel.allowedContentTypes = @[ UTTypeDirectory ];
+-            m_panel.allowedFileTypes = nil;
+-        } else {
+-            qWarning() << "UTTypeDirectory unexpectedly reported an extension";
+-        }
+-    }
+-
+     m_panel.showsHiddenFiles = m_options->filter().testFlag(QDir::Hidden);
+ 
+     if (m_panel.visible)

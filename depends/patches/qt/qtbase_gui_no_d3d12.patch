@@ -1,0 +1,41 @@
+gui: do not build the Direct3D 12 QRhi backend
+
+The mingw-w64 headers shipped with Ubuntu 20.04 (7.0.0) predate the
+D3D12 additions from the Windows 10 1703 SDK, so qrhid3d12_p.h fails
+with "d3d12.h: No such file or directory". Qt already supports builds
+without the D3D12 backend at runtime (without QRHI_D3D12_AVAILABLE,
+QRhi::create falls back to a qWarning), so drop the backend sources
+and the d3d12 link library entirely. Dogecoin-Qt only uses the
+QWidget raster paths and never requests a D3D12 QRhi.
+
+--- a/qtbase/src/gui/CMakeLists.txt
++++ b/qtbase/src/gui/CMakeLists.txt
+@@ -420,10 +420,7 @@
+         rhi/qrhid3d11.cpp rhi/qrhid3d11_p.h
+         rhi/qrhid3dhelpers.cpp rhi/qrhid3dhelpers_p.h
+         rhi/vs_test_p.h
+-        rhi/qrhid3d12.cpp rhi/qrhid3d12_p.h
+         rhi/cs_mipmap_p.h
+-        ../3rdparty/D3D12MemoryAllocator/D3D12MemAlloc.h
+-        ../3rdparty/D3D12MemoryAllocator/D3D12MemAlloc.cpp
+         text/windows/qwindowsfontdatabase.cpp text/windows/qwindowsfontdatabase_p.h
+         text/windows/qwindowsfontdatabasebase.cpp text/windows/qwindowsfontdatabasebase_p.h
+         text/windows/qwindowsfontengine.cpp text/windows/qwindowsfontengine_p.h
+@@ -439,7 +436,6 @@
+         d3d11
+         dxgi
+         dxguid
+-        d3d12
+ )
+ 
+ if(QT_FEATURE_graphicsframecapture)
+--- a/qtbase/src/gui/rhi/qrhi.cpp
++++ b/qtbase/src/gui/rhi/qrhi.cpp
+@@ -14,7 +14,6 @@
+ #endif
+ #ifdef Q_OS_WIN
+ #include "qrhid3d11_p.h"
+-#include "qrhid3d12_p.h"
+ #endif
+ #if defined(Q_OS_MACOS) || defined(Q_OS_IOS)
+ #include "qrhimetal_p.h"
