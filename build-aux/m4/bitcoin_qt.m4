@@ -500,6 +500,11 @@ AC_DEFUN([_BITCOIN_QT_FIND_LIBS_WITHOUT_PKGCONFIG],[
           LIBS="$LIBS -l${_qt6extlib}"
         fi
       done
+      dnl Static Qt6Core uses dlopen/dlsym/dlclose/dlerror (QLibrary) on Linux;
+      dnl glibc < 2.34 provides these in libdl, so link it explicitly.
+      if test x$TARGET_OS = xlinux; then
+        LIBS="$LIBS -ldl"
+      fi
       if test x$TARGET_OS != xdarwin; then
         LIBS="$LIBS -Wl,--end-group"
       fi
