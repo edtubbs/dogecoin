@@ -50,7 +50,7 @@ jobs:
           - name: i686-linux
             host: i686-pc-linux-gnu
             container: ubuntu:20.04
-            packages: g++-multilib bc python3-zmq
+            packages: g++-multilib gcc-11-multilib g++-11-multilib bc python3-zmq
             run-bench: true
             test-script: |
               make check $MAKEJOBS VERBOSE=1
@@ -240,7 +240,7 @@ jobs:
           # would silently undo the alternatives below, leaving the app built
           # with gcc-9 while Qt is built with gcc-11 (missing libstdc++ symbols
           # such as std::__throw_bad_array_new_length with -static-libstdc++).
-          apt-get install -y gcc-11 g++-11 ${{ matrix.host == 'i686-pc-linux-gnu' && 'gcc-11-multilib g++-11-multilib' || '' }}
+          apt-get install -y gcc-11 g++-11
           update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-11 110 --slave /usr/bin/g++ g++ /usr/bin/g++-11
           python3 -m pip install setuptools==70.3.0 --upgrade
           python3 -m pip install lief==0.12.3
