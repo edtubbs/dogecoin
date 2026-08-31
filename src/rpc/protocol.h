@@ -25,6 +25,7 @@ enum HTTPStatusCode
     HTTP_FORBIDDEN             = 403,
     HTTP_NOT_FOUND             = 404,
     HTTP_BAD_METHOD            = 405,
+    HTTP_TOO_MANY_REQUESTS     = 429,
     HTTP_INTERNAL_SERVER_ERROR = 500,
     HTTP_SERVICE_UNAVAILABLE   = 503,
 };

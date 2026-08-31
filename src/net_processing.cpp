@@ -224,6 +224,10 @@ struct CNodeState {
      */
     bool fSupportsDesiredCmpctVersion;
 
+    //! MITRE ATT&CK T1499: Per-peer message rate tracking for DoS prevention
+    int64_t nMessageRateLastCheck;
+    int nMessagesInWindow;
+
     CNodeState(CAddress addrIn, std::string addrNameIn) : address(addrIn), name(addrNameIn) {
         fCurrentlyConnected = false;
         nMisbehavior = 0;
@@ -246,6 +250,8 @@ struct CNodeState {
         fHaveWitness = false;
         fWantsCmpctWitness = false;
         fSupportsDesiredCmpctVersion = false;
+        nMessageRateLastCheck = 0;
+        nMessagesInWindow = 0;
     }
 
 };
@@ -2905,6 +2911,29 @@ bool ProcessMessages(CNode* pfrom, CConnman& connman, const std::atomic<bool>& i
                HexStr(hash.begin(), hash.begin()+CMessageHeader::CHECKSUM_SIZE),
                HexStr(hdr.pchChecksum, hdr.pchChecksum+CMessageHeader::CHECKSUM_SIZE));
             return fMoreWork;
+        }
+
+        // MITRE ATT&CK T1499: Per-peer message rate limiting
+        if (!pfrom->fWhitelisted) {
+            LOCK(cs_main);
+            CNodeState *state = State(pfrom->GetId());
+            if (state) {
+                int64_t nNow = GetTime();
+                if (nNow - state->nMessageRateLastCheck >= PEER_MSG_RATE_WINDOW) {
+                    state->nMessageRateLastCheck = nNow;
+                    state->nMessagesInWindow = 0;
+                }
+                state->nMessagesInWindow++;
+                if (state->nMessagesInWindow > MAX_PEER_MSG_RATE) {
+                    // Score accumulates across windows; only penalize once per window
+                    if (state->nMessagesInWindow == MAX_PEER_MSG_RATE + 1) {
+                        LogPrintf("Peer %d exceeded message rate limit (%d msgs in %ds)\n",
+                                  pfrom->GetId(), state->nMessagesInWindow, PEER_MSG_RATE_WINDOW);
+                        Misbehaving(pfrom->GetId(), PEER_MSG_RATE_DOS_SCORE);
+                    }
+                    return fMoreWork;
+                }
+            }
         }
 
         // Process message

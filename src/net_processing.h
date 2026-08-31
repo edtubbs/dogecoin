@@ -37,6 +37,14 @@ static constexpr double MAX_ADDR_RATE_PER_SECOND{0.1};
  *  is exempt from this limit. */
 static constexpr size_t MAX_ADDR_PROCESSING_TOKEN_BUCKET{MAX_ADDR_TO_SEND};
 
+/** MITRE ATT&CK T1499: Maximum messages per peer in a rate-limiting time window.
+ *  Is bypassed for whitelisted connections. */
+static const int MAX_PEER_MSG_RATE = 200;
+/** MITRE ATT&CK T1499: Time window (seconds) for per-peer message rate limiting */
+static const int PEER_MSG_RATE_WINDOW = 10;
+/** MITRE ATT&CK T1499: Misbehavior score for exceeding message rate limit */
+static const int PEER_MSG_RATE_DOS_SCORE = 10;
+
 /** Register with a network node to receive its signals */
 void RegisterNodeSignals(CNodeSignals& nodeSignals);
 /** Unregister a network node */
